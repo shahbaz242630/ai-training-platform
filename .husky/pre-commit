@@ -1,0 +1,4 @@
+# Fast, local, and only what genuinely prevents a bad commit.
+# The full suite runs in CI - this is a seatbelt, not a substitute for it.
+pnpm lint-staged
+pnpm check:security

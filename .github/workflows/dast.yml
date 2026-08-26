@@ -1,0 +1,75 @@
+name: DAST
+
+# Dynamic scan against a real running build. Static analysis cannot see a
+# missing security header or a permissive CSP - only a live response can.
+
+on:
+  pull_request:
+  schedule:
+    - cron: "0 4 * * 1"
+  workflow_dispatch:
+
+concurrency:
+  group: dast-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  zap-baseline:
+    name: OWASP ZAP baseline
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: "22"
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm build
+        env:
+          NEXT_PUBLIC_SITE_URL: http://localhost:3000
+
+      - name: Start server
+        run: |
+          pnpm start &
+          for i in $(seq 1 60); do
+            if curl -sf -o /dev/null http://localhost:3000/training; then
+              echo "server ready after ${i}s"; exit 0
+            fi
+            sleep 1
+          done
+          echo "server failed to start"; exit 1
+
+      # Baseline mode is passive: it crawls and inspects responses without
+      # attacking. Safe to run on every pull request.
+      - name: ZAP baseline scan
+        run: |
+          docker run --rm --network host \
+            -v "$PWD:/zap/wrk/:rw" \
+            ghcr.io/zaproxy/zaproxy:stable \
+            zap-baseline.py \
+              -t http://localhost:3000/training \
+              -c .zap/rules.tsv \
+              -r zap-report.html \
+              -w zap-report.md \
+            || true
+
+      - name: Check ZAP findings
+        run: node scripts/check-zap-report.mjs
+
+      - name: Upload ZAP report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: zap-report
+          path: |
+            zap-report.html
+            zap-report.md
+          if-no-files-found: warn
+          retention-days: 14

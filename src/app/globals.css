@@ -1,0 +1,82 @@
+@import "tailwindcss";
+
+/*
+  Design tokens. One committed light theme - deliberate for v1.
+  Direction: premium, restrained, corporate technology.
+  No neon "AI" gradients, no clichéd robot imagery, strong whitespace,
+  high contrast. The UI has to feel credible at AED 1,299-2,499.
+*/
+@theme {
+  --color-canvas: #fbfaf9;
+  --color-surface: #ffffff;
+  --color-raised: #f5f3f1;
+  --color-deep: #121316;
+  --color-deep-soft: #1e2025;
+
+  --color-ink: #16161a;
+  --color-ink-muted: #56555b;
+  --color-ink-faint: #8b8a90;
+  --color-on-deep: #f4f3f1;
+  --color-on-deep-muted: #a3a2a6;
+
+  --color-line: #e7e4e0;
+  --color-line-strong: #d4d0ca;
+
+  --color-accent: #0f5b54;
+  --color-accent-hover: #0b433e;
+  --color-accent-soft: #e9f2f0;
+
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, -apple-system, sans-serif;
+
+  --text-display: 3.5rem;
+  --text-display--line-height: 1.04;
+  --text-display--letter-spacing: -0.035em;
+}
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+    /* Sticky header must not cover a section we deep-link to. */
+    scroll-padding-top: 6rem;
+  }
+
+  body {
+    background-color: var(--color-canvas);
+    color: var(--color-ink);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* WCAG 2.2: focus must always be clearly visible. */
+  :focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 3px;
+    border-radius: 2px;
+  }
+
+  ::selection {
+    background-color: var(--color-accent);
+    color: #fff;
+  }
+
+  /* Remove the default disclosure triangle; we render our own affordance. */
+  summary::-webkit-details-marker {
+    display: none;
+  }
+  summary {
+    list-style: none;
+    cursor: pointer;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

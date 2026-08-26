@@ -1,0 +1,37 @@
+# Secret scanning configuration.
+#
+# Extends the default gitleaks ruleset rather than replacing it. The defaults
+# already cover the providers that matter to us - Stripe, Microsoft/Azure,
+# private keys, generic high-entropy strings - so anything here is an addition.
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "supabase-service-role-key"
+description = "Supabase service role JWT (full database bypass - never client-side)"
+regex = '''eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}'''
+tags = ["supabase", "jwt"]
+
+[[rules]]
+id = "microsoft-client-secret"
+description = "Microsoft Entra client secret value"
+regex = '''(?i)(ms_client_secret|azure_client_secret)\s*[=:]\s*["']?[A-Za-z0-9._~-]{30,}'''
+tags = ["microsoft", "entra"]
+
+[allowlist]
+description = "Documented values that are deliberately not secrets"
+
+paths = [
+  # Template only. Every value is an empty string - that is the point of it.
+  '''\.env\.example$''',
+  # Lockfiles produce entropy noise without carrying secrets.
+  '''pnpm-lock\.yaml$''',
+  # The security guard's own test fixtures contain deliberately fake secrets.
+  '''scripts/.*\.test\.mjs$''',
+]
+
+# Note: the Microsoft tenant ID and client ID are deliberately NOT allowlisted
+# even though they are public identifiers rather than secrets. If they ever
+# appear in a commit we want to see it and decide consciously, rather than
+# having the scanner stay quiet by default.

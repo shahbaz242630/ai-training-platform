@@ -1,0 +1,122 @@
+name: CI
+
+# Every action below is pinned to a full commit SHA, never a tag. Tags are
+# mutable: an attacker who compromises an action repository can repoint v4 at
+# malicious code and silently execute it inside our pipeline with our secrets.
+# `pnpm check:security` fails the build if an unpinned action appears.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# A newer push to the same pull request supersedes an in-flight run - nobody
+# needs a verdict on a commit that has already been replaced. Pushes to main
+# group by SHA and are never cancelled, so every commit on main keeps a
+# definitive result and stays a valid rollback target.
+concurrency:
+  group: ci-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+# Least privilege by default. Jobs opt in to more only where they need it.
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: "22"
+
+jobs:
+  quality:
+    name: Format, lint and types
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      # --frozen-lockfile fails if the lockfile and manifest disagree, so a
+      # dependency can never be silently resolved differently in CI than locally.
+      - run: pnpm install --frozen-lockfile
+
+      # Formatting first: fastest signal, cheapest to fix.
+      - name: Check formatting
+        run: pnpm format:check
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+  test:
+    name: Unit tests and coverage
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      # Coverage thresholds live in vitest.config.mts and fail the run when
+      # they regress. They are a ratchet, not a target to admire.
+      - name: Tests with coverage
+        run: pnpm test:coverage
+
+      - name: Upload coverage
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: coverage
+          path: coverage/
+          if-no-files-found: error
+          retention-days: 14
+
+  guards:
+    name: Repository security guards
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      # Project-specific invariants that a linter cannot express: no secrets
+      # behind NEXT_PUBLIC_, no prices outside the single source of truth,
+      # no unpinned actions. See scripts/security-check.mjs.
+      - name: Static security guards
+        run: pnpm check:security
+
+      - name: Guard self-tests
+        run: pnpm check:security:test
+
+  build:
+    name: Production build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: [quality, test, guards]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm build
+        env:
+          NEXT_PUBLIC_SITE_URL: https://example.invalid

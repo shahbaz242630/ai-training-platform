@@ -1,0 +1,7 @@
+# OWASP ZAP baseline rule overrides.
+# Columns: rule id <TAB> action (WARN | IGNORE | FAIL) <TAB> reason
+#
+# Anything not listed keeps its default. Every IGNORE must carry a reason -
+# an unexplained suppression is how a real finding gets buried.
+
+# 10015	IGNORE	example - do not add entries without a written justification
