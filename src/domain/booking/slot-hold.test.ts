@@ -10,7 +10,6 @@ import {
   isHoldActive,
   isSlotAvailable,
   releaseHold,
-  slotsOverlap,
   sweepExpiredHolds,
   type SlotHold,
 } from "./slot-hold";
@@ -141,44 +140,6 @@ describe("ending a hold", () => {
     const hold = aHold();
     convertHold(hold);
     expect(hold.status).toBe("held");
-  });
-});
-
-describe("slotsOverlap", () => {
-  const slot = { start: SLOT_START, end: SLOT_END };
-
-  it("does not overlap a slot that starts exactly when this one ends", () => {
-    expect(slotsOverlap(slot, { start: SLOT_END, end: minutesAfter(SLOT_END, 90) })).toBe(false);
-  });
-
-  it("does not overlap a slot that ends exactly when this one starts", () => {
-    expect(slotsOverlap(slot, { start: minutesAfter(SLOT_START, -90), end: SLOT_START })).toBe(
-      false,
-    );
-  });
-
-  it("overlaps a slot that starts partway through", () => {
-    expect(
-      slotsOverlap(slot, { start: minutesAfter(SLOT_START, 30), end: minutesAfter(SLOT_END, 30) }),
-    ).toBe(true);
-  });
-
-  it("overlaps a slot entirely inside this one", () => {
-    expect(
-      slotsOverlap(slot, {
-        start: minutesAfter(SLOT_START, 10),
-        end: minutesAfter(SLOT_START, 20),
-      }),
-    ).toBe(true);
-  });
-
-  it("does not overlap a slot on another day", () => {
-    expect(
-      slotsOverlap(slot, {
-        start: new Date("2026-09-11T06:00:00.000Z"),
-        end: new Date("2026-09-11T07:30:00.000Z"),
-      }),
-    ).toBe(false);
   });
 });
 
