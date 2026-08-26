@@ -69,6 +69,34 @@ export function gstTimeOnDayUtc(dayStartUtc: Date, minutesOfDay: number): Date {
   return addMinutes(dayStartUtc, minutesOfDay);
 }
 
+/**
+ * The Dubai calendar date of a UTC instant, as YYYY-MM-DD.
+ *
+ * Shifting into the GST offset and taking the date part of the ISO string is
+ * exact here precisely because the offset is fixed - the shifted instant's UTC
+ * date and Dubai's calendar date are the same thing.
+ */
+export function gstIsoDate(instant: Date): string {
+  const shifted = new Date(instant.getTime() + GST_OFFSET_MINUTES * MINUTE_MS);
+  return shifted.toISOString().slice(0, 10);
+}
+
+/**
+ * The UTC instant at which a given Dubai calendar date began, or null if the
+ * value is not a date this understands.
+ *
+ * Returns null rather than a guess, because the value arrives in a URL that
+ * anybody can edit and a silently-wrong date would show the wrong week.
+ */
+export function gstDayStartFromIsoDate(isoDate: string): Date | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(isoDate)) return null;
+  const midnight = new Date(`${isoDate}T00:00:00.000Z`);
+  if (Number.isNaN(midnight.getTime())) return null;
+  // Round-trip check: "2026-02-31" parses in some engines but is not a real date.
+  if (midnight.toISOString().slice(0, 10) !== isoDate) return null;
+  return new Date(midnight.getTime() - GST_OFFSET_MINUTES * MINUTE_MS);
+}
+
 /** Minutes since midnight, for writing business hours readably in configuration. */
 export function at(hour: number, minute = 0): number {
   return hour * 60 + minute;

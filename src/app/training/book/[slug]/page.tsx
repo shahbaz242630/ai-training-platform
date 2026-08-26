@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { SiteHeader } from "@/components/layout/SiteHeader";
 import { SiteFooter } from "@/components/layout/SiteFooter";
@@ -7,16 +8,9 @@ import { ButtonLink } from "@/components/ui/Button";
 import { SlotPicker } from "@/components/training/SlotPicker";
 import { getSessionBySlug, getActiveSessions } from "@/config/sessions";
 import { formatAed } from "@/lib/money";
-import { addDays } from "@/lib/time";
 import { MockSchedulingProvider } from "@/domain/scheduling/mock-provider";
-
-/**
- * How far ahead the calendar shows. The booking horizon in the availability
- * rules is the real limit; this only decides how much of it is on screen at
- * once, because a wall of three months of slots is harder to choose from than
- * a few weeks of them.
- */
-const WEEKS_SHOWN = 3;
+import { resolveBookingWeek } from "@/domain/scheduling/booking-week";
+import { AVAILABILITY } from "@/config/availability";
 
 /*
   Rendered per request rather than at build time. Availability depends on the
@@ -40,8 +34,16 @@ export async function generateMetadata({
   };
 }
 
-export default async function BookSessionPage({ params }: PageProps<"/training/book/[slug]">) {
+export default async function BookSessionPage({
+  params,
+  searchParams,
+}: PageProps<"/training/book/[slug]">) {
   const { slug } = await params;
+  const { week: weekParam } = await searchParams;
+  // A repeated query parameter arrives as an array. Take the first value and
+  // let the resolver validate it, rather than letting a crafted URL decide the
+  // shape of anything downstream.
+  const requestedWeek = Array.isArray(weekParam) ? weekParam[0] : weekParam;
   const session = getSessionBySlug(slug);
   if (!session || !session.active) notFound();
 
@@ -52,11 +54,13 @@ export default async function BookSessionPage({ params }: PageProps<"/training/b
     provider applies the real rules; swapping it for the Microsoft Graph one
     later changes this line and nothing else on the page.
   */
-  const scheduler = new MockSchedulingProvider();
   const now = new Date();
+  const week = resolveBookingWeek(requestedWeek, now, AVAILABILITY.bookingHorizonDays);
+
+  const scheduler = new MockSchedulingProvider();
   const slots = await scheduler.listAvailability({
-    from: now,
-    to: addDays(now, WEEKS_SHOWN * 7),
+    from: week.startUtc,
+    to: week.endUtc,
     durationMinutes: session.durationMinutes,
   });
 
@@ -108,6 +112,34 @@ export default async function BookSessionPage({ params }: PageProps<"/training/b
                 durationMinutes={session.durationMinutes}
                 disabled
               />
+
+              {/*
+                Plain links, not buttons. The week lives in the URL, so moving
+                between weeks needs no JavaScript, survives a refresh, and can
+                be shared or bookmarked. A missing control means there is
+                genuinely nothing that way - no disabled arrow to click at.
+              */}
+              <nav
+                aria-label="Move between weeks"
+                className="border-line mt-8 flex gap-3 border-t pt-6"
+              >
+                {week.previousIsoDate !== null && (
+                  <Link
+                    href={`/training/book/${session.slug}?week=${week.previousIsoDate}`}
+                    className="border-line-strong text-ink hover:border-ink rounded-lg border px-4 py-2.5 text-sm font-medium"
+                  >
+                    ← Earlier
+                  </Link>
+                )}
+                {week.nextIsoDate !== null && (
+                  <Link
+                    href={`/training/book/${session.slug}?week=${week.nextIsoDate}`}
+                    className="border-line-strong text-ink hover:border-ink rounded-lg border px-4 py-2.5 text-sm font-medium"
+                  >
+                    Later →
+                  </Link>
+                )}
+              </nav>
             </section>
 
             <div className="bg-raised border-line mt-10 rounded-lg border p-6">
