@@ -32,9 +32,26 @@
  * introduces dynamic routes anyway. Documented in SECURITY.md rather than left
  * as a silent weakness.
  */
+/*
+  React's DEVELOPMENT build uses eval() for debugging features - reconstructing
+  call stacks across environments, mainly. Our policy refuses it, which is the
+  policy working, but it fills the console with an error and costs the dev
+  tooling it powers.
+
+  So 'unsafe-eval' is added in development ONLY. React never uses eval in a
+  production build, so production loses nothing - and this must never leak
+  there, because allowing eval is most of the point of having a script-src at
+  all. scriptSrcFor is exported so a test can assert exactly that, rather
+  than the rule living only in this comment.
+*/
+export function scriptSrcFor(nodeEnv) {
+  const base = "script-src 'self' 'unsafe-inline'";
+  return nodeEnv === "development" ? `${base} 'unsafe-eval'` : base;
+}
+
 const CSP = [
   "default-src 'self'",
-  "script-src 'self' 'unsafe-inline'",
+  scriptSrcFor(process.env.NODE_ENV),
   // Tailwind and next/font emit inline styles.
   "style-src 'self' 'unsafe-inline'",
   // next/font self-hosts, so no external font origin is needed.
