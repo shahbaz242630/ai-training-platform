@@ -53,3 +53,22 @@ minimumReleaseAgeExclude:
   # Ships as part of the same Next.js release; keeping it in lockstep with
   # `next` stops lint rules drifting from the framework version.
   - eslint-config-next
+
+# ---------------------------------------------------------------------------
+# Hoisting.
+#
+# pnpm's strict node_modules means a package can only resolve its own declared
+# dependencies. @next/swc-wasm-nodejs is OUR devDependency, so the `next`
+# package cannot see it - and Next therefore concludes it is missing and tries
+# to DOWNLOAD it, even though the install log shows it present.
+#
+# That download is what actually breaks the build on this host: to find the
+# registry Next runs `<package manager> config get registry` in a subshell,
+# and the host does not put pnpm on PATH for child processes.
+#
+# Hoisting the package into the root node_modules makes it resolvable by
+# `next`, so the WASM compiler loads from disk and no registry lookup ever
+# happens. This keeps pnpm and every supply-chain protection configured above,
+# where switching to npm would have discarded them.
+publicHoistPattern:
+  - "@next/swc-wasm-nodejs"
