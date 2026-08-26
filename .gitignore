@@ -52,3 +52,7 @@ AI_Training_Platform_PRD.md
 HANDOFF.md
 CLAUDE.md
 AGENTS.md
+
+# DAST scan output
+zap-out/
+zap-report.*
