@@ -49,8 +49,8 @@ const nextEmail = () => `customer${++unique}@example.com`;
 
 async function newCustomer(): Promise<string> {
   const result = await db.query<{ id: string }>(
-    `insert into customers (name, email, timezone)
-     values ('A Customer', $1, 'Asia/Dubai') returning id`,
+    `insert into customers (first_name, last_name, email, timezone)
+     values ('Amina', 'Khan', $1, 'Asia/Dubai') returning id`,
     [nextEmail()],
   );
   return result.rows[0]!.id;
@@ -103,10 +103,16 @@ describe("applying the migrations", () => {
 describe("customers", () => {
   it("keeps one person to one row", async () => {
     const email = nextEmail();
-    await db.query(`insert into customers (name,email,timezone) values ('A',$1,'UTC')`, [email]);
+    await db.query(
+      `insert into customers (first_name,last_name,email,timezone) values ('A','One',$1,'UTC')`,
+      [email],
+    );
     expect(
       await refused(() =>
-        db.query(`insert into customers (name,email,timezone) values ('B',$1,'UTC')`, [email]),
+        db.query(
+          `insert into customers (first_name,last_name,email,timezone) values ('B','Two',$1,'UTC')`,
+          [email],
+        ),
       ),
     ).toContain("unique");
   });
@@ -117,20 +123,67 @@ describe("customers", () => {
     expect(
       await refused(() =>
         db.query(
-          `insert into customers (name,email,timezone) values ('B','Mixed@Example.com','UTC')`,
+          `insert into customers (first_name,last_name,email,timezone)
+           values ('B','Two','Mixed@Example.com','UTC')`,
         ),
       ),
     ).toContain("check constraint");
   });
 
-  it("refuses a blank name", async () => {
+  it("refuses a blank first or last name", async () => {
+    for (const [first, last] of [
+      ["   ", "Khan"],
+      ["Amina", "  "],
+    ]) {
+      expect(
+        await refused(() =>
+          db.query(
+            `insert into customers (first_name,last_name,email,timezone) values ($1,$2,$3,'UTC')`,
+            [first, last, nextEmail()],
+          ),
+        ),
+      ).toContain("check constraint");
+    }
+  });
+
+  /*
+    Marketing consent without a timestamp cannot answer "when did they agree?",
+    which is the only question that matters if it is ever challenged.
+  */
+  it("refuses marketing consent with no record of when it was given", async () => {
     expect(
       await refused(() =>
-        db.query(`insert into customers (name,email,timezone) values ('   ',$1,'UTC')`, [
-          nextEmail(),
-        ]),
+        db.query(
+          `insert into customers (first_name,last_name,email,timezone,marketing_consent)
+           values ('A','One',$1,'UTC',true)`,
+          [nextEmail()],
+        ),
       ),
-    ).toContain("check constraint");
+    ).toContain("customers_consent_has_a_timestamp");
+  });
+
+  it("accepts consent that carries its timestamp", async () => {
+    await expect(
+      db.query(
+        `insert into customers (first_name,last_name,email,timezone,marketing_consent,marketing_consent_at)
+         values ('A','One',$1,'UTC',true,now())`,
+        [nextEmail()],
+      ),
+    ).resolves.toBeDefined();
+  });
+
+  it("defaults to no consent, so the safe state is the one you get by forgetting", async () => {
+    const email = nextEmail();
+    await db.query(
+      `insert into customers (first_name,last_name,email,timezone) values ('A','One',$1,'UTC')`,
+      [email],
+    );
+    const row = await db.query<{ marketing_consent: boolean; unsubscribed_at: Date | null }>(
+      "select marketing_consent, unsubscribed_at from customers where email=$1",
+      [email],
+    );
+    expect(row.rows[0]!.marketing_consent).toBe(false);
+    expect(row.rows[0]!.unsubscribed_at).toBeNull();
   });
 });
 

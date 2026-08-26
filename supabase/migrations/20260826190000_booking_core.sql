@@ -19,20 +19,42 @@
 
 create table if not exists public.customers (
   id uuid primary key default gen_random_uuid(),
-  name text not null check (length(trim(name)) > 0),
+  -- Held separately rather than as one "name": an email that opens with the
+  -- wrong half of somebody's name reads worse than one with no name at all.
+  first_name text not null check (length(trim(first_name)) > 0),
+  last_name text not null check (length(trim(last_name)) > 0),
   -- Stored lower-cased so one person is one row. Enforced here as well as in
   -- the application, because a duplicate customer is discovered late and by
   -- hand.
   email text not null unique check (email = lower(email)),
   phone text,
   whatsapp_consent boolean not null default false,
+  /*
+    Consent to be contacted about anything OTHER than a booking somebody made.
+
+    Defaults to false, so the safe state is the one you get by forgetting.
+    Confirmations, reminders and follow-ups for a paid session are
+    transactional and need no consent; offers and news are marketing and do.
+    Recording it here, next to the person, is what makes it possible to show
+    which of the two any given send was.
+  */
   marketing_consent boolean not null default false,
+  marketing_consent_at timestamptz,
+  /*
+    Every email send is checked against this. A withdrawal has to be honoured
+    immediately and permanently, and it must outlive any later opt-in made by
+    mistake, so it is recorded separately rather than by flipping the flag back.
+  */
+  unsubscribed_at timestamptz,
   country text,
   timezone text not null,
   company text,
   job_role text,
   created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
+  updated_at timestamptz not null default now(),
+  constraint customers_consent_has_a_timestamp check (
+    marketing_consent = false or marketing_consent_at is not null
+  )
 );
 
 -- ---------------------------------------------------------------------------
