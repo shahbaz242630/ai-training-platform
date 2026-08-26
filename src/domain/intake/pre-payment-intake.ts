@@ -1,24 +1,31 @@
 import { z } from "zod";
 
 /**
- * The intake taken BEFORE payment.
+ * The details taken BEFORE payment.
  *
- * Three fields the customer types, plus the timezone their browser reports.
- * Everything else the business wants to know - experience level, tools already
+ * This is the only point in the funnel where someone identifies themselves, so
+ * it is both the start of the booking and the only lead we ever capture. The
+ * fields are chosen accordingly: enough to contact a person and address them
+ * properly, and nothing else.
+ *
+ * Everything the business also wants to know - experience level, tools already
  * used, the real task, and the longer project questions for the advanced
- * sessions - is collected AFTER payment through a tokenised link.
+ * sessions - is collected AFTER payment through a tokenised link. That split is
+ * commercial: every field in front of the payment step costs conversion, and
+ * none of the rest is needed in order to take money or hold a slot.
  *
- * That split is deliberate and commercial: every field in front of the payment
- * step costs conversion, and none of the rest is needed in order to take money
- * or hold a slot. Adding a field here is therefore a commercial decision, not
- * a technical one.
+ * Adding a field here is therefore a commercial decision, not a technical one.
  */
 
 /** Long enough for any real answer; short enough that nothing unbounded is stored. */
-const MAX_NAME = 100;
+const MAX_NAME = 60;
 const MAX_EMAIL = 254; // the longest address the email standards permit
+const MAX_PHONE = 32;
 const MAX_GOAL = 1000;
 const MAX_TIMEZONE = 100;
+
+/** At least this many digits before something can plausibly be a phone number. */
+const MIN_PHONE_DIGITS = 6;
 
 /**
  * Whether the runtime recognises this as a real IANA zone.
@@ -38,17 +45,37 @@ export function isValidTimeZone(value: string): boolean {
 }
 
 /**
+ * Deliberately permissive.
+ *
+ * International numbers vary far more than any tidy pattern allows, and
+ * rejecting a valid number costs a lead outright while accepting an odd one
+ * costs nothing - the field is optional and nothing automated depends on it
+ * yet. So: plausible characters, a sane length, and enough digits to be a
+ * number at all.
+ */
+export function isPlausiblePhone(value: string): boolean {
+  if (value.length > MAX_PHONE) return false;
+  if (!/^[+()\-.\s\d]+$/.test(value)) return false;
+  const digits = value.replace(/\D/g, "");
+  return digits.length >= MIN_PHONE_DIGITS;
+}
+
+const nameField = (label: string) =>
+  z
+    .string({ error: `Please enter your ${label}.` })
+    .trim()
+    .min(1, `Please enter your ${label}.`)
+    .max(MAX_NAME, `Please keep your ${label} under ${MAX_NAME} characters.`);
+
+/**
  * `strictObject` matters here, and not only for tidiness: it rejects any key
  * the schema does not name. Without it, a request can carry extra fields that
  * later code spreads into a record - which is how a client ends up setting
  * something it was never meant to, a price or a status among them.
  */
 export const prePaymentIntakeSchema = z.strictObject({
-  name: z
-    .string({ error: "Please enter your name." })
-    .trim()
-    .min(1, "Please enter your name.")
-    .max(MAX_NAME, `Please keep your name under ${MAX_NAME} characters.`),
+  firstName: nameField("first name"),
+  lastName: nameField("last name"),
 
   email: z
     .string({ error: "Please enter your email address." })
@@ -57,11 +84,37 @@ export const prePaymentIntakeSchema = z.strictObject({
     .max(MAX_EMAIL, "Please enter a shorter email address.")
     .pipe(z.email("Please enter a valid email address.")),
 
+  /*
+    Optional, and empty is treated as absent rather than as an error. A blank
+    optional field is somebody declining to answer, which is allowed.
+  */
+  phone: z
+    .string()
+    .trim()
+    .max(MAX_PHONE, "Please enter a shorter phone number.")
+    .refine((value) => value === "" || isPlausiblePhone(value), "Please check this phone number.")
+    .transform((value) => (value === "" ? null : value))
+    .nullable()
+    .optional()
+    .transform((value) => value ?? null),
+
   primaryGoal: z
     .string({ error: "Please tell us what you want to get out of the session." })
     .trim()
     .min(1, "Please tell us what you want to get out of the session.")
     .max(MAX_GOAL, `Please keep this under ${MAX_GOAL} characters.`),
+
+  /*
+    Consent to be contacted about anything OTHER than this booking.
+
+    It defaults to FALSE and has to be set deliberately. Emails about a session
+    somebody has paid for - the confirmation, the reminders, the follow-up -
+    are transactional and need no consent. Offers, news and anything else sent
+    later are marketing, and sending those without a recorded opt-in is a legal
+    problem rather than a taste one. Storing the flag beside the person is what
+    makes it possible to prove which of the two a given send was.
+  */
+  marketingConsent: z.boolean().default(false),
 
   /** Derived from the browser, editable by the customer, used to render their times. */
   timezone: z

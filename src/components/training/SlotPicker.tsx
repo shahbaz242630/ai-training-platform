@@ -1,23 +1,25 @@
 "use client";
 
-import { useSyncExternalStore } from "react";
-import { GST_TIMEZONE } from "@/lib/time";
-import { isKnownTimeZone, presentSlots } from "@/domain/scheduling/slot-presentation";
+import { useState } from "react";
+import { presentSlots } from "@/domain/scheduling/slot-presentation";
+import { useCustomerTimeZone } from "./useCustomerTimeZone";
 
 /**
  * The calendar a customer chooses a slot from.
  *
- * Two deliberate choices here.
- *
- * The slots are REAL RADIO INPUTS, not buttons wired to React state. Arrow-key
+ * The slots are REAL RADIO INPUTS, not buttons wired to state alone. Arrow-key
  * navigation, the roving focus a radio group already has, and the value
  * arriving in a form submission all come free and correct.
  *
- * This component is a client component for ONE reason: only the browser knows
- * what time zone the customer is in. Everything else - which slots exist, and
- * whether one is still free - is decided on the server, because the calendar
- * lives there and a browser must never be the authority on what is bookable.
+ * Which slots exist, and whether one is still free, is decided on the server -
+ * the calendar lives there, and a browser must never be the authority on what
+ * is bookable. This component only renders what it was given, in the
+ * customer's own time zone.
  */
+
+/** Enough to choose from without a wall of buttons. More is a click away. */
+const DAYS_SHOWN_INITIALLY = 4;
+const DAYS_PER_REVEAL = 4;
 
 export interface SelectedSlot {
   /** The UTC instant. This is what gets posted back, never the string on screen. */
@@ -38,29 +40,6 @@ export interface SlotPickerProps {
   readonly disabled?: boolean;
 }
 
-/*
-  A time zone does not change while somebody is looking at the page, so there
-  is nothing to subscribe to. The unsubscribe function is what React expects
-  back.
-*/
-const subscribeToNothing = () => () => {};
-
-const gulfStandardTime = () => GST_TIMEZONE;
-
-/*
-  Cached because getSnapshot is called on every render and must return a stable
-  value - and because building an Intl formatter is not free.
-*/
-let detectedTimeZone: string | null = null;
-
-function browserTimeZone(): string {
-  if (detectedTimeZone === null) {
-    const detected = Intl.DateTimeFormat().resolvedOptions().timeZone;
-    detectedTimeZone = detected && isKnownTimeZone(detected) ? detected : GST_TIMEZONE;
-  }
-  return detectedTimeZone;
-}
-
 export function SlotPicker({
   slotStarts,
   durationMinutes,
@@ -69,19 +48,13 @@ export function SlotPicker({
   name = "slotStart",
   disabled = false,
 }: SlotPickerProps) {
-  /*
-    The customer's zone is a value the server genuinely cannot know, and
-    useSyncExternalStore is the API for exactly that: it hands React a server
-    snapshot and a client snapshot, so the first render matches what was sent
-    and the browser's own zone takes over immediately afterwards - with no
-    hydration mismatch and no setState inside an effect.
-  */
-  const timeZone = useSyncExternalStore(subscribeToNothing, browserTimeZone, gulfStandardTime);
+  const timeZone = useCustomerTimeZone();
+  const [daysShown, setDaysShown] = useState(DAYS_SHOWN_INITIALLY);
 
   if (slotStarts.length === 0) {
     return (
       <p className="text-ink-muted text-sm leading-relaxed">
-        Nothing is free this week. Try a later week, or get in touch and we will find a time.
+        There are no times available at the moment. Please get in touch and we will find one.
       </p>
     );
   }
@@ -94,10 +67,13 @@ export function SlotPicker({
     timeZone,
   );
 
+  const visible = days.slice(0, daysShown);
+  const remaining = days.length - visible.length;
+
   return (
     <div>
       <div className="space-y-6">
-        {days.map((day) => (
+        {visible.map((day) => (
           <fieldset key={day.isoDate}>
             <legend className="text-ink text-sm font-semibold">{day.label}</legend>
             <div className="mt-3 grid grid-cols-2 gap-2">
@@ -130,9 +106,19 @@ export function SlotPicker({
         ))}
       </div>
 
+      {remaining > 0 && (
+        <button
+          type="button"
+          onClick={() => setDaysShown((shown) => shown + DAYS_PER_REVEAL)}
+          className="border-line-strong text-ink hover:border-ink mt-6 w-full rounded-lg border py-2.5 text-sm font-medium"
+        >
+          Show more dates
+        </button>
+      )}
+
       <p className="text-ink-faint mt-6 text-xs leading-relaxed">
         Times are shown in your own time zone ({timeZone}). Sessions run from Dubai, so a Gulf
-        Standard Time reference is shown wherever it differs from yours.
+        Standard Time reference appears wherever it differs from yours.
       </p>
     </div>
   );

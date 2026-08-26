@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { SiteHeader } from "@/components/layout/SiteHeader";
 import { SiteFooter } from "@/components/layout/SiteFooter";
@@ -8,8 +7,8 @@ import { ButtonLink } from "@/components/ui/Button";
 import { BookingPanel } from "@/components/training/BookingPanel";
 import { getSessionBySlug, getActiveSessions } from "@/config/sessions";
 import { formatAed } from "@/lib/money";
+import { addDays } from "@/lib/time";
 import { MockSchedulingProvider } from "@/domain/scheduling/mock-provider";
-import { resolveBookingWeek } from "@/domain/scheduling/booking-week";
 import { AVAILABILITY } from "@/config/availability";
 
 /*
@@ -34,22 +33,12 @@ export async function generateMetadata({
   };
 }
 
-export default async function BookSessionPage({
-  params,
-  searchParams,
-}: PageProps<"/training/book/[slug]">) {
+export default async function BookSessionPage({ params }: PageProps<"/training/book/[slug]">) {
   const { slug } = await params;
-  const { week: weekParam } = await searchParams;
-  // A repeated query parameter arrives as an array. Take the first value and
-  // let the resolver validate it, rather than letting a crafted URL decide the
-  // shape of anything downstream.
-  const requestedWeek = Array.isArray(weekParam) ? weekParam[0] : weekParam;
-
   const session = getSessionBySlug(slug);
   if (!session || !session.active) notFound();
 
   const now = new Date();
-  const week = resolveBookingWeek(requestedWeek, now, AVAILABILITY.bookingHorizonDays);
 
   /*
     Availability is decided HERE, on the server, and never in the browser. It
@@ -60,42 +49,10 @@ export default async function BookSessionPage({
   */
   const scheduler = new MockSchedulingProvider();
   const slots = await scheduler.listAvailability({
-    from: week.startUtc,
-    to: week.endUtc,
+    from: now,
+    to: addDays(now, AVAILABILITY.bookingHorizonDays),
     durationMinutes: session.durationMinutes,
   });
-
-  /*
-    Plain links, not buttons, and rendered on the server. The week lives in the
-    URL, so moving between weeks needs no JavaScript, survives a refresh, and
-    can be shared. A control is absent rather than disabled when there is
-    nothing that way - there is no dead arrow to click at.
-  */
-  const weekLinks = [
-    week.previousIsoDate === null
-      ? null
-      : { key: "earlier", isoDate: week.previousIsoDate, label: "← Earlier" },
-    week.nextIsoDate === null
-      ? null
-      : { key: "later", isoDate: week.nextIsoDate, label: "Later →" },
-  ].filter((link) => link !== null);
-
-  const weekNav = (
-    <nav
-      aria-label="Move between weeks"
-      className="border-line mt-6 flex gap-2 border-t pt-5 empty:hidden"
-    >
-      {weekLinks.map((link) => (
-        <Link
-          key={link.key}
-          href={`/training/book/${session.slug}?week=${link.isoDate}`}
-          className="border-line-strong text-ink hover:border-ink rounded-lg border px-3 py-2 text-sm font-medium"
-        >
-          {link.label}
-        </Link>
-      ))}
-    </nav>
-  );
 
   return (
     <>
@@ -162,7 +119,6 @@ export default async function BookSessionPage({
                 slotStarts={slots.map((slot) => slot.start.toISOString())}
                 durationMinutes={session.durationMinutes}
                 priceLabel={formatAed(session.priceFils)}
-                weekNav={weekNav}
               />
             </aside>
           </div>
