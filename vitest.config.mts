@@ -4,7 +4,14 @@ export default defineConfig({
   resolve: { tsconfigPaths: true },
   test: {
     environment: "node",
-    include: ["src/**/*.test.ts", "src/**/*.test.tsx", "scripts/**/*.test.mjs"],
+    include: [
+      "src/**/*.test.ts",
+      "src/**/*.test.tsx",
+      "scripts/**/*.test.mjs",
+      // The migrations are applied to a real Postgres and their constraints
+      // attempted. SQL that is read and judged correct is not verified SQL.
+      "supabase/**/*.test.ts",
+    ],
     coverage: {
       provider: "v8",
       reporter: ["text-summary", "json-summary", "lcov"],
