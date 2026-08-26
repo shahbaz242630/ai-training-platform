@@ -1,13 +1,14 @@
 import type { MetadataRoute } from "next";
 import { clientEnv } from "@/lib/env";
-import { isPubliclyConfigured } from "@/config/site";
+import { isIndexable } from "@/config/site";
 
 /**
  * Public, indexable pages only. Booking routes and legal placeholders are
- * excluded. Empty until the site is genuinely live.
+ * excluded. Empty unless this is a production build with a real identity - a
+ * sitemap advertising a staging domain is worse than no sitemap at all.
  */
 export default function sitemap(): MetadataRoute.Sitemap {
-  if (!isPubliclyConfigured()) return [];
+  if (!isIndexable(clientEnv.NEXT_PUBLIC_SITE_ENV)) return [];
 
   const base = clientEnv.NEXT_PUBLIC_SITE_URL;
 
