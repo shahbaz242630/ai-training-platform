@@ -1,4 +1,23 @@
-import type { NextConfig } from "next";
+/**
+ * Next.js configuration.
+ *
+ * WHY .mjs AND NOT .ts
+ *
+ * Next compiles a TypeScript config to a temporary file with SWC and then
+ * imports it. Under the WebAssembly compiler - which this project needs,
+ * because the deployment host's glibc is too old for the native binary - that
+ * temporary file is never produced, and the build dies with:
+ *
+ *   Failed to load next.config.ts
+ *   Cannot find module '.../<hash>.next.config'  ERR_MODULE_NOT_FOUND
+ *
+ * Plain JavaScript needs no compilation step, so the config loads whatever
+ * compiler is in use. The JSDoc annotation below keeps full type checking and
+ * editor completion, so nothing is actually lost.
+ *
+ * This can go back to .ts if the host ever ships glibc >= 2.29 and the native
+ * compiler works again.
+ */
 
 /**
  * Content Security Policy.
@@ -9,9 +28,9 @@ import type { NextConfig } from "next";
  * forces dynamic rendering and would cost the static delivery this landing page
  * depends on for speed on UAE mobile networks.
  *
- * Everything else is locked down, and this is revisited in Phase 3 when
- * checkout introduces dynamic routes anyway. Documented in SECURITY.md rather
- * than left as a silent weakness.
+ * Everything else is locked down, and this is revisited when checkout
+ * introduces dynamic routes anyway. Documented in SECURITY.md rather than left
+ * as a silent weakness.
  */
 const CSP = [
   "default-src 'self'",
@@ -70,9 +89,10 @@ const SECURITY_HEADERS = [
   { key: "Cross-Origin-Embedder-Policy", value: "credentialless" },
 ];
 
-const nextConfig: NextConfig = {
+/** @type {import('next').NextConfig} */
+const nextConfig = {
   // Required for the managed Node host: emits a self-contained server bundle
-  // and keeps us portable rather than tied to one provider (decision D14).
+  // and keeps us portable rather than tied to one provider.
   output: "standalone",
 
   // Never ship a build that only compiles because type errors were ignored.
