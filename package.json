@@ -2,8 +2,9 @@
   "name": "ai-training-platform",
   "version": "0.1.0",
   "private": true,
+  "packageManager": "pnpm@11.24.0",
   "engines": {
-    "node": ">=22"
+    "node": ">=24"
   },
   "scripts": {
     "dev": "next dev",
@@ -44,12 +45,5 @@
     "tailwindcss": "^4",
     "typescript": "^5",
     "vitest": "^4.1.11"
-  },
-  "devEngines": {
-    "packageManager": {
-      "name": "pnpm",
-      "version": ">=11",
-      "onFail": "warn"
-    }
   }
 }
