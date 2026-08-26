@@ -16,7 +16,15 @@ export default defineConfig({
         actually decides what a customer is charged.
       */
       include: ["src/config/**", "src/domain/**", "src/lib/**", "scripts/*.mjs"],
-      exclude: ["**/*.test.*", "src/lib/env.ts", "scripts/check-zap-report.mjs"],
+      // Thin process wrappers with no branching logic of their own. Excluded
+      // rather than counted, so the percentage keeps describing code where a
+      // regression could actually change behaviour.
+      exclude: [
+        "**/*.test.*",
+        "src/lib/env.ts",
+        "scripts/check-zap-report.mjs",
+        "scripts/build.mjs",
+      ],
       /*
         Set just below measured coverage so they act as a ratchet: coverage can
         go up freely, but a change that drops it fails the build. Raise these
