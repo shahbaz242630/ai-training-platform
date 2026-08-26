@@ -1,3 +1,35 @@
 ignoredBuiltDependencies:
   - sharp
   - unrs-resolver
+
+# ---------------------------------------------------------------------------
+# Supply-chain protection (pnpm 11+).
+#
+# minimumReleaseAge refuses to install a package version published less than N
+# minutes ago. Recent npm compromises have followed the same shape: publish a
+# malicious version, get it installed by CI within minutes, get yanked hours
+# later. Waiting a day defeats that entire window.
+#
+# 1440 (24h) is pnpm's default; it is set explicitly here so the protection is
+# a deliberate choice recorded in the repository rather than an inherited
+# default that a future pnpm release could quietly change.
+minimumReleaseAge: 1440
+
+# Narrow, deliberate exception.
+#
+# Next.js 16.3.3 is a SECURITY release - it patched two critical advisories -
+# and it was published less than 24h before our first deploy, so the age check
+# blocked exactly the update we most wanted. This is the documented escape
+# path for security updates.
+#
+# Why this is an acceptable risk rather than a hole:
+#  - versions are pinned exactly in package.json and the lockfile carries
+#    integrity hashes, so an existing version cannot be swapped underneath us;
+#  - the residual risk is limited to the moment WE deliberately choose to bump
+#    Next, which is a reviewed change in a pull request, not an automatic one.
+#
+# Keep this list as short as possible. Every entry is a package that skips the
+# waiting period, so adding one should feel like a decision, not a convenience.
+minimumReleaseAgeExclude:
+  - next
+  - "@next/*"
