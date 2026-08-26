@@ -8,6 +8,7 @@ import {
   checkEnvCentralised,
   checkNoInsecureUrls,
   checkNoTrackedEnvFiles,
+  checkRuntimesSingleSourced,
 } from "./security-check.mjs";
 
 const file = (path, content) => [{ path, content }];
@@ -121,5 +122,50 @@ describe("checkNoTrackedEnvFiles", () => {
   it("flags a tracked environment file", () => {
     expect(checkNoTrackedEnvFiles([".env.local"])).toHaveLength(1);
     expect(checkNoTrackedEnvFiles(["apps/web/.env.production"])).toHaveLength(1);
+  });
+});
+
+describe("checkRuntimesSingleSourced", () => {
+  const setupNode = (line) =>
+    file(
+      ".github/workflows/ci.yml",
+      ["      - uses: actions/setup-node@abc", "        with:", line].join("\n"),
+    );
+
+  it("accepts the Node version being read from .nvmrc", () => {
+    expect(checkRuntimesSingleSourced(setupNode("          node-version-file: .nvmrc"))).toEqual(
+      [],
+    );
+  });
+
+  it("rejects a hardcoded Node version", () => {
+    expect(checkRuntimesSingleSourced(setupNode('          node-version: "24"'))).toHaveLength(1);
+  });
+
+  it("rejects a NODE_VERSION workflow variable", () => {
+    expect(checkRuntimesSingleSourced(file("w.yml", 'env:\n  NODE_VERSION: "24"'))).toHaveLength(1);
+  });
+
+  it("rejects pnpm pinned in the workflow instead of package.json", () => {
+    const yaml = [
+      "      - uses: pnpm/action-setup@abc",
+      "        with:",
+      "          version: 11.24.0",
+    ].join("\n");
+    expect(checkRuntimesSingleSourced(file("w.yml", yaml))).toHaveLength(1);
+  });
+
+  it("leaves a version input belonging to some other action alone", () => {
+    const yaml = [
+      "      - uses: some/other-action@abc",
+      "        with:",
+      "          version: 3.1.0",
+    ].join("\n");
+    expect(checkRuntimesSingleSourced(file("w.yml", yaml))).toEqual([]);
+  });
+
+  it("reports the offending line number", () => {
+    const yaml = ["jobs:", "  a:", "    steps:", '      - node-version: "22"'].join("\n");
+    expect(checkRuntimesSingleSourced(file("w.yml", yaml))[0]).toContain("w.yml:4");
   });
 });

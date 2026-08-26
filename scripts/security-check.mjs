@@ -166,6 +166,38 @@ export function checkNoTrackedEnvFiles(tracked) {
     .map((p) => `${p}: environment file is tracked by git`);
 }
 
+/**
+ * Runtime versions must be declared in one place and read from there.
+ *
+ * Node comes from .nvmrc and pnpm from package.json#packageManager. Three
+ * deploys failed in a row because CI ran a different pnpm than the host, and
+ * because CI itself carried the wrong version it could not have caught any of
+ * them. A version hardcoded in a workflow step recreates that split silently,
+ * so it fails the build instead.
+ */
+export function checkRuntimesSingleSourced(files) {
+  const problems = [];
+  for (const file of files) {
+    const lines = file.content.split(/\r?\n/);
+    lines.forEach((line, i) => {
+      const at = `${file.path}:${i + 1}`;
+      if (/^\s*-?\s*node-version:/.test(line)) {
+        problems.push(`${at}: hardcodes a Node version - use node-version-file: .nvmrc`);
+      }
+      if (/^\s*-?\s*NODE_VERSION:/.test(line)) {
+        problems.push(`${at}: declares NODE_VERSION - use node-version-file: .nvmrc`);
+      }
+      // Narrow by design: the pnpm version input specifically, not every
+      // `version:` key some other action might legitimately take.
+      const preceding = lines.slice(Math.max(0, i - 3), i).join("\n");
+      if (/^\s*-?\s*version:/.test(line) && /pnpm\/action-setup/.test(preceding)) {
+        problems.push(`${at}: pins pnpm here - use package.json#packageManager`);
+      }
+    });
+  }
+  return problems;
+}
+
 // ---------------------------------------------------------------- runner
 
 const SOURCE = [/^src\/.*\.(ts|tsx)$/];
@@ -193,6 +225,7 @@ function main() {
     ["Environment access via lib/env.ts", checkEnvCentralised(source)],
     ["No insecure http:// URLs", checkNoInsecureUrls(source)],
     ["No tracked .env files", checkNoTrackedEnvFiles(tracked)],
+    ["Runtime versions single-sourced", checkRuntimesSingleSourced(workflows)],
   ];
 
   let failed = 0;

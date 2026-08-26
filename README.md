@@ -33,7 +33,15 @@ runtime services, so it can move hosts without a rewrite.
 
 ## Getting started
 
+The runtimes are declared in the repository, not in your shell profile:
+**Node** in `.nvmrc`, **pnpm** in `package.json` under `packageManager`. A
+version manager that reads `.nvmrc` (fnm, nvm, asdf) plus Corepack will put
+you on exactly what CI and the host run — which is the point, because a local
+toolchain that differs from CI cannot be verified by CI.
+
 ```bash
+corepack enable              # once per machine; lets pnpm match the pinned version
+fnm use                      # or `nvm use` - reads .nvmrc
 pnpm install
 cp .env.example .env.local   # fill in what you need; nothing is required to run the site
 pnpm dev                     # http://localhost:3000/training

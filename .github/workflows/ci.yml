@@ -5,6 +5,13 @@ name: CI
 # malicious code and silently execute it inside our pipeline with our secrets.
 # `pnpm check:security` fails the build if an unpinned action appears.
 
+# Runtime versions are declared once and read from there by everyone:
+#   Node -> .nvmrc                        (setup-node here, fnm on a laptop)
+#   pnpm -> package.json#packageManager   (action-setup here, corepack on a laptop)
+# Three deploys failed because CI ran a different pnpm than the host, and CI
+# was structurally incapable of catching it. Never hardcode a version in a
+# workflow step - it reintroduces exactly that split.
+
 on:
   pull_request:
   push:
@@ -23,9 +30,6 @@ concurrency:
 permissions:
   contents: read
 
-env:
-  NODE_VERSION: "24"
-
 jobs:
   quality:
     name: Format, lint and types
@@ -34,11 +38,9 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
-        with:
-          version: 11.24.0
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
-          node-version: ${{ env.NODE_VERSION }}
+          node-version-file: .nvmrc
           cache: pnpm
 
       # --frozen-lockfile fails if the lockfile and manifest disagree, so a
@@ -62,11 +64,9 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
-        with:
-          version: 11.24.0
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
-          node-version: ${{ env.NODE_VERSION }}
+          node-version-file: .nvmrc
           cache: pnpm
       - run: pnpm install --frozen-lockfile
 
@@ -91,11 +91,9 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
-        with:
-          version: 11.24.0
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
-          node-version: ${{ env.NODE_VERSION }}
+          node-version-file: .nvmrc
           cache: pnpm
       - run: pnpm install --frozen-lockfile
 
@@ -116,11 +114,9 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
-        with:
-          version: 11.24.0
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
-          node-version: ${{ env.NODE_VERSION }}
+          node-version-file: .nvmrc
           cache: pnpm
       - run: pnpm install --frozen-lockfile
 
