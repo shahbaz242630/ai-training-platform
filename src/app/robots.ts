@@ -1,17 +1,18 @@
 import type { MetadataRoute } from "next";
 import { clientEnv } from "@/lib/env";
-import { isPubliclyConfigured } from "@/config/site";
+import { isIndexable } from "@/config/site";
 
 /**
- * SAFETY: until a real production domain AND company identity are configured,
- * the entire site is disallowed.
+ * SAFETY: the whole site is disallowed unless this is a production build AND a
+ * real company identity exists.
  *
- * A half-built site carrying [COMPANY_NAME] placeholders must never be indexed.
- * Once search and answer engines cache placeholder content it is slow and
- * painful to undo. This flips automatically when config/site.ts becomes real.
+ * Staging runs on a throwaway host domain. Letting it be indexed would put
+ * duplicate content in front of our own real domain, and de-indexing a domain
+ * afterwards is slow and never complete. Placeholder identity must never be
+ * cached either. Both switches flip automatically - neither is manual.
  */
 export default function robots(): MetadataRoute.Robots {
-  if (!isPubliclyConfigured()) {
+  if (!isIndexable(clientEnv.NEXT_PUBLIC_SITE_ENV)) {
     return { rules: [{ userAgent: "*", disallow: "/" }] };
   }
 

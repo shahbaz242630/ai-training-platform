@@ -50,6 +50,25 @@ export function isPubliclyConfigured(site: SitePlaceholders = SITE): boolean {
   return Boolean(site.companyName && site.domain && site.legalEntityName);
 }
 
+export type SiteEnv = "development" | "staging" | "production";
+
+/**
+ * Whether this deployment may be indexed by search and answer engines.
+ *
+ * BOTH conditions must hold, and for different reasons:
+ *
+ *  - **Production only.** Staging runs on a throwaway host domain. If it were
+ *    indexed we would be competing against our own real domain with duplicate
+ *    content, and removing a domain from an index is slow and imperfect.
+ *  - **Real identity.** Placeholder content such as "[COMPANY_NAME]" must never
+ *    be cached by a search or answer engine as though it were fact.
+ *
+ * Fails safe: anything other than an explicit production build is not indexable.
+ */
+export function isIndexable(siteEnv: SiteEnv, site: SitePlaceholders = SITE): boolean {
+  return siteEnv === "production" && isPubliclyConfigured(site);
+}
+
 export const TRAINING_BASE = "/training";
 
 export const NAV_LINKS = [

@@ -31,6 +31,14 @@ const serverSchema = z.object({
 /** Values safe to expose to the browser. Never add a secret here. */
 const clientSchema = z.object({
   NEXT_PUBLIC_SITE_URL: z.string().url().default("http://localhost:3000"),
+
+  /*
+    Which deployment this build is. Defaults to "development" so the SAFE state
+    is the default: a build that forgets to declare itself is treated as
+    non-production and is never indexed. Opting IN to being indexable must be
+    deliberate.
+  */
+  NEXT_PUBLIC_SITE_ENV: z.enum(["development", "staging", "production"]).default("development"),
   NEXT_PUBLIC_SUPABASE_URL: z.string().optional(),
   NEXT_PUBLIC_SUPABASE_ANON_KEY: z.string().optional(),
   NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: z.string().optional(),
