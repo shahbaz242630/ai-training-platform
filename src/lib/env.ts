@@ -11,6 +11,13 @@ import { z } from "zod";
 const serverSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
 
+  /*
+    Optional at this stage so the app still boots before the database exists.
+    Whatever reads it is responsible for asserting it is present when actually
+    used - a missing connection string must fail loudly at that point rather
+    than become `undefined` inside a query.
+  */
+  DATABASE_URL: z.string().optional(),
   SUPABASE_SERVICE_ROLE_KEY: z.string().optional(),
 
   STRIPE_SECRET_KEY: z.string().optional(),
@@ -40,7 +47,7 @@ const clientSchema = z.object({
   */
   NEXT_PUBLIC_SITE_ENV: z.enum(["development", "staging", "production"]).default("development"),
   NEXT_PUBLIC_SUPABASE_URL: z.string().optional(),
-  NEXT_PUBLIC_SUPABASE_ANON_KEY: z.string().optional(),
+  NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: z.string().optional(),
   NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: z.string().optional(),
 });
 

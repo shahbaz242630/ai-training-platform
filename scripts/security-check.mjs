@@ -76,6 +76,7 @@ export function checkActionsPinned(files) {
  */
 const PUBLIC_BY_DESIGN = new Set([
   "NEXT_PUBLIC_SUPABASE_ANON_KEY", // anon key is meant to be public; RLS protects data
+  "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY", // the anon key's current name, same reasoning
   "NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY", // publishable by definition
 ]);
 
