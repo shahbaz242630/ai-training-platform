@@ -170,7 +170,7 @@ export function checkNoTrackedEnvFiles(tracked) {
 
 const SOURCE = [/^src\/.*\.(ts|tsx)$/];
 const WORKFLOWS = [/^\.github\/workflows\/.*\.ya?ml$/];
-const ENV_SURFACE = [/^src\/.*\.(ts|tsx)$/, /^next\.config\.ts$/, /^\.env\.example$/];
+const ENV_SURFACE = [/^src\/.*\.(ts|tsx)$/, /^next\.config\.mjs$/, /^\.env\.example$/];
 
 function main() {
   const source = loadFiles(SOURCE);
