@@ -74,6 +74,23 @@ response header anyway: the Content Security Policy currently permits
 hydration scripts into statically prerendered pages. Moving to a nonce-based
 policy is planned alongside the dynamic checkout routes.
 
+A second is worth stating for the same reason - anyone can observe it with a
+single request. **The staging CDN replaces our Content Security Policy header.**
+The application sends a full policy; what reaches the browser is only
+`upgrade-insecure-requests`. It is a replacement, not a merge, so the
+directives we rely on for defence in depth - `default-src`, `script-src`,
+`object-src 'none'`, `base-uri`, `form-action`, `frame-ancestors` - do not
+reach the client.
+
+Every other security header survives intact, including `X-Frame-Options: DENY`,
+which still covers clickjacking for practical purposes. On a staging site that
+is not indexed and holds no user data, the exposure is limited.
+
+**This is a launch blocker, not a nice-to-have.** A checkout flow handling
+personal data and payment redirects needs a real CSP, and it must be confirmed
+working in production - by inspecting the response headers, not by trusting the
+application config - before the site accepts a booking.
+
 Rate limiting and bot protection arrive with the first public write endpoints;
 there are none today.
 
