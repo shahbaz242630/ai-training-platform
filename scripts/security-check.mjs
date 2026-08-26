@@ -141,9 +141,18 @@ export function checkPricesCentralised(files) {
  * missing variable fails fast at startup instead of becoming `undefined` deep
  * inside a payment path.
  */
+/*
+  env.ts defines the access, and its own test has to set process.env to prove
+  the parsing works - including that a BLANK optional variable is treated as
+  absent, which is a bug that reached the booking form once already. The
+  exception is exactly those two paths and nothing else: any other file, test
+  or not, still has to go through lib/env.
+*/
+const ENV_OWNERS = /^src\/lib\/env(\.test)?\.ts$/;
+
 export function checkEnvCentralised(files) {
   return files
-    .filter((f) => f.path !== "src/lib/env.ts")
+    .filter((f) => !ENV_OWNERS.test(f.path))
     .filter((f) => /process\.env\./.test(f.content))
     .map((f) => `${f.path}: reads process.env directly - use lib/env.ts`);
 }

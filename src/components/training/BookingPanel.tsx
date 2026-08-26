@@ -1,8 +1,9 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useTransition } from "react";
 import { SlotPicker, type SelectedSlot } from "./SlotPicker";
 import { useCustomerTimeZone } from "./useCustomerTimeZone";
+import { captureLeadAction } from "@/app/training/book/[slug]/actions";
 import { parsePrePaymentIntake, type IntakeFieldError } from "@/domain/intake/pre-payment-intake";
 
 /**
@@ -55,23 +56,38 @@ export function BookingPanel({ slotStarts, durationMinutes, priceLabel }: Bookin
   const [draft, setDraft] = useState<DetailsDraft>(EMPTY_DRAFT);
   const [errors, setErrors] = useState<readonly IntakeFieldError[]>([]);
   const [selected, setSelected] = useState<SelectedSlot | null>(null);
+  const [saving, startSaving] = useTransition();
 
   const errorFor = useMemo(() => {
     const byField = new Map(errors.map((error) => [error.field, error.message]));
     return (field: string) => byField.get(field) ?? null;
   }, [errors]);
 
+  /** Problems that belong to the form as a whole rather than to one field. */
+  const formError = errorFor("form");
+
   const set = <K extends keyof DetailsDraft>(field: K, value: DetailsDraft[K]) =>
     setDraft((current) => ({ ...current, [field]: value }));
 
   function continueToSlots() {
-    const result = parsePrePaymentIntake({ ...draft, timezone: timeZone });
-    if (!result.ok) {
-      setErrors(result.errors);
+    // Checked here first so an obvious typo is caught without a round trip.
+    // This is NOT the boundary - the server validates the same payload again,
+    // because a browser can be told anything.
+    const local = parsePrePaymentIntake({ ...draft, timezone: timeZone });
+    if (!local.ok) {
+      setErrors(local.errors);
       return;
     }
-    setErrors([]);
-    setStep("slot");
+
+    startSaving(async () => {
+      const result = await captureLeadAction({ ...draft, timezone: timeZone });
+      if (!result.ok) {
+        setErrors(result.errors ?? []);
+        return;
+      }
+      setErrors([]);
+      setStep("slot");
+    });
   }
 
   return (
@@ -151,12 +167,17 @@ export function BookingPanel({ slotStarts, durationMinutes, priceLabel }: Bookin
             </span>
           </label>
 
+          {formError !== null && (
+            <p className="mt-4 text-xs leading-relaxed text-red-700">{formError}</p>
+          )}
+
           <button
             type="button"
             onClick={continueToSlots}
-            className="bg-ink hover:bg-deep-soft mt-5 w-full rounded-lg px-6 py-3.5 text-sm font-semibold text-white transition-colors duration-150"
+            disabled={saving}
+            className="bg-ink hover:bg-deep-soft mt-5 w-full rounded-lg px-6 py-3.5 text-sm font-semibold text-white transition-colors duration-150 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            Continue to choose a time
+            {saving ? "Saving…" : "Continue to choose a time"}
           </button>
         </div>
       ) : (
