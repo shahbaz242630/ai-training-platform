@@ -1,3 +1,4 @@
+import { intervalsOverlap } from "@/lib/time";
 import { assertTransition, type TransitionResult, type TransitionTable } from "./transitions";
 
 /**
@@ -130,14 +131,6 @@ function endHold(hold: SlotHold, to: SlotHoldStatus): TransitionResult<SlotHold>
   return { entity: { ...hold, status: to }, changed: true };
 }
 
-/** Half-open comparison: a slot ending exactly when the next begins does not overlap. */
-export function slotsOverlap(
-  a: { start: Date; end: Date },
-  b: { start: Date; end: Date },
-): boolean {
-  return a.start.getTime() < b.end.getTime() && b.start.getTime() < a.end.getTime();
-}
-
 /**
  * The hold standing in the way of this slot, if any.
  *
@@ -152,7 +145,8 @@ export function findBlockingHold(
 ): SlotHold | undefined {
   return holds.find(
     (hold) =>
-      isHoldActive(hold, now) && slotsOverlap(slot, { start: hold.slotStart, end: hold.slotEnd }),
+      isHoldActive(hold, now) &&
+      intervalsOverlap(slot, { start: hold.slotStart, end: hold.slotEnd }),
   );
 }
 

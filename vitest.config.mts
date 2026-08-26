@@ -31,10 +31,10 @@ export default defineConfig({
         deliberately when real coverage rises - never lower them to go green.
       */
       thresholds: {
-        lines: 89,
-        functions: 89,
-        branches: 91,
-        statements: 87,
+        lines: 91,
+        functions: 91,
+        branches: 92,
+        statements: 90,
       },
     },
   },
