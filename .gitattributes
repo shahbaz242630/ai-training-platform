@@ -1,0 +1,17 @@
+# Normalise line endings to LF in the repository and in every working tree.
+#
+# Without this, Git on Windows checks files out as CRLF while Prettier expects
+# LF, so `pnpm format:check` fails locally but passes in CI on Linux - a
+# difference between machines that wastes time and hides real problems.
+* text=auto eol=lf
+
+# Binary files must never be touched.
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.webp binary
+*.ico  binary
+*.woff binary
+*.woff2 binary
+*.pdf  binary
