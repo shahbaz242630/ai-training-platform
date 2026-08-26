@@ -169,3 +169,21 @@ describe("checkRuntimesSingleSourced", () => {
     expect(checkRuntimesSingleSourced(file("w.yml", yaml))[0]).toContain("w.yml:4");
   });
 });
+
+describe("checkEnvCentralised", () => {
+  it("allows env.ts and its own test to touch process.env", () => {
+    expect(checkEnvCentralised(file("src/lib/env.ts", "process.env.FOO"))).toEqual([]);
+    expect(checkEnvCentralised(file("src/lib/env.test.ts", "process.env.FOO = 'x'"))).toEqual([]);
+  });
+
+  // The exception must stay exactly two files wide. A test elsewhere reaching
+  // for process.env directly is how the single source of truth quietly stops
+  // being one.
+  it("still flags every other file, tests included", () => {
+    expect(checkEnvCentralised(file("src/lib/other.ts", "process.env.FOO"))).toHaveLength(1);
+    expect(checkEnvCentralised(file("src/domain/thing.test.ts", "process.env.FOO"))).toHaveLength(
+      1,
+    );
+    expect(checkEnvCentralised(file("src/lib/envelope.ts", "process.env.FOO"))).toHaveLength(1);
+  });
+});

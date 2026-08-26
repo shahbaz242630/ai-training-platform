@@ -22,13 +22,17 @@ export default defineConfig({
         meaningless global percentage that hides regressions in the code that
         actually decides what a customer is charged.
       */
-      include: ["src/config/**", "src/domain/**", "src/lib/**", "scripts/*.mjs"],
+      include: ["src/config/**", "src/domain/**", "src/data/**", "src/lib/**", "scripts/*.mjs"],
       // Thin process wrappers with no branching logic of their own. Excluded
       // rather than counted, so the percentage keeps describing code where a
       // regression could actually change behaviour.
       exclude: [
         "**/*.test.*",
         "src/lib/env.ts",
+        // A connection factory. What it hands out - the repository SQL - is
+        // covered against a real Postgres; the pool itself needs a live
+        // endpoint and a mock of it would prove nothing.
+        "src/data/db.ts",
         "scripts/check-zap-report.mjs",
         "scripts/build.mjs",
       ],

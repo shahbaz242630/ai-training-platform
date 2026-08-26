@@ -8,6 +8,23 @@ import { z } from "zod";
  * Stripe, Microsoft and Resend credentials exist - each adapter is responsible
  * for asserting its own requirements when it is actually used.
  */
+/**
+ * A variable that may be absent - and treats BLANK as absent.
+ *
+ * `.env` files are full of `KEY=` lines waiting to be filled in. Those arrive
+ * as an empty string, which Zod reads as "present" - so `.optional()` never
+ * applies and any format check fails. That failure then surfaces wherever
+ * serverEnv() is first called, which is nowhere near the blank line that
+ * caused it: a blank EMAIL_FROM broke the booking form and reported itself as
+ * "lead capture failed".
+ *
+ * Anything genuinely required must NOT use this - it would let a blank value
+ * pass as "not configured" rather than failing loudly.
+ */
+function optional<T extends z.ZodType>(schema: T) {
+  return z.preprocess((value) => (value === "" ? undefined : value), schema.optional());
+}
+
 const serverSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
 
@@ -17,22 +34,22 @@ const serverSchema = z.object({
     used - a missing connection string must fail loudly at that point rather
     than become `undefined` inside a query.
   */
-  DATABASE_URL: z.string().optional(),
-  SUPABASE_SERVICE_ROLE_KEY: z.string().optional(),
+  DATABASE_URL: optional(z.string()),
+  SUPABASE_SERVICE_ROLE_KEY: optional(z.string()),
 
-  STRIPE_SECRET_KEY: z.string().optional(),
-  STRIPE_WEBHOOK_SECRET: z.string().optional(),
+  STRIPE_SECRET_KEY: optional(z.string()),
+  STRIPE_WEBHOOK_SECRET: optional(z.string()),
 
-  MS_TENANT_ID: z.string().optional(),
-  MS_CLIENT_ID: z.string().optional(),
-  MS_CLIENT_SECRET: z.string().optional(),
-  MS_CALENDAR_USER_ID: z.string().optional(),
+  MS_TENANT_ID: optional(z.string()),
+  MS_CLIENT_ID: optional(z.string()),
+  MS_CLIENT_SECRET: optional(z.string()),
+  MS_CALENDAR_USER_ID: optional(z.string()),
 
-  RESEND_API_KEY: z.string().optional(),
-  EMAIL_FROM: z.string().email().optional(),
+  RESEND_API_KEY: optional(z.string()),
+  EMAIL_FROM: optional(z.string().email()),
 
-  CRON_SECRET: z.string().optional(),
-  SENTRY_DSN: z.string().optional(),
+  CRON_SECRET: optional(z.string()),
+  SENTRY_DSN: optional(z.string()),
 });
 
 /** Values safe to expose to the browser. Never add a secret here. */
@@ -46,9 +63,9 @@ const clientSchema = z.object({
     deliberate.
   */
   NEXT_PUBLIC_SITE_ENV: z.enum(["development", "staging", "production"]).default("development"),
-  NEXT_PUBLIC_SUPABASE_URL: z.string().optional(),
-  NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: z.string().optional(),
-  NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: z.string().optional(),
+  NEXT_PUBLIC_SUPABASE_URL: optional(z.string()),
+  NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: optional(z.string()),
+  NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: optional(z.string()),
 });
 
 function parse<T extends z.ZodTypeAny>(schema: T, source: unknown, label: string): z.infer<T> {
