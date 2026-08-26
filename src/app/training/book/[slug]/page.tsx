@@ -5,7 +5,7 @@ import { SiteHeader } from "@/components/layout/SiteHeader";
 import { SiteFooter } from "@/components/layout/SiteFooter";
 import { Container } from "@/components/ui/Container";
 import { ButtonLink } from "@/components/ui/Button";
-import { SlotPicker } from "@/components/training/SlotPicker";
+import { BookingPanel } from "@/components/training/BookingPanel";
 import { getSessionBySlug, getActiveSessions } from "@/config/sessions";
 import { formatAed } from "@/lib/money";
 import { MockSchedulingProvider } from "@/domain/scheduling/mock-provider";
@@ -44,19 +44,20 @@ export default async function BookSessionPage({
   // let the resolver validate it, rather than letting a crafted URL decide the
   // shape of anything downstream.
   const requestedWeek = Array.isArray(weekParam) ? weekParam[0] : weekParam;
+
   const session = getSessionBySlug(slug);
   if (!session || !session.active) notFound();
+
+  const now = new Date();
+  const week = resolveBookingWeek(requestedWeek, now, AVAILABILITY.bookingHorizonDays);
 
   /*
     Availability is decided HERE, on the server, and never in the browser. It
     depends on the working-hours rules and on what is already on the calendar,
     and a browser must not be the authority on what is bookable. The mock
     provider applies the real rules; swapping it for the Microsoft Graph one
-    later changes this line and nothing else on the page.
+    later changes these lines and nothing else on the page.
   */
-  const now = new Date();
-  const week = resolveBookingWeek(requestedWeek, now, AVAILABILITY.bookingHorizonDays);
-
   const scheduler = new MockSchedulingProvider();
   const slots = await scheduler.listAvailability({
     from: week.startUtc,
@@ -64,98 +65,106 @@ export default async function BookSessionPage({
     durationMinutes: session.durationMinutes,
   });
 
+  /*
+    Plain links, not buttons, and rendered on the server. The week lives in the
+    URL, so moving between weeks needs no JavaScript, survives a refresh, and
+    can be shared. A control is absent rather than disabled when there is
+    nothing that way - there is no dead arrow to click at.
+  */
+  const weekLinks = [
+    week.previousIsoDate === null
+      ? null
+      : { key: "earlier", isoDate: week.previousIsoDate, label: "← Earlier" },
+    week.nextIsoDate === null
+      ? null
+      : { key: "later", isoDate: week.nextIsoDate, label: "Later →" },
+  ].filter((link) => link !== null);
+
+  const weekNav = (
+    <nav
+      aria-label="Move between weeks"
+      className="border-line mt-6 flex gap-2 border-t pt-5 empty:hidden"
+    >
+      {weekLinks.map((link) => (
+        <Link
+          key={link.key}
+          href={`/training/book/${session.slug}?week=${link.isoDate}`}
+          className="border-line-strong text-ink hover:border-ink rounded-lg border px-3 py-2 text-sm font-medium"
+        >
+          {link.label}
+        </Link>
+      ))}
+    </nav>
+  );
+
   return (
     <>
       <SiteHeader />
-      <main id="main" className="py-20 sm:py-28">
+      <main id="main" className="py-16 sm:py-24">
         <Container>
-          <div className="max-w-xl">
-            <p className="text-ink-muted mb-4 text-xs font-semibold tracking-[0.18em] uppercase">
-              Session {session.code.slice(1)}
-            </p>
-            <h1 className="text-ink text-3xl font-semibold tracking-[-0.03em] text-balance sm:text-4xl">
-              {session.title}
-            </h1>
-            <p className="text-ink-muted mt-5 text-base leading-relaxed">{session.summary}</p>
-
-            <dl className="border-line mt-8 grid grid-cols-2 gap-6 border-y py-6">
-              <div>
-                <dt className="text-ink-faint text-xs tracking-[0.14em] uppercase">Price</dt>
-                <dd className="text-ink mt-2 text-xl font-semibold tabular-nums">
-                  {formatAed(session.priceFils)}
-                </dd>
-              </div>
-              <div>
-                <dt className="text-ink-faint text-xs tracking-[0.14em] uppercase">Duration</dt>
-                <dd className="text-ink mt-2 text-xl font-semibold tabular-nums">
-                  {session.durationMinutes} min
-                </dd>
-              </div>
-            </dl>
-
-            <section aria-labelledby="choose-a-time" className="mt-10">
-              <h2 id="choose-a-time" className="text-ink text-lg font-semibold">
-                Choose a time
-              </h2>
-              <p className="text-ink-muted mt-2 mb-6 text-sm leading-relaxed">
-                Every session is one to one and runs for {session.durationMinutes} minutes.
+          {/*
+            The session on the left, the booking box on the right. On a narrow
+            screen they stack, with the details first: somebody still deciding
+            whether they want the session should not have to scroll past a
+            calendar to read what it is.
+          */}
+          <div className="grid gap-10 lg:grid-cols-[minmax(0,1fr)_400px] lg:gap-14">
+            <div>
+              <p className="text-ink-muted mb-4 text-xs font-semibold tracking-[0.18em] uppercase">
+                Session {session.code.slice(1)}
               </p>
+              <h1 className="text-ink text-3xl font-semibold tracking-[-0.03em] text-balance sm:text-4xl">
+                {session.title}
+              </h1>
+              <p className="text-ink-muted mt-5 text-base leading-relaxed">{session.summary}</p>
 
-              {/*
-                Disabled on purpose. Payment is not connected yet, and a slot
-                that can be chosen but not paid for is a promise we cannot keep.
-                The calendar is shown rather than hidden so the times on offer
-                are visible, and honest about what they are.
-              */}
-              <SlotPicker
+              <dl className="border-line mt-8 grid grid-cols-2 gap-6 border-y py-6">
+                <div>
+                  <dt className="text-ink-faint text-xs tracking-[0.14em] uppercase">Price</dt>
+                  <dd className="text-ink mt-2 text-xl font-semibold tabular-nums">
+                    {formatAed(session.priceFils)}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-ink-faint text-xs tracking-[0.14em] uppercase">Duration</dt>
+                  <dd className="text-ink mt-2 text-xl font-semibold tabular-nums">
+                    {session.durationMinutes} min
+                  </dd>
+                </div>
+              </dl>
+
+              <div className="mt-8">
+                <h2 className="text-ink text-sm font-semibold">What this session covers</h2>
+                <ul className="mt-4 space-y-2.5">
+                  {session.topics.map((topic) => (
+                    <li key={topic} className="text-ink-muted flex gap-3 text-sm leading-relaxed">
+                      <span className="text-ink-faint mt-2 h-1 w-1 shrink-0 rounded-full bg-current" />
+                      {topic}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+
+              <div className="mt-10">
+                <ButtonLink href={`/training#${session.slug}`} variant="secondary">
+                  Back to all sessions
+                </ButtonLink>
+              </div>
+            </div>
+
+            {/*
+              Sticky on a wide screen so the box stays with you while the
+              session details are read, and so the total and the button never
+              scroll away once a time is chosen.
+            */}
+            <aside className="lg:sticky lg:top-24 lg:self-start">
+              <BookingPanel
                 slotStarts={slots.map((slot) => slot.start.toISOString())}
                 durationMinutes={session.durationMinutes}
-                disabled
+                priceLabel={formatAed(session.priceFils)}
+                weekNav={weekNav}
               />
-
-              {/*
-                Plain links, not buttons. The week lives in the URL, so moving
-                between weeks needs no JavaScript, survives a refresh, and can
-                be shared or bookmarked. A missing control means there is
-                genuinely nothing that way - no disabled arrow to click at.
-              */}
-              <nav
-                aria-label="Move between weeks"
-                className="border-line mt-8 flex gap-3 border-t pt-6"
-              >
-                {week.previousIsoDate !== null && (
-                  <Link
-                    href={`/training/book/${session.slug}?week=${week.previousIsoDate}`}
-                    className="border-line-strong text-ink hover:border-ink rounded-lg border px-4 py-2.5 text-sm font-medium"
-                  >
-                    ← Earlier
-                  </Link>
-                )}
-                {week.nextIsoDate !== null && (
-                  <Link
-                    href={`/training/book/${session.slug}?week=${week.nextIsoDate}`}
-                    className="border-line-strong text-ink hover:border-ink rounded-lg border px-4 py-2.5 text-sm font-medium"
-                  >
-                    Later →
-                  </Link>
-                )}
-              </nav>
-            </section>
-
-            <div className="bg-raised border-line mt-10 rounded-lg border p-6">
-              <h2 className="text-ink text-base font-semibold">Booking is not open yet</h2>
-              <p className="text-ink-muted mt-3 text-sm leading-relaxed">
-                These are real times, but they cannot be reserved yet — online payment is still
-                being set up. When it opens you will complete a short intake, choose a slot, and
-                pay, and the booking is confirmed only once payment has been verified.
-              </p>
-            </div>
-
-            <div className="mt-8">
-              <ButtonLink href={`/training#${session.slug}`} variant="secondary">
-                Back to all sessions
-              </ButtonLink>
-            </div>
+            </aside>
           </div>
         </Container>
       </main>
