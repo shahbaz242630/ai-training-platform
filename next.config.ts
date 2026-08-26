@@ -50,6 +50,24 @@ const SECURITY_HEADERS = [
     value: "camera=(), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()",
   },
   { key: "X-DNS-Prefetch-Control", value: "on" },
+
+  /*
+    Cross-origin isolation. Flagged by the ZAP baseline scan (rule 90004).
+
+    COOP severs the window relationship with any cross-origin opener, which
+    blocks cross-window attacks. CORP stops other origins embedding our
+    responses as subresources.
+
+    COEP is set to `credentialless` rather than `require-corp` deliberately:
+    require-corp rejects every cross-origin subresource that does not opt in,
+    which is safe today only because the site is entirely self-hosted, and
+    would break the first time an external asset is added. credentialless
+    gives most of the protection without that trap. Revisit if we ever embed
+    Stripe Elements rather than redirecting to hosted Checkout.
+  */
+  { key: "Cross-Origin-Opener-Policy", value: "same-origin" },
+  { key: "Cross-Origin-Resource-Policy", value: "same-origin" },
+  { key: "Cross-Origin-Embedder-Policy", value: "credentialless" },
 ];
 
 const nextConfig: NextConfig = {

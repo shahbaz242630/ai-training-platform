@@ -8,7 +8,7 @@
  */
 import { readFileSync, existsSync } from "node:fs";
 
-const REPORT = "zap-report.md";
+const REPORT = process.argv[2] ?? "zap-report.md";
 
 if (!existsSync(REPORT)) {
   console.error(`${REPORT} not found - the scan did not complete. Failing closed.`);

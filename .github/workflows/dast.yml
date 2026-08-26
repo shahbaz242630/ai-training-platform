@@ -48,20 +48,30 @@ jobs:
 
       # Baseline mode is passive: it crawls and inspects responses without
       # attacking. Safe to run on every pull request.
+      # The ZAP image runs as uid 1000 and cannot write into a workspace owned
+      # by the runner. The first run scanned 30 URLs successfully but produced
+      # no report, which the checker correctly treated as a failure. Mount a
+      # dedicated world-writable directory instead of the workspace root.
+      - name: Prepare report directory
+        run: |
+          mkdir -p zap-out
+          cp .zap/rules.tsv zap-out/rules.tsv
+          chmod -R 777 zap-out
+
       - name: ZAP baseline scan
         run: |
           docker run --rm --network host \
-            -v "$PWD:/zap/wrk/:rw" \
+            -v "$PWD/zap-out:/zap/wrk/:rw" \
             ghcr.io/zaproxy/zaproxy:stable \
             zap-baseline.py \
               -t http://localhost:3000/training \
-              -c .zap/rules.tsv \
+              -c rules.tsv \
               -r zap-report.html \
               -w zap-report.md \
             || true
 
       - name: Check ZAP findings
-        run: node scripts/check-zap-report.mjs
+        run: node scripts/check-zap-report.mjs zap-out/zap-report.md
 
       - name: Upload ZAP report
         if: always()
@@ -69,7 +79,7 @@ jobs:
         with:
           name: zap-report
           path: |
-            zap-report.html
-            zap-report.md
+            zap-out/zap-report.html
+            zap-out/zap-report.md
           if-no-files-found: warn
           retention-days: 14
