@@ -1,12 +1,12 @@
 import { describe, it, expect } from "vitest";
 import {
+  checkNoInsecureUrls,
   checkActionsPinned,
   checkPublicEnvSecrets,
   checkNoRawHtmlInjection,
   checkNoDynamicCodeExecution,
   checkPricesCentralised,
   checkEnvCentralised,
-  checkNoInsecureUrls,
   checkNoTrackedEnvFiles,
   checkRuntimesSingleSourced,
 } from "./security-check.mjs";
@@ -185,5 +185,54 @@ describe("checkEnvCentralised", () => {
       1,
     );
     expect(checkEnvCentralised(file("src/lib/envelope.ts", "process.env.FOO"))).toHaveLength(1);
+  });
+});
+
+describe("checkNoInsecureUrls exemptions", () => {
+  const file = (content) => [{ path: "x.ts", content }];
+
+  it("still reports an insecure URL with no justification", () => {
+    expect(checkNoInsecureUrls(file('const u = "http://evil.example";'))).toHaveLength(1);
+  });
+
+  it("accepts a justification on the same line", () => {
+    const content =
+      'const u = "http://evil.example"; // security-check: allow-insecure-url - asserted as refused';
+    expect(checkNoInsecureUrls(file(content))).toEqual([]);
+  });
+
+  it("accepts a justification in the comment block above", () => {
+    const content = [
+      "// security-check: allow-insecure-url - this URL is asserted to be",
+      "// refused and is never fetched.",
+      'const u = "http://evil.example";',
+    ].join("\n");
+    expect(checkNoInsecureUrls(file(content))).toEqual([]);
+  });
+
+  /*
+    An unexplained exemption is how a real finding gets buried, so the marker
+    alone must not suppress anything.
+  */
+  it("refuses to accept a marker with no reason after it", () => {
+    const content = [
+      "// security-check: allow-insecure-url",
+      'const u = "http://evil.example";',
+    ].join("\n");
+    expect(checkNoInsecureUrls(file(content))).toHaveLength(1);
+  });
+
+  // A justification must not drift away from what it justifies and keep working.
+  it("stops searching at the first line that is not a comment", () => {
+    const content = [
+      "// security-check: allow-insecure-url - a reason from far above",
+      "const unrelated = 1;",
+      'const u = "http://evil.example";',
+    ].join("\n");
+    expect(checkNoInsecureUrls(file(content))).toHaveLength(1);
+  });
+
+  it("leaves localhost alone as before", () => {
+    expect(checkNoInsecureUrls(file('const u = "http://localhost:3000";'))).toEqual([]);
   });
 });

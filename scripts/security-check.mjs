@@ -158,13 +158,50 @@ export function checkEnvCentralised(files) {
 }
 
 /** Cleartext transport for anything other than a local dev server. */
+/**
+ * An insecure URL in source, unless the line says why it is there.
+ *
+ * The escape hatch exists because the first legitimate case was a test
+ * asserting that an http:// return address is REFUSED - the guard was right,
+ * the code was right, and with no way to say so the only options were to
+ * weaken the guard or to obfuscate the string past it. Both are worse than an
+ * exemption that has to state a reason.
+ *
+ * The reason is MANDATORY. An unexplained exemption is how a real finding
+ * gets buried, so a marker with nothing after it does not suppress anything.
+ */
+/**
+ * Whether a justification covers this line.
+ *
+ * The marker may sit on the line itself or anywhere in the comment block
+ * immediately above it, because a reason worth writing is usually longer than
+ * one line. The search stops at the first line that is not a comment, so a
+ * justification cannot drift away from what it justifies and keep exempting it.
+ */
+function exemptedAt(lines, index, marker) {
+  if (marker.test(lines[index] ?? "")) return true;
+  for (let i = index - 1; i >= 0; i--) {
+    const line = (lines[i] ?? "").trim();
+    if (!line.startsWith("//") && !line.startsWith("*") && !line.startsWith("/*")) return false;
+    if (marker.test(line)) return true;
+  }
+  return false;
+}
+
 export function checkNoInsecureUrls(files) {
   const problems = [];
   const http = /http:\/\/(?!localhost|127\.0\.0\.1)[a-z0-9.-]+/gi;
+  // e.g.  // security-check: allow-insecure-url - asserting that http is refused
+  const exemption = /security-check:\s*allow-insecure-url\s*[-—:]\s*\S+/i;
+
   for (const file of files) {
-    for (const match of file.content.matchAll(http)) {
-      problems.push(`${file.path}: insecure URL "${match[0]}"`);
-    }
+    const lines = file.content.split(/\r?\n/);
+    lines.forEach((line, index) => {
+      for (const match of line.matchAll(http)) {
+        if (exemptedAt(lines, index, exemption)) continue;
+        problems.push(`${file.path}:${index + 1}: insecure URL "${match[0]}"`);
+      }
+    });
   }
   return problems;
 }

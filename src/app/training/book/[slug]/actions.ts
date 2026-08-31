@@ -6,8 +6,9 @@ import { captureLead } from "@/data/customers";
 import { withTransaction } from "@/data/db";
 import { parsePrePaymentIntake, type IntakeFieldError } from "@/domain/intake/pre-payment-intake";
 import { createRateLimiter } from "@/lib/rate-limit";
+import { clientAddressFrom, isUsableReturnUrl } from "@/lib/client-address";
 import { logger } from "@/lib/logger";
-import { clientEnv } from "@/lib/env";
+import { clientEnv, serverEnv } from "@/lib/env";
 import { writeLeadSession, readLeadSession } from "@/lib/lead-session";
 import { holdSlot, releaseHoldById } from "@/data/slot-holds";
 import {
@@ -65,17 +66,15 @@ export interface CaptureLeadResult {
 /**
  * The caller's address, for rate limiting only.
  *
- * Behind a proxy the socket address is the proxy, so x-forwarded-for is read -
- * with the FIRST entry taken, since a client can append its own values and
- * everything after the first is unverifiable. Falls back to a shared bucket
- * rather than to "no limit": an unknown caller should be limited more, not
- * less.
+ * The reasoning that used to sit here was backwards, and the code with it: it
+ * took the FIRST x-forwarded-for entry on the grounds that later entries were
+ * unverifiable. It is the other way round. The header is built by APPENDING,
+ * so the leftmost entry is whatever the client wrote and the trustworthy ones
+ * are on the right. See lib/client-address.
  */
 async function callerKey(): Promise<string> {
   const headerList = await headers();
-  const forwarded = headerList.get("x-forwarded-for");
-  const first = forwarded?.split(",")[0]?.trim();
-  return first && first.length > 0 ? first : "unknown";
+  return clientAddressFrom(headerList.get("x-forwarded-for"));
 }
 
 export async function captureLeadAction(input: unknown): Promise<CaptureLeadResult> {
@@ -121,7 +120,7 @@ export async function captureLeadAction(input: unknown): Promise<CaptureLeadResu
     */
     await writeLeadSession(
       { customerId: captured.customerId, intakeId: captured.intakeId },
-      clientEnv.NEXT_PUBLIC_SITE_ENV !== "development",
+      serverEnv().NODE_ENV === "production",
     );
 
     return { ok: true };
@@ -216,6 +215,23 @@ export async function startCheckoutAction(input: unknown): Promise<StartCheckout
     deployment never takes a slot off the calendar for a payment it cannot
     accept.
   */
+  /*
+    Refused BEFORE a slot is taken. A production deployment that forgot
+    NEXT_PUBLIC_SITE_URL would otherwise send every paying customer back to
+    http://localhost:3000 - the payment succeeds and the customer lands on a
+    dead page, with nothing in the system reporting a fault.
+  */
+  if (!isUsableReturnUrl(clientEnv.NEXT_PUBLIC_SITE_URL, serverEnv().NODE_ENV === "production")) {
+    logger.error("checkout refused: the site URL is not usable as a payment return address", {
+      siteUrl: clientEnv.NEXT_PUBLIC_SITE_URL,
+    });
+    return {
+      ok: false,
+      reason: "unavailable",
+      message: "Payment is not available right now. Please get in touch and we will book you in.",
+    };
+  }
+
   let payments;
   try {
     payments = getPaymentProvider();

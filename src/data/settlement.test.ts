@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { PGlite } from "@electric-sql/pglite";
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { releaseFailedOrder, settlePaidOrder } from "./settlement";
+import { describeMismatch, releaseFailedOrder, settlePaidOrder } from "./settlement";
 import { claimWebhookEvent, markWebhookProcessed } from "./webhook-events";
 import { persistPendingOrder } from "./orders";
 import { holdSlot, listLiveHolds } from "./slot-holds";
@@ -369,5 +369,110 @@ describe("a settled booking cannot be sold twice", () => {
     );
 
     expect(holds.some((h) => h.slotStart.getTime() === start?.getTime())).toBe(true);
+  });
+});
+
+/*
+  A verified signature proves an event came from the processor. It does NOT
+  prove the event is about our order or for the right money - the order id
+  travels in metadata that anything on the same account can set.
+*/
+describe("an event must match the order it names", () => {
+  const orderFor = (id: string) => ({
+    id,
+    customerId: "c",
+    orderType: "single" as const,
+    sessionSlug: "ai-foundations",
+    pathwaySlug: null,
+    grossAmountFils: 129900,
+    currency: AED,
+    taxTreatment: "inclusive" as const,
+    taxRateBasisPoints: 0,
+    paymentStatus: "pending" as const,
+    stripeCheckoutSessionId: "cs_ours",
+    stripePaymentIntentId: null,
+    attributionId: null,
+    intakeId: null,
+    createdAt: NOW,
+    updatedAt: NOW,
+  });
+
+  it("accepts an event that agrees with the order", () => {
+    expect(
+      describeMismatch(orderFor("o1"), {
+        orderId: "o1",
+        slotHoldId: null,
+        checkoutSessionId: "cs_ours",
+        paidAmountFils: 129900,
+        paidCurrency: "aed",
+        now: NOW,
+      }),
+    ).toBeNull();
+  });
+
+  /*
+    THE attack. A cheap payment created elsewhere on the same processor
+    account, naming somebody else's pending order.
+  */
+  it("refuses an event from a different checkout session", () => {
+    expect(
+      describeMismatch(orderFor("o2"), {
+        orderId: "o2",
+        slotHoldId: null,
+        checkoutSessionId: "cs_someone_elses",
+        paidAmountFils: 129900,
+        now: NOW,
+      }),
+    ).toContain("different checkout session");
+  });
+
+  it("refuses an underpayment", () => {
+    expect(
+      describeMismatch(orderFor("o3"), {
+        orderId: "o3",
+        slotHoldId: null,
+        checkoutSessionId: "cs_ours",
+        paidAmountFils: 100,
+        now: NOW,
+      }),
+    ).toContain("amount paid");
+  });
+
+  it("refuses the wrong currency", () => {
+    expect(
+      describeMismatch(orderFor("o4"), {
+        orderId: "o4",
+        slotHoldId: null,
+        checkoutSessionId: "cs_ours",
+        paidAmountFils: 129900,
+        paidCurrency: "usd",
+        now: NOW,
+      }),
+    ).toContain("currency");
+  });
+
+  /*
+    An absent field is not evidence of a mismatch. Refusing on it would reject
+    legitimate settlements the day the processor changes what an event carries.
+  */
+  it("skips a check the event did not carry, rather than failing it", () => {
+    expect(
+      describeMismatch(orderFor("o5"), { orderId: "o5", slotHoldId: null, now: NOW }),
+    ).toBeNull();
+  });
+
+  it("does not settle an order when the event does not match", async () => {
+    const { orderId, slotHoldId } = await pendingOrder("mismatch@example.com");
+
+    const outcome = await settlePaidOrder(runner, {
+      orderId,
+      slotHoldId,
+      paidAmountFils: 1,
+      now: NOW,
+    });
+
+    expect(outcome).toBe("mismatched");
+    expect((await statusOf(orderId)).order).toBe("pending");
+    expect(await holdStatus(slotHoldId)).toBe("held");
   });
 });

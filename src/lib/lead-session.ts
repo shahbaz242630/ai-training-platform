@@ -60,6 +60,14 @@ export async function writeLeadSession(session: LeadSession, isProduction: boole
   jar.set(COOKIE_NAME, encodeLeadSession(session), {
     httpOnly: true,
     sameSite: "lax",
+    /*
+      Derived from NODE_ENV by the caller, not from a variable somebody sets by
+      hand per deployment. It used to come from NEXT_PUBLIC_SITE_ENV, which
+      DEFAULTS to "development" - so a production deploy that forgot it, or
+      blank-set it, shipped this cookie without Secure, with no build error and
+      no runtime warning. A security flag must not have its insecure branch as
+      the default of a manual step.
+    */
     secure: isProduction,
     path: "/",
     maxAge: MAX_AGE_SECONDS,

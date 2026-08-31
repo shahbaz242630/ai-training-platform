@@ -1,5 +1,6 @@
 import { Pool } from "pg";
 import { serverEnv } from "@/lib/env";
+import { logger } from "@/lib/logger";
 
 /**
  * The database connection.
@@ -52,10 +53,7 @@ export function getPool(): Pool {
 
   const pool = new Pool({
     connectionString,
-    // Supabase terminates TLS with a certificate chain Node does not ship a
-    // root for. The connection is still encrypted; what is skipped is chain
-    // verification. Revisit if the host publishes a bundle we can pin.
-    ssl: { rejectUnauthorized: false },
+    ssl: tlsOptions(),
     max: 5,
     idleTimeoutMillis: 30_000,
     connectionTimeoutMillis: 15_000,
@@ -63,6 +61,33 @@ export function getPool(): Pool {
 
   globalForPool.bookingPool = pool;
   return pool;
+}
+
+/**
+ * How the database connection is authenticated, not merely encrypted.
+ *
+ * Every customer name, email, phone and free-text intake note crosses this
+ * connection, along with order rows and payment status. With chain
+ * verification off it is encrypted but UNAUTHENTICATED: anything that can get
+ * into the network path presents any certificate and both reads and rewrites
+ * the traffic.
+ *
+ * Verification is therefore ON whenever a certificate is available. It is not
+ * forced on when one is absent, because that would take the live deployment
+ * offline the moment this shipped - but the absence is reported at error
+ * level rather than passed over, so the gap is visible instead of being a
+ * quiet default nobody revisits. Set DATABASE_CA_CERT before this application
+ * holds a single real customer record.
+ */
+function tlsOptions(): { ca?: string; rejectUnauthorized: boolean } {
+  const ca = serverEnv().DATABASE_CA_CERT;
+  if (ca) return { ca, rejectUnauthorized: true };
+
+  logger.error(
+    "DATABASE_CA_CERT is not set, so the database certificate chain is NOT verified - " +
+      "the connection is encrypted but not authenticated. This is a launch blocker.",
+  );
+  return { rejectUnauthorized: false };
 }
 
 /** Run a set of statements so that either all of them apply, or none do. */
