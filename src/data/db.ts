@@ -1,6 +1,7 @@
 import { Pool } from "pg";
 import { serverEnv } from "@/lib/env";
 import { logger } from "@/lib/logger";
+import { sanitiseConnectionString } from "@/lib/postgres-url";
 
 /**
  * The database connection.
@@ -51,8 +52,22 @@ export function getPool(): Pool {
   // instead of becoming `undefined` somewhere inside a query.
   if (!connectionString) throw new DatabaseNotConfiguredError();
 
+  /*
+    The URL must not be able to decide how we verify a certificate. The driver
+    lets a parsed connection string OVERWRITE the ssl option passed beside it,
+    so `?sslmode=require` silently discarded our CA and `?sslmode=no-verify`
+    reproduced the original defect - both while this code took the secure
+    branch and said nothing. See lib/postgres-url.
+  */
+  const sanitised = sanitiseConnectionString(connectionString);
+  if (sanitised.stripped.length > 0) {
+    logger.info("TLS parameters removed from the database URL; ssl is decided in code", {
+      stripped: sanitised.stripped,
+    });
+  }
+
   const pool = new Pool({
-    connectionString,
+    connectionString: sanitised.connectionString,
     ssl: tlsOptions(),
     max: 5,
     idleTimeoutMillis: 30_000,

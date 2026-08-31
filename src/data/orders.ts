@@ -63,11 +63,16 @@ export interface PersistOrderInput {
  * Persist a pending order, the booking it will become, and the link from the
  * slot hold back to the order.
  *
- * The booking is written as `awaiting_schedule` WITH its times. That is not a
- * contradiction: we know when the session would be, and we do not yet know
- * that it is happening. Only a verified payment moves it on. Writing it as
- * `scheduled` here would mean the database said a session existed before
- * anybody had paid for it.
+ * The booking is written as `awaiting_schedule` with NO times. The chosen slot
+ * already exists, once, on the slot hold; the times are attached at settlement
+ * from the hold that was actually converted, so the two can never disagree.
+ * See the note at the insert itself.
+ *
+ * (This paragraph previously said the opposite - it described the behaviour
+ * before the booking was moved onto the domain constructor, and was left
+ * behind when the code changed. Two adjacent comments asserting opposite
+ * invariants about the payment path is how a later change gets corrected in
+ * the wrong direction.)
  */
 export async function persistPendingOrder(
   runner: QueryRunner,
