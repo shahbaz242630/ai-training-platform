@@ -7,9 +7,8 @@ import { ButtonLink } from "@/components/ui/Button";
 import { BookingPanel } from "@/components/training/BookingPanel";
 import { getSessionBySlug, getActiveSessions } from "@/config/sessions";
 import { formatAed } from "@/lib/money";
-import { addDays } from "@/lib/time";
-import { MockSchedulingProvider } from "@/domain/scheduling/mock-provider";
-import { AVAILABILITY } from "@/config/availability";
+import { offeredSlots } from "./availability";
+import { logger } from "@/lib/logger";
 
 /*
   Rendered per request rather than at build time. Availability depends on the
@@ -42,17 +41,23 @@ export default async function BookSessionPage({ params }: PageProps<"/training/b
 
   /*
     Availability is decided HERE, on the server, and never in the browser. It
-    depends on the working-hours rules and on what is already on the calendar,
-    and a browser must not be the authority on what is bookable. The mock
-    provider applies the real rules; swapping it for the Microsoft Graph one
-    later changes these lines and nothing else on the page.
+    depends on the working-hours rules, on what is already on the calendar, and
+    on which times another customer is part-way through paying for.
+
+    A failure to read it is NOT recoverable into an empty calendar. Rendering
+    "no times available" when the database is unreachable would tell a
+    customer something false about the business and hide an outage; rendering
+    the full grid would offer times we cannot verify are free. So the panel is
+    told the truth and says so.
   */
-  const scheduler = new MockSchedulingProvider();
-  const slots = await scheduler.listAvailability({
-    from: now,
-    to: addDays(now, AVAILABILITY.bookingHorizonDays),
-    durationMinutes: session.durationMinutes,
-  });
+  let slots: readonly { start: Date }[] = [];
+  let availabilityFailed = false;
+  try {
+    slots = await offeredSlots(session.durationMinutes, now);
+  } catch (error) {
+    availabilityFailed = true;
+    logger.error("availability could not be read", { error: (error as Error).message });
+  }
 
   return (
     <>
@@ -116,9 +121,11 @@ export default async function BookSessionPage({ params }: PageProps<"/training/b
             */}
             <aside className="lg:sticky lg:top-24 lg:self-start">
               <BookingPanel
+                slug={session.slug}
                 slotStarts={slots.map((slot) => slot.start.toISOString())}
                 durationMinutes={session.durationMinutes}
                 priceLabel={formatAed(session.priceFils)}
+                availabilityFailed={availabilityFailed}
               />
             </aside>
           </div>

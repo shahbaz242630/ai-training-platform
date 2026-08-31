@@ -1,0 +1,44 @@
+import { withTransaction } from "@/data/db";
+import { listLiveHolds } from "@/data/slot-holds";
+import { isSlotAvailable } from "@/domain/booking/slot-hold";
+import { MockSchedulingProvider } from "@/domain/scheduling/mock-provider";
+import type { TimeSlot } from "@/domain/scheduling/provider";
+import { AVAILABILITY } from "@/config/availability";
+import { addDays } from "@/lib/time";
+
+/**
+ * What a customer may be offered, decided in one place.
+ *
+ * The page and the reserve action MUST agree on this. If the page offered a
+ * slot the action then refused, a customer would be told to pick a time that
+ * was never bookable - so both call this rather than each computing their own
+ * idea of availability.
+ *
+ * Two filters, in order:
+ *
+ *   1. The scheduling rules - working hours, buffers, notice, horizon, and
+ *      whatever is already on the calendar.
+ *   2. Live slot holds - somebody is part-way through paying for that time.
+ *
+ * The second is a database read, and that is deliberate: a hold taken by
+ * another customer thirty seconds ago must disappear from this list, and only
+ * the database knows about it.
+ *
+ * NOTE: the scheduling provider here is the in-memory mock. It applies the
+ * real rules but knows nothing about the actual Outlook calendar, so a
+ * personal appointment is not yet respected. Swapping it for the Graph
+ * implementation changes the one line below and nothing else.
+ */
+export async function offeredSlots(
+  durationMinutes: number,
+  now: Date,
+): Promise<readonly TimeSlot[]> {
+  const to = addDays(now, AVAILABILITY.bookingHorizonDays);
+
+  const scheduler = new MockSchedulingProvider();
+  const candidates = await scheduler.listAvailability({ from: now, to, durationMinutes });
+
+  const holds = await withTransaction((runner) => listLiveHolds(runner, { from: now, to }, now));
+
+  return candidates.filter((slot) => isSlotAvailable(slot, holds, now));
+}

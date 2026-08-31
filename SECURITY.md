@@ -91,8 +91,23 @@ personal data and payment redirects needs a real CSP, and it must be confirmed
 working in production - by inspecting the response headers, not by trusting the
 application config - before the site accepts a booking.
 
-Rate limiting and bot protection arrive with the first public write endpoints;
-there are none today.
+**Rate limiting is in place on the public write endpoints; bot protection is
+not.** Lead capture and slot reservation are both limited per caller address.
+Two limits of that approach are worth stating rather than leaving to be
+discovered:
+
+- The counters live in memory, per application instance. Across several
+  instances the effective limit is that much higher, and a restart clears
+  them. A shared store is the fix, and it is not built yet.
+- Reserving a slot takes a real, sellable time off the calendar for fifteen
+  minutes without any payment. Rate limiting raises the cost of occupying the
+  diary that way; it does not make it impossible. The short hold lifetime, the
+  expiry applied at read time, and the sweep together bound the damage to
+  minutes rather than days. A determined actor rotating addresses could still
+  degrade availability, and closing that properly needs bot protection at the
+  edge, which is tracked for launch.
+
+No CAPTCHA, proof of work or challenge is deployed today.
 
 ## Handling a leaked secret
 
