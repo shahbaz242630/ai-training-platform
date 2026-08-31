@@ -157,11 +157,28 @@ describe("the historical defects this guard exists to catch", () => {
 
   for (const [path, consequence] of cases) {
     it(`catches ${path} - ${consequence}`, () => {
+      /*
+        FIXED 2026-08-31. The test file used to import "./x", which resolves to
+        nothing - so it never actually referenced the module it was supposed to
+        be shadowing, and these four cases were duplicates of the baseline test
+        with different path strings. Mutating the guard to treat test files as
+        entry points - the exact regression this block claims to block - left
+        all four passing.
+
+        The import is now the real relative specifier, so each case genuinely
+        reproduces its defect: a module referenced ONLY by its own test.
+      */
+      const moduleName = path.split("/").pop().replace(/\.ts$/, "");
+      const testPath = path.replace(/\.ts$/, ".test.ts");
+
       const files = [
         { path: "src/app/page.tsx", content: "export default function P() {}" },
         { path, content: "export const thing = 1;" },
-        { path: path.replace(/\.ts$/, ".test.ts"), content: `import { thing } from "./x";` },
+        { path: testPath, content: `import { thing } from "./${moduleName}";` },
       ];
+
+      // The fixture must be real: the test file has to resolve to the module.
+      expect(reachableFrom(files).has(path), "fixture must reference the module").toBe(false);
       expect(checkModulesReachable(files, {})).toHaveLength(1);
     });
   }
@@ -175,5 +192,86 @@ describe("the real allowlist", () => {
       expect(typeof reason, path).toBe("string");
       expect(reason.trim().length, path).toBeGreaterThanOrEqual(20);
     }
+  });
+});
+
+/*
+  The bypasses an adversarial re-audit found. Each let a genuinely dead module
+  past the guard, which is the failure mode that matters most here - the guard
+  exists to prevent a fifth occurrence of exactly that.
+*/
+describe("bypasses that used to work", () => {
+  const dead = (entryContent) => [
+    { path: "src/app/page.tsx", content: entryContent },
+    { path: "src/domain/dead.ts", content: "export const x = 1;" },
+  ];
+
+  /*
+    A type-only import is erased at compile time and contributes zero bytes to
+    the bundle. A module whose only reference is a type import is dead by any
+    runtime definition - and this was the cheapest bypass available, one
+    keyword wide.
+  */
+  it("does not count a type-only import as reachability", () => {
+    expect(checkModulesReachable(dead('import type { T } from "@/domain/dead";'), {})).toHaveLength(
+      1,
+    );
+    expect(checkModulesReachable(dead('export type { T } from "@/domain/dead";'), {})).toHaveLength(
+      1,
+    );
+  });
+
+  // A commented-out import is not a reference. Counting it is a false negative
+  // on precisely the shape this guard exists to catch: looks wired, is not.
+  it("does not count a commented-out import", () => {
+    expect(checkModulesReachable(dead('// import { x } from "@/domain/dead";'), {})).toHaveLength(
+      1,
+    );
+    expect(
+      checkModulesReachable(dead('/* import { x } from "@/domain/dead"; */'), {}),
+    ).toHaveLength(1);
+    expect(
+      checkModulesReachable(dead('const a = 1; // import { x } from "@/domain/dead";'), {}),
+    ).toHaveLength(1);
+  });
+
+  /*
+    Treating every file under src/app as an entry point meant an orphan helper
+    dropped there laundered everything it imported as reached, permanently and
+    silently.
+  */
+  it("does not let a non-route file under src/app launder its imports", () => {
+    const files = [
+      { path: "src/app/orphan-helper.ts", content: 'import { x } from "@/domain/dead";' },
+      { path: "src/domain/dead.ts", content: "export const x = 1;" },
+    ];
+    expect(checkModulesReachable(files, {})).toHaveLength(1);
+  });
+
+  // The narrowing must not break real routes.
+  it("still treats real Next route files as entry points", () => {
+    for (const entry of [
+      "src/app/page.tsx",
+      "src/app/layout.tsx",
+      "src/app/api/x/route.ts",
+      "src/app/training/book/[slug]/actions.ts",
+      "src/app/robots.ts",
+      "src/app/sitemap.ts",
+    ]) {
+      const files = [
+        { path: entry, content: 'import { x } from "@/domain/live";' },
+        { path: "src/domain/live.ts", content: "export const x = 1;" },
+      ];
+      expect(checkModulesReachable(files, {}), entry).toEqual([]);
+    }
+  });
+
+  // A real value import must still resolve, or the guard is useless noise.
+  it("still counts an ordinary import", () => {
+    const files = [
+      { path: "src/app/page.tsx", content: 'import { x } from "@/domain/live";' },
+      { path: "src/domain/live.ts", content: "export const x = 1;" },
+    ];
+    expect(checkModulesReachable(files, {})).toEqual([]);
   });
 });

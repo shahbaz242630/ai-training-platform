@@ -16,19 +16,32 @@ const BANNED =
   /\b(certificates?|certifications?|certified|diplomas?|qualifications?|accredited|accreditation|institutes?|academy|academies|graduates?|enrol|enroll|enrolment|enrollment)\b/gi;
 
 /**
- * Lines carrying a deliberate use, each with its reason.
+ * Files carrying a deliberate use, each with its reason - and each exempting
+ * ONLY the words it names.
  *
- * There is exactly one today: the footer disclaimer that DENIES issuing a
- * qualification. It has to say the word to deny it, and removing the denial to
- * satisfy a word list would be the opposite of the rule's intent.
+ * This was FILE-level while this very comment said "lines", which is the same
+ * overclaim the guard was written to end. SiteFooter.tsx renders on every page
+ * and was wholly exempt: a footer containing "certificate", "accreditation"
+ * and "academy" returned zero findings.
+ *
+ * Anything in an allowlisted file beyond the words it names is still reported.
  */
 export const VOCABULARY_ALLOWLIST = {
-  "src/components/layout/SiteFooter.tsx":
-    "The D15 disclaimer states that no qualification or award is issued. It must name the thing it denies.",
-  "src/app/training/privacy/page.tsx":
-    "Refers to a qualified external legal adviser, not to the business or to anything it issues.",
-  "src/app/training/terms/page.tsx":
-    "Refers to a qualified external legal adviser, not to the business or to anything it issues.",
+  "src/components/layout/SiteFooter.tsx": {
+    reason:
+      "The D15 disclaimer states that no qualification or award is issued. It must name the thing it denies.",
+    allow: ["qualification"],
+  },
+  "src/app/training/privacy/page.tsx": {
+    reason:
+      "Refers to a qualified external legal adviser, not to the business or to anything it issues.",
+    allow: ["qualified"],
+  },
+  "src/app/training/terms/page.tsx": {
+    reason:
+      "Refers to a qualified external legal adviser, not to the business or to anything it issues.",
+    allow: ["qualified"],
+  },
 };
 
 const GOVERNED = /^src\/(config|components|app)\/.*\.(ts|tsx)$/;
@@ -61,14 +74,21 @@ export function checkCopyVocabulary(files, allowlist = VOCABULARY_ALLOWLIST) {
   for (const file of files) {
     if (!GOVERNED.test(file.path) || IS_TEST.test(file.path)) continue;
 
-    const reason = allowlist[file.path];
-    const allowed = typeof reason === "string" && reason.trim().length >= 20;
-    if (allowed) continue;
+    const entry = allowlist[file.path];
+    const hasReason =
+      entry !== undefined && typeof entry.reason === "string" && entry.reason.trim().length >= 20;
+    /*
+      An entry without an adequate reason exempts NOTHING. An unexplained
+      exemption is how a real occurrence gets filed as deliberate.
+    */
+    const permitted = hasReason ? entry.allow.map((word) => word.toLowerCase()) : [];
 
     file.content.split(/\r?\n/).forEach((line, index) => {
       const text = customerFacingText(line);
-      const hits = [...text.matchAll(BANNED)].map((m) => m[0]);
-      for (const hit of hits) {
+      for (const match of text.matchAll(BANNED)) {
+        const hit = match[0];
+        // Exempt only the exact words this file was allowed, never the file.
+        if (permitted.includes(hit.toLowerCase())) continue;
         problems.push(
           `${file.path}:${index + 1}: banned vocabulary "${hit}" in customer-facing copy ` +
             `- this business issues no certification (D15).`,
@@ -77,9 +97,19 @@ export function checkCopyVocabulary(files, allowlist = VOCABULARY_ALLOWLIST) {
     });
   }
 
-  for (const path of Object.keys(allowlist)) {
+  for (const [path, entry] of Object.entries(allowlist)) {
     if (!files.some((f) => f.path === path)) {
       problems.push(`${path}: vocabulary allowlist names a file that does not exist.`);
+      continue;
+    }
+    if (typeof entry.reason !== "string" || entry.reason.trim().length < 20) {
+      problems.push(`${path}: vocabulary allowlist entry has no adequate reason.`);
+    }
+    if (!Array.isArray(entry.allow) || entry.allow.length === 0) {
+      problems.push(
+        `${path}: vocabulary allowlist entry must name the words it permits - ` +
+          `exempting a whole file is what this guard was written to stop.`,
+      );
     }
   }
 
