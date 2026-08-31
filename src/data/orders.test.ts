@@ -197,9 +197,14 @@ describe("persistPendingOrder", () => {
     ).rejects.toThrow(SlotHoldNoLongerLiveError);
   });
 
-  // The booking is written with its times even while awaiting schedule: we
-  // know WHEN it would be, we do not yet know THAT it is happening.
-  it("writes the booking with its times while still awaiting schedule", async () => {
+  /*
+    CHANGED 2026-08-31. This asserted the booking was written WITH its times.
+    It is now born with none, deliberately: the chosen slot already exists once
+    on the slot hold, and copying it onto the booking before anybody has paid
+    creates a second place for the same fact to live and disagree from. The
+    times are attached at settlement, from the hold that was converted.
+  */
+  it("writes the booking with no times yet, because nobody has paid", async () => {
     const { customerId, intakeId } = await makeCustomerAndIntake("times@example.com");
     const holdId = await liveHold("2027-09-13T14:00:00Z");
 
@@ -212,12 +217,21 @@ describe("persistPendingOrder", () => {
       slotHoldId: holdId,
     });
 
-    const booking = await db.query<{ scheduled_start: Date; scheduled_end: Date }>(
-      "select scheduled_start, scheduled_end from bookings where order_id = $1",
+    const booking = await db.query<{
+      scheduled_start: Date | null;
+      scheduled_end: Date | null;
+      status: string;
+      sequence: number;
+    }>(
+      "select scheduled_start, scheduled_end, status, sequence from bookings where order_id = $1",
       [result.orderId],
     );
-    expect(booking.rows[0]?.scheduled_start.toISOString()).toBe("2027-09-10T14:00:00.000Z");
-    expect(booking.rows[0]?.scheduled_end.toISOString()).toBe("2027-09-10T15:30:00.000Z");
+
+    expect(booking.rows[0]?.status).toBe("awaiting_schedule");
+    expect(booking.rows[0]?.scheduled_start).toBeNull();
+    expect(booking.rows[0]?.scheduled_end).toBeNull();
+    // Built by createBooking, which is where the sequence rule lives.
+    expect(booking.rows[0]?.sequence).toBe(1);
   });
 });
 

@@ -476,3 +476,74 @@ describe("an event must match the order it names", () => {
     expect(await holdStatus(slotHoldId)).toBe("held");
   });
 });
+
+/*
+  Booking state must move through the domain, not through hand-written SQL.
+  The Booking aggregate spent four phases fully tested and referenced by no
+  production code, while raw UPDATEs did its job around the transition table.
+*/
+describe("scheduling goes through the domain", () => {
+  it("takes the times from the hold that was actually converted", async () => {
+    const { orderId, slotHoldId } = await pendingOrder("from-hold@example.com");
+
+    const hold = await db
+      .query<{ slot_start: Date; slot_end: Date }>(
+        "select slot_start, slot_end from slot_holds where id = $1",
+        [slotHoldId],
+      )
+      .then((r) => r.rows[0]);
+
+    await settlePaidOrder(runner, { orderId, slotHoldId, now: NOW });
+
+    const booking = await db
+      .query<{ scheduled_start: Date; scheduled_end: Date; status: string }>(
+        "select scheduled_start, scheduled_end, status from bookings where order_id = $1",
+        [orderId],
+      )
+      .then((r) => r.rows[0]);
+
+    expect(booking?.status).toBe("scheduled");
+    expect(booking?.scheduled_start.toISOString()).toBe(hold?.slot_start.toISOString());
+    expect(booking?.scheduled_end.toISOString()).toBe(hold?.slot_end.toISOString());
+  });
+
+  /*
+    Before payment the booking carries no times at all - the slot lives once,
+    on the hold. Two copies of the same fact is two chances to disagree.
+  */
+  it("leaves the booking without times until payment settles", async () => {
+    const { orderId } = await pendingOrder("no-times-yet@example.com");
+
+    const booking = await db
+      .query<{ scheduled_start: Date | null }>(
+        "select scheduled_start from bookings where order_id = $1",
+        [orderId],
+      )
+      .then((r) => r.rows[0]);
+
+    expect(booking?.scheduled_start).toBeNull();
+  });
+
+  /*
+    A hold that could not be converted must not leave a booking claiming to be
+    scheduled - that would say a session exists for a time we do not hold.
+  */
+  it("does not schedule the booking when the slot was already gone", async () => {
+    const { orderId, slotHoldId } = await pendingOrder("no-slot@example.com");
+    await db.query("update slot_holds set status = 'expired' where id = $1", [slotHoldId]);
+
+    expect(await settlePaidOrder(runner, { orderId, slotHoldId, now: NOW })).toBe(
+      "paid_without_slot",
+    );
+
+    const booking = await db
+      .query<{ status: string; scheduled_start: Date | null }>(
+        "select status, scheduled_start from bookings where order_id = $1",
+        [orderId],
+      )
+      .then((r) => r.rows[0]);
+
+    expect(booking?.status).toBe("awaiting_schedule");
+    expect(booking?.scheduled_start).toBeNull();
+  });
+});

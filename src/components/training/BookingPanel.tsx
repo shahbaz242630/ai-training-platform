@@ -52,6 +52,8 @@ export interface BookingPanelProps {
   readonly priceLabel: string;
   /** The server could not read availability. Not the same as having none. */
   readonly availabilityFailed?: boolean;
+  /** Whether a payment can be taken at all. Decided on the server. */
+  readonly paymentsAvailable?: boolean;
 }
 
 export function BookingPanel({
@@ -60,6 +62,7 @@ export function BookingPanel({
   durationMinutes,
   priceLabel,
   availabilityFailed = false,
+  paymentsAvailable = true,
 }: BookingPanelProps) {
   const timeZone = useCustomerTimeZone();
   const [step, setStep] = useState<Step>("details");
@@ -156,6 +159,30 @@ export function BookingPanel({
       */
       window.location.assign(result.redirectUrl);
     });
+  }
+
+  /*
+    Said once, at the top, before anybody types anything. Letting somebody
+    complete a form for an outcome that cannot happen wastes their time and
+    captures a lead for a booking that could never have completed.
+  */
+  if (!paymentsAvailable) {
+    return (
+      <div className="border-line bg-surface overflow-hidden rounded-xl border">
+        <div className="border-line bg-raised border-b px-6 py-5">
+          <h2 className="text-ink text-base font-semibold">Booking is not open yet</h2>
+        </div>
+        <div className="px-6 py-5">
+          <p className="text-ink-muted text-sm leading-relaxed">
+            We cannot take payment online at the moment, so this session cannot be booked here yet.
+            Please get in touch and we will arrange a time with you directly.
+          </p>
+          <p className="text-ink-muted mt-3 text-xs leading-relaxed">
+            Nothing you enter here would be saved, so there is no form to fill in.
+          </p>
+        </div>
+      </div>
+    );
   }
 
   return (
