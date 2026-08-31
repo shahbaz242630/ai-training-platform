@@ -1,14 +1,27 @@
 "use server";
 
-import { headers } from "next/headers";
+import { randomUUID } from "node:crypto";
+import { cookies, headers } from "next/headers";
 import { captureLead } from "@/data/customers";
 import { withTransaction } from "@/data/db";
 import { parsePrePaymentIntake, type IntakeFieldError } from "@/domain/intake/pre-payment-intake";
 import { createRateLimiter } from "@/lib/rate-limit";
 import { logger } from "@/lib/logger";
-import { holdSlot } from "@/data/slot-holds";
+import { clientEnv } from "@/lib/env";
+import { writeLeadSession, readLeadSession } from "@/lib/lead-session";
+import { holdSlot, releaseHoldById } from "@/data/slot-holds";
+import {
+  attributionIdForSession,
+  attachCheckoutSession,
+  leadBelongsTogether,
+  persistPendingOrder,
+  SlotHoldNoLongerLiveError,
+} from "@/data/orders";
 import { getSessionBySlug } from "@/config/sessions";
+import { resolvePrice } from "@/domain/pricing/resolve-price";
+import { createOrder } from "@/domain/booking/order";
 import { DEFAULT_HOLD_TTL_MINUTES } from "@/domain/booking/slot-hold";
+import { getPaymentProvider } from "@/domain/payments/factory";
 import {
   holdInterval,
   isOfferedSlot,
@@ -47,8 +60,6 @@ const limiter = createRateLimiter({ limit: 5, windowMs: 60_000 });
 export interface CaptureLeadResult {
   readonly ok: boolean;
   readonly errors?: readonly IntakeFieldError[];
-  /** Present only on success. Nothing identifying: an internal id and nothing else. */
-  readonly customerId?: string;
 }
 
 /**
@@ -102,7 +113,18 @@ export async function captureLeadAction(input: unknown): Promise<CaptureLeadResu
       isNewCustomer: captured.isNewCustomer,
     });
 
-    return { ok: true, customerId: captured.customerId };
+    /*
+      The ids go into an httpOnly cookie rather than back to the browser.
+      Checkout needs them, and handing them to the page means a caller can
+      send somebody else id on the next call instead. Nothing on the page
+      reads this, and nothing on the page needs to.
+    */
+    await writeLeadSession(
+      { customerId: captured.customerId, intakeId: captured.intakeId },
+      clientEnv.NEXT_PUBLIC_SITE_ENV !== "development",
+    );
+
+    return { ok: true };
   } catch (error) {
     logger.error("lead capture failed", { error: (error as Error).message });
     return {
@@ -118,42 +140,45 @@ export async function captureLeadAction(input: unknown): Promise<CaptureLeadResu
 }
 
 /*
-  Reserving is limited harder than lead capture, and for a different reason.
-  A lead is a row; a hold takes a sellable time slot off the calendar for
-  fifteen minutes. Somebody looping this endpoint could occupy the whole week
-  without ever paying, which is a denial of service against our own diary
-  rather than against a server.
+  Starting checkout is limited harder than lead capture. A lead is a row; this
+  takes a sellable time off the calendar AND creates an order. Somebody
+  looping it could occupy the whole week without paying for any of it, which
+  is a denial of service against our own diary rather than against a server.
 */
-const reserveLimiter = createRateLimiter({ limit: 6, windowMs: 60_000 });
+const checkoutLimiter = createRateLimiter({ limit: 6, windowMs: 60_000 });
 
-export interface ReserveSlotResult {
+export interface StartCheckoutResult {
   readonly ok: boolean;
-  /** Present only on success. The claim checkout will convert once payment is verified. */
-  readonly holdId?: string;
-  /** UTC ISO. What the customer is told they have until. */
-  readonly expiresAt?: string;
-  readonly reason?: ReserveSlotRefusal | "rate_limited" | "failed";
+  /** Present only on success. Where the browser must go next. */
+  readonly redirectUrl?: string;
+  readonly reason?: ReserveSlotRefusal | "rate_limited" | "no_lead" | "unavailable" | "failed";
   readonly message?: string;
   /**
-   * Availability as it stands AFTER the refusal, so a customer who lost a race
-   * is shown what is actually left rather than the list that just failed them.
+   * Availability as it stands AFTER a refusal, so somebody who lost a race is
+   * shown what is actually left rather than the list that just failed them.
    */
   readonly slotStarts?: readonly string[];
 }
 
 /**
- * Claim a time slot at the moment checkout begins.
+ * Take the slot, create the order, and hand back somewhere to pay.
  *
- * NOT when a radio button is clicked. Somebody comparing four times would
- * otherwise take four slots off the calendar for fifteen minutes each, having
- * paid for none of them.
+ * The order of operations is deliberate and each step guards the next:
  *
- * The database settles the race, not this function. Two customers can arrive
- * in the same millisecond and both pass every check above the insert; the
- * exclusion constraint is what makes exactly one of them win.
+ *   1. hold the slot   - losing the race is the common failure, so it happens
+ *                        before anything is written that would need undoing
+ *   2. create the order - pending, never paid, in one transaction with its
+ *                        booking and the link back to the hold
+ *   3. start checkout  - and only now does the customer go anywhere
+ *
+ * If step 3 fails, step 1 is undone. Otherwise a failure to reach Stripe
+ * would block a sellable slot for fifteen minutes for nothing.
+ *
+ * NOTHING here confirms a booking. The order is `pending` and the booking is
+ * `awaiting_schedule` until a verified webhook says otherwise.
  */
-export async function reserveSlotAction(input: unknown): Promise<ReserveSlotResult> {
-  const rate = reserveLimiter.check(await callerKey(), new Date());
+export async function startCheckoutAction(input: unknown): Promise<StartCheckoutResult> {
+  const rate = checkoutLimiter.check(await callerKey(), new Date());
   if (!rate.allowed) {
     return {
       ok: false,
@@ -163,17 +188,49 @@ export async function reserveSlotAction(input: unknown): Promise<ReserveSlotResu
   }
 
   const parsed = reserveSlotRequestSchema.safeParse(input);
-  if (!parsed.success) {
-    return { ok: false, reason: "not_offered", message: SLOT_GONE_MESSAGE };
-  }
+  if (!parsed.success) return { ok: false, reason: "not_offered", message: SLOT_GONE_MESSAGE };
 
   const session = getSessionBySlug(parsed.data.slug);
   if (!session || !session.active) {
     return { ok: false, reason: "not_offered", message: SLOT_GONE_MESSAGE };
   }
 
+  /*
+    Read server-side from an httpOnly cookie, never from the request body. If
+    it is missing the customer has not given us their details in this browser,
+    and the honest answer is to send them back a step rather than to invent an
+    anonymous order.
+  */
+  const lead = await readLeadSession();
+  if (lead === null) {
+    return {
+      ok: false,
+      reason: "no_lead",
+      message: "Please enter your details again before choosing a time.",
+    };
+  }
+
+  /*
+    Checked BEFORE anything is written. Constructing a provider is what
+    surfaces missing configuration, and doing it here means an unconfigured
+    deployment never takes a slot off the calendar for a payment it cannot
+    accept.
+  */
+  let payments;
+  try {
+    payments = getPaymentProvider();
+  } catch {
+    logger.error("checkout attempted while payments are not configured");
+    return {
+      ok: false,
+      reason: "unavailable",
+      message: "Payment is not available right now. Please get in touch and we will book you in.",
+    };
+  }
+
   const now = new Date();
   const requested = new Date(parsed.data.slotStart);
+  let heldId: string | null = null;
 
   try {
     const offered = await offeredSlots(session.durationMinutes, now);
@@ -198,23 +255,11 @@ export async function reserveSlotAction(input: unknown): Promise<ReserveSlotResu
       slotStart: interval.start,
       slotEnd: interval.end,
       expiresAt: addMinutes(now, DEFAULT_HOLD_TTL_MINUTES),
-      /*
-        No order exists yet - the order is created when checkout starts, and
-        the hold is what stops the slot being sold while that happens.
-
-        calendarEventId stays null on purpose. The tentative Outlook event
-        belongs here, but the scheduling provider is still the in-memory mock,
-        so any id it produced would not survive the request. Storing a
-        fabricated id would be worse than storing none: the sweep would later
-        try to delete a calendar event that never existed anywhere.
-      */
       orderId: null,
       calendarEventId: null,
     });
 
     if (!outcome.ok) {
-      // A lost race is a normal outcome, so the customer is offered what is
-      // left rather than shown an error they cannot act on.
       const remaining = await offeredSlots(session.durationMinutes, new Date());
       return {
         ok: false,
@@ -223,30 +268,152 @@ export async function reserveSlotAction(input: unknown): Promise<ReserveSlotResu
         slotStarts: remaining.map((slot) => slot.start.toISOString()),
       };
     }
+    heldId = outcome.hold.id;
 
-    logger.info("slot held", {
+    return await createOrderAndCheckout({
+      lead,
+      session,
+      interval,
       holdId: outcome.hold.id,
-      sessionSlug: session.slug,
-      slotStart: interval.start.toISOString(),
+      payments,
+      now,
     });
-
-    return {
-      ok: true,
-      holdId: outcome.hold.id,
-      expiresAt: outcome.hold.expiresAt.toISOString(),
-    };
   } catch (error) {
-    /*
-      Everything that is NOT a lost race lands here: a dropped connection, a
-      missing table, an unreachable database. Reporting those as "that time has
-      gone" would hide an outage behind a plausible message and send the
-      customer off to pick another slot that will fail in exactly the same way.
-    */
-    logger.error("slot reservation failed", { error: (error as Error).message });
+    // The slot goes back. A failure here must not cost a sellable time.
+    if (heldId !== null) await releaseHeldSlotQuietly(heldId);
+
+    if (error instanceof SlotHoldNoLongerLiveError) {
+      return { ok: false, reason: "slot_taken", message: SLOT_GONE_MESSAGE };
+    }
+
+    logger.error("checkout could not be started", { error: (error as Error).message });
     return {
       ok: false,
       reason: "failed",
-      message: "We could not reserve that time. Please try again in a moment.",
+      message: "We could not start checkout. Please try again in a moment.",
     };
+  }
+}
+
+/**
+ * The part that writes. Split out so the guard clauses above stay readable.
+ *
+ * The price is resolved from the CATALOGUE by slug and never from anything
+ * the browser sent. This is the single most important line in the payment
+ * path: a client-supplied amount is how somebody books a session for one fil.
+ */
+async function createOrderAndCheckout(args: {
+  lead: { customerId: string; intakeId: string };
+  session: { slug: string; durationMinutes: number };
+  interval: { start: Date; end: Date };
+  holdId: string;
+  payments: ReturnType<typeof getPaymentProvider>;
+  now: Date;
+}): Promise<StartCheckoutResult> {
+  const price = resolvePrice("session", args.session.slug);
+
+  const orderId = randomUUID();
+  const order = createOrder({
+    id: orderId,
+    customerId: args.lead.customerId,
+    orderType: "single",
+    sessionSlug: args.session.slug,
+    grossAmountFils: price.amountFils,
+    currency: price.currency,
+    taxRateBasisPoints: price.taxRateBasisPoints,
+    intakeId: args.lead.intakeId,
+    now: args.now,
+  });
+
+  const { email, attributionId } = await withTransaction(async (runner) => {
+    /*
+      The intake must belong to the customer. A forged cookie has to get both
+      ids right AND their relationship, and a mismatch means the browser sent
+      something it should not have - so this refuses rather than repairs.
+    */
+    if (!(await leadBelongsTogether(runner, args.lead.customerId, args.lead.intakeId))) {
+      throw new Error("The lead session did not match a real customer and intake");
+    }
+
+    /*
+      Email AND timezone come from the customer record, not from the request.
+      The timezone is what the confirmation and the reminders will be rendered
+      in, and a browser that can assert it can put somebody hours out from
+      their own session.
+    */
+    const found = await runner.query<{ email: string; timezone: string }>(
+      `select email, timezone from customers where id = $1`,
+      [args.lead.customerId],
+    );
+    const customer = found.rows[0];
+    if (!customer) throw new Error("The lead session named a customer that does not exist");
+
+    // Best effort. A missing attribution row costs us a report line; it must
+    // never cost somebody their booking.
+    const attribution = await attributionIdForSession(runner, await readAttributionCookie());
+
+    await persistPendingOrder(runner, {
+      order: { ...order, attributionId: attribution },
+      sessionSlug: args.session.slug,
+      slotStart: args.interval.start,
+      slotEnd: args.interval.end,
+      customerTimezone: customer.timezone,
+      slotHoldId: args.holdId,
+    });
+
+    return { email: customer.email, attributionId: attribution };
+  });
+
+  const started = await args.payments.startCheckout({
+    line: {
+      slug: args.session.slug,
+      title: price.title,
+      amountFils: price.amountFils,
+      currency: price.currency,
+    },
+    orderId,
+    customerEmail: email,
+    slotHoldId: args.holdId,
+    successUrl: `${clientEnv.NEXT_PUBLIC_SITE_URL}/training/book/${args.session.slug}/confirming`,
+    cancelUrl: `${clientEnv.NEXT_PUBLIC_SITE_URL}/training/book/${args.session.slug}?cancelled=1`,
+    /*
+      Derived from the order, never random. A retry with a fresh key is not
+      idempotency - it is a second checkout session and, eventually, a second
+      charge.
+    */
+    idempotencyKey: `order:${orderId}`,
+  });
+
+  await withTransaction((runner) =>
+    attachCheckoutSession(runner, orderId, started.checkoutSessionId),
+  );
+
+  logger.info("checkout started", {
+    orderId,
+    sessionSlug: args.session.slug,
+    hasAttribution: attributionId !== null,
+  });
+
+  return { ok: true, redirectUrl: started.redirectUrl };
+}
+
+/** The attribution key for this browser, if the cookie is there. */
+async function readAttributionCookie(): Promise<string | null> {
+  const jar = await cookies();
+  return jar.get("ats")?.value ?? null;
+}
+
+/**
+ * Release a hold without letting the release itself become the error the
+ * customer sees. The original failure is the one worth reporting.
+ */
+async function releaseHeldSlotQuietly(holdId: string): Promise<void> {
+  try {
+    await withTransaction((runner) => releaseHoldById(runner, holdId));
+  } catch (error) {
+    logger.error("a slot hold could not be released after a failed checkout", {
+      holdId,
+      error: (error as Error).message,
+    });
   }
 }

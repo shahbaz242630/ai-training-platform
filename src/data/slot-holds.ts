@@ -242,3 +242,25 @@ export async function claimExpiredHolds(
 
   return expired;
 }
+
+/**
+ * Give a hold back, by id.
+ *
+ * Used when something after the hold fails - the payment session could not be
+ * created, say. Without it, a failure on that path would leave a sellable slot
+ * blocked for the full fifteen minutes for no reason at all.
+ *
+ * Only a LIVE hold is released. One that already converted is a paid booking
+ * and must never be given away by a cleanup path; one that already expired
+ * needs nothing doing. Both simply match no row.
+ */
+export async function releaseHoldById(runner: QueryRunner, holdId: string): Promise<boolean> {
+  const result = await runner.query<{ id: string }>(
+    `update slot_holds
+        set status = 'released'
+      where id = $1 and status = 'held'
+      returning id`,
+    [holdId],
+  );
+  return result.rows.length > 0;
+}

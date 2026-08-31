@@ -9,6 +9,7 @@ import {
   isRetryableContention,
   isSlotTaken,
   listLiveHolds,
+  releaseHoldById,
 } from "./slot-holds";
 import type { QueryRunner } from "./db";
 
@@ -470,5 +471,57 @@ describe("claimExpiredHolds", () => {
 
     expect(outcome.ok).toBe(true);
     expect(await statusOf(id)).toBe("expired");
+  });
+});
+
+/*
+  releaseHoldById exists for one path: something after the hold failed, and the
+  slot must go back rather than sit blocked for fifteen minutes for nothing.
+*/
+describe("releaseHoldById", () => {
+  const insertHeld = (startIso: string) =>
+    db
+      .query<{ id: string }>(
+        `insert into slot_holds (slot_start, slot_end, expires_at)
+         values ($1, $2, $3) returning id`,
+        [
+          new Date(startIso),
+          new Date(new Date(startIso).getTime() + 90 * 60_000),
+          new Date(Date.now() + 15 * 60_000),
+        ],
+      )
+      .then((r) => r.rows[0]?.id ?? "");
+
+  it("gives a live hold back", async () => {
+    const id = await insertHeld("2027-08-01T10:00:00Z");
+
+    expect(await releaseHoldById(db as unknown as QueryRunner, id)).toBe(true);
+
+    const row = await db.query<{ status: string }>("select status from slot_holds where id = $1", [
+      id,
+    ]);
+    expect(row.rows[0]?.status).toBe("released");
+  });
+
+  /*
+    THE one that matters. A converted hold is a session somebody has PAID for.
+    A cleanup path must never be able to give it away.
+  */
+  it("refuses to release a hold that already converted into a booking", async () => {
+    const id = await insertHeld("2027-08-02T10:00:00Z");
+    await db.query("update slot_holds set status = 'converted' where id = $1", [id]);
+
+    expect(await releaseHoldById(db as unknown as QueryRunner, id)).toBe(false);
+
+    const row = await db.query<{ status: string }>("select status from slot_holds where id = $1", [
+      id,
+    ]);
+    expect(row.rows[0]?.status).toBe("converted");
+  });
+
+  it("reports nothing done for a hold that does not exist", async () => {
+    expect(
+      await releaseHoldById(db as unknown as QueryRunner, "00000000-0000-4000-8000-000000000000"),
+    ).toBe(false);
   });
 });
