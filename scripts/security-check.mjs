@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { checkModulesReachable } from "./reachability.mjs";
 /**
  * Project-specific security guards.
  *
@@ -273,6 +274,7 @@ function main() {
     ["No insecure http:// URLs", checkNoInsecureUrls(source)],
     ["No tracked .env files", checkNoTrackedEnvFiles(tracked)],
     ["Runtime versions single-sourced", checkRuntimesSingleSourced(workflows)],
+    ["Every logic module is reachable", checkModulesReachable(source)],
   ];
 
   let failed = 0;
