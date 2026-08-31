@@ -36,6 +36,7 @@ export function placeholder(value: string | null, token: string): string {
 }
 
 export const companyName = () => placeholder(SITE.companyName, "COMPANY_NAME");
+export const legalEntityName = () => placeholder(SITE.legalEntityName, "LEGAL_ENTITY_NAME");
 export const instructorName = () => placeholder(SITE.instructorName, "INSTRUCTOR_NAME");
 export const supportEmail = () => placeholder(SITE.supportEmail, "SUPPORT_EMAIL");
 
@@ -47,7 +48,27 @@ export const supportEmail = () => placeholder(SITE.supportEmail, "SUPPORT_EMAIL"
  * ourselves, so it must be verifiable rather than merely inspected.
  */
 export function isPubliclyConfigured(site: SitePlaceholders = SITE): boolean {
-  return Boolean(site.companyName && site.domain && site.legalEntityName);
+  /*
+    EVERY field that renders on a public page, not the three most obvious ones.
+
+    This used to check companyName, domain and legalEntityName. Those are the
+    natural first three to fill in - and doing so armed indexing while
+    supportEmail and instructorName were still null, so a crawler would take
+    `[SUPPORT_EMAIL]` in the footer straight into a search result. The guard
+    had a blind spot exactly where it mattered, which is worse than no guard,
+    because it reads as one.
+
+    A field belongs in this list when it can appear on a page a search engine
+    may crawl. Adding a new rendered placeholder means adding it here, and the
+    indexing test fails if a token can reach an indexable page.
+  */
+  return Boolean(
+    site.companyName &&
+    site.domain &&
+    site.legalEntityName &&
+    site.supportEmail &&
+    site.instructorName,
+  );
 }
 
 export type SiteEnv = "development" | "staging" | "production";

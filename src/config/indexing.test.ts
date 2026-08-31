@@ -7,11 +7,19 @@ import { isIndexable, isPubliclyConfigured, SITE, type SitePlaceholders } from "
  * engine's index, removing it is slow and never complete. So the conditions
  * are tested exhaustively rather than assumed.
  */
+/*
+  Every field that renders publicly, not the obvious three. isPubliclyConfigured
+  was widened on 2026-08-31 because filling in only name, domain and legal
+  entity armed indexing while [SUPPORT_EMAIL] and [INSTRUCTOR_NAME] were still
+  rendering on the page.
+*/
 const CONFIGURED: SitePlaceholders = {
   ...SITE,
   companyName: "Example Company",
   legalEntityName: "Example Company FZ-LLC",
   domain: "example.ae",
+  supportEmail: "hello@example.ae",
+  instructorName: "Example Instructor",
 };
 
 describe("isIndexable", () => {

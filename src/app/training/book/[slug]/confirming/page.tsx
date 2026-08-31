@@ -53,9 +53,10 @@ export default async function ConfirmingPage({
             </h1>
 
             <p className="text-ink-muted mt-6 text-base leading-relaxed">
-              Your payment is being verified. As soon as it is, you will get an email confirming{" "}
-              <span className="text-ink font-semibold">{session.title}</span> with the date, the
-              time in your own time zone, and the joining link.
+              Your payment is being verified for{" "}
+              <span className="text-ink font-semibold">{session.title}</span>. Once it is, your
+              session is booked and we will be in touch with the date, the time in your own time
+              zone, and how to join.
             </p>
 
             {/*
@@ -64,9 +65,16 @@ export default async function ConfirmingPage({
               otherwise on a page they can simply navigate to is how a customer
               turns up to a session that was never booked.
             */}
+            {/*
+              Deliberately does not promise an email. Nothing in this system can
+              send one yet - there is no email provider wired in - and telling
+              somebody who has just paid to wait for a message that will never
+              arrive is worse than telling them nothing. When the send path
+              exists this becomes a promise we can keep, and not before.
+            */}
             <p className="text-ink-muted mt-4 text-base leading-relaxed">
-              This usually takes a moment. If you have not had the email within an hour, please get
-              in touch and quote the email address you booked with - we will find it.
+              If you have not heard from us within one working day, please get in touch and quote
+              the email address you booked with - we will find your booking.
             </p>
 
             <div className="border-line mt-10 border-t pt-8">
