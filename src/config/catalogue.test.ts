@@ -58,8 +58,16 @@ describe("isPubliclyConfigured", () => {
     expect(isPubliclyConfigured(SITE)).toBe(false);
   });
 
-  it("is true only when name, domain and legal entity are all present", () => {
-    const full = { ...SITE, companyName: "A", domain: "a.ae", legalEntityName: "A LLC" };
+  it("is true only when every publicly rendered field is present", () => {
+    // Every rendered field, not the obvious three - see isPubliclyConfigured.
+    const full = {
+      ...SITE,
+      companyName: "A",
+      domain: "a.ae",
+      legalEntityName: "A LLC",
+      supportEmail: "a@a.ae",
+      instructorName: "A Person",
+    };
     expect(isPubliclyConfigured(full)).toBe(true);
     expect(isPubliclyConfigured({ ...full, domain: null })).toBe(false);
   });

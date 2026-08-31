@@ -4,6 +4,7 @@ import { clientEnv } from "@/lib/env";
 import { isIndexable } from "@/config/site";
 import "./globals.css";
 import { AttributionCapture } from "@/components/analytics/AttributionCapture";
+import { companyName } from "@/config/site";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -16,7 +17,7 @@ const INDEXABLE = isIndexable(clientEnv.NEXT_PUBLIC_SITE_ENV);
 export const metadata: Metadata = {
   title: {
     default: "Private 1-to-1 AI Training — Dubai",
-    template: "%s — [COMPANY_NAME]",
+    template: `%s — ${companyName()}`,
   },
   description:
     "Private 1-to-1 practical AI training and implementation coaching in Dubai. Research, prompting, coding agents, AI agents, technology stacks and production deployment.",

@@ -28,7 +28,7 @@ export const FAQS: readonly Faq[] = [
     id: "online",
     question: "Are sessions online?",
     answer:
-      "Yes. Every session is delivered privately over Microsoft Teams, one to one. You receive a join link when your booking is confirmed.",
+      "Yes. Every session is delivered privately over Microsoft Teams, one to one. You receive the joining details once your booking is confirmed.",
   },
   {
     id: "evenings",

@@ -2,10 +2,10 @@ import Link from "next/link";
 import type { Metadata } from "next";
 import { Container } from "@/components/ui/Container";
 import { ButtonLink } from "@/components/ui/Button";
-import { companyName, SITE } from "@/config/site";
+import { companyName, legalEntityName, SITE } from "@/config/site";
 
 export const metadata: Metadata = {
-  title: "[COMPANY_NAME]",
+  title: companyName(),
   description: "AI products and private 1-to-1 AI training, based in Dubai.",
 };
 
@@ -46,7 +46,7 @@ export default function CompanyHome() {
       <footer className="border-line border-t py-10">
         <Container>
           <p className="text-ink-faint text-xs">
-            &copy; {new Date().getFullYear()} [LEGAL_ENTITY_NAME].{" "}
+            &copy; {new Date().getFullYear()} {legalEntityName()}.{" "}
             <Link href="/training" className="hover:text-ink underline underline-offset-4">
               Training
             </Link>

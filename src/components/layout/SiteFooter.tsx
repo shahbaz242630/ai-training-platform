@@ -1,6 +1,13 @@
 import Link from "next/link";
 import { Container } from "@/components/ui/Container";
-import { companyName, supportEmail, FOOTER_LINKS, SITE, DELIVERY } from "@/config/site";
+import {
+  companyName,
+  legalEntityName,
+  supportEmail,
+  FOOTER_LINKS,
+  SITE,
+  DELIVERY,
+} from "@/config/site";
 
 export function SiteFooter() {
   return (
@@ -34,7 +41,7 @@ export function SiteFooter() {
             issued.
           </p>
           <p className="text-ink-faint mt-2 text-xs">
-            &copy; {new Date().getFullYear()} [LEGAL_ENTITY_NAME]. All rights reserved.
+            &copy; {new Date().getFullYear()} {legalEntityName()}. All rights reserved.
           </p>
         </div>
       </Container>

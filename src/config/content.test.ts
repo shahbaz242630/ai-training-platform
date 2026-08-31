@@ -91,3 +91,87 @@ describe("placeholder discipline", () => {
     expect(SITE.instructorName).toBeNull();
   });
 });
+
+/*
+  Indexing must not arm while a placeholder can still reach a crawler.
+
+  isPubliclyConfigured used to check three fields. Those three are the natural
+  first ones to fill in - so filling them armed indexing while supportEmail and
+  instructorName were still null, and a crawler would take `[SUPPORT_EMAIL]`
+  straight into a search result. A guard with a blind spot exactly where it
+  matters is worse than no guard, because it reads as one.
+*/
+describe("indexing cannot arm on partial identity", () => {
+  const complete = {
+    companyName: "Real Co",
+    legalEntityName: "Real Co FZ-LLC",
+    domain: "real.example",
+    supportEmail: "hello@real.example",
+    phone: "+971 4 000 0000",
+    instructorName: "A Person",
+    instructorBio: "A bio.",
+    serviceArea: "Dubai, United Arab Emirates",
+  };
+
+  it("is configured only when every rendered field is real", () => {
+    expect(isPubliclyConfigured(complete)).toBe(true);
+  });
+
+  /*
+    Each of these renders on a page a crawler can reach. Leaving any of them
+    null while indexing is on publishes a bracketed token.
+  */
+  it("refuses to arm while any rendered field is still a placeholder", () => {
+    const rendered = [
+      "companyName",
+      "legalEntityName",
+      "domain",
+      "supportEmail",
+      "instructorName",
+    ] as const;
+
+    for (const field of rendered) {
+      expect(isPubliclyConfigured({ ...complete, [field]: null }), field).toBe(false);
+    }
+  });
+
+  // The exact shape that used to slip through: the obvious three filled in.
+  it("refuses the three-field configuration that previously armed indexing", () => {
+    expect(
+      isPubliclyConfigured({
+        ...complete,
+        supportEmail: null,
+        instructorName: null,
+      }),
+    ).toBe(false);
+  });
+
+  /*
+    The four literals that bypassed the guard entirely: a hardcoded
+    "[COMPANY_NAME]" in a title template is invisible to a check that only
+    looks at config. They now route through the placeholder helpers, so this
+    asserts none survives in a page or component.
+  */
+  it("has no hardcoded placeholder tokens left in pages or components", async () => {
+    const { readFileSync } = await import("node:fs");
+    const { execFileSync } = await import("node:child_process");
+
+    const paths = execFileSync("git", ["ls-files"], { encoding: "utf8" })
+      .split("\n")
+      .filter((p) => /^src\/(app|components)\/.*\.(ts|tsx)$/.test(p) && !p.includes(".test."));
+
+    const offenders: string[] = [];
+    for (const path of paths) {
+      const content = readFileSync(path, "utf8");
+      // Legal pages hold approved-copy placeholders deliberately and are
+      // noindex in their own right, so they are not part of this rule.
+      if (path.includes("/privacy/") || path.includes("/terms/")) continue;
+      if (path.includes("/refunds-cancellations/")) continue;
+      if (/\[(COMPANY_NAME|LEGAL_ENTITY_NAME|SUPPORT_EMAIL|INSTRUCTOR_NAME)\]/.test(content)) {
+        offenders.push(path);
+      }
+    }
+
+    expect(offenders).toEqual([]);
+  });
+});

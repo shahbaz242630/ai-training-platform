@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { checkModulesReachable } from "./reachability.mjs";
+import { checkCopyVocabulary } from "./copy-vocabulary.mjs";
 /**
  * Project-specific security guards.
  *
@@ -275,6 +276,7 @@ function main() {
     ["No tracked .env files", checkNoTrackedEnvFiles(tracked)],
     ["Runtime versions single-sourced", checkRuntimesSingleSourced(workflows)],
     ["Every logic module is reachable", checkModulesReachable(source)],
+    ["No banned vocabulary in customer copy", checkCopyVocabulary(source)],
   ];
 
   let failed = 0;
