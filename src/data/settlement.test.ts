@@ -6,7 +6,7 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { releaseFailedOrder, settlePaidOrder } from "./settlement";
 import { claimWebhookEvent, markWebhookProcessed } from "./webhook-events";
 import { persistPendingOrder } from "./orders";
-import { holdSlot } from "./slot-holds";
+import { holdSlot, listLiveHolds } from "./slot-holds";
 import type { QueryRunner } from "./db";
 import { createOrder } from "@/domain/booking/order";
 import { AED } from "@/lib/money";
@@ -323,5 +323,51 @@ describe("the webhook event ledger", () => {
       "provider",
       "received_at",
     ]);
+  });
+});
+
+/*
+  The end-to-end proof of the double-booking fix, at the layer a customer
+  actually meets it: settle a payment, then try to take the same time again.
+*/
+describe("a settled booking cannot be sold twice", () => {
+  it("refuses a new hold on a slot whose payment has settled", async () => {
+    const { orderId, slotHoldId } = await pendingOrder("double-book@example.com");
+
+    const start = await db
+      .query<{ slot_start: Date; slot_end: Date }>(
+        "select slot_start, slot_end from slot_holds where id = $1",
+        [slotHoldId],
+      )
+      .then((r) => r.rows[0]);
+
+    expect(await settlePaidOrder(runner, { orderId, slotHoldId, now: NOW })).toBe("settled");
+
+    // Somebody else tries for the same time. The database must refuse.
+    await expect(
+      db.query(`insert into slot_holds (slot_start, slot_end, expires_at) values ($1, $2, $3)`, [
+        start?.slot_start,
+        start?.slot_end,
+        new Date(NOW.getTime() + 35 * 60_000),
+      ]),
+    ).rejects.toThrow();
+  });
+
+  it("no longer offers that slot in availability", async () => {
+    const { orderId, slotHoldId } = await pendingOrder("gone-from-list@example.com");
+    const start = await db
+      .query<{ slot_start: Date }>("select slot_start from slot_holds where id = $1", [slotHoldId])
+      .then((r) => r.rows[0]?.slot_start);
+
+    await settlePaidOrder(runner, { orderId, slotHoldId, now: NOW });
+
+    const holds = await listLiveHolds(
+      runner,
+      { from: new Date("2027-10-01T00:00:00Z"), to: new Date("2027-12-31T00:00:00Z") },
+      // Well past the original hold expiry - a paid slot must not reappear.
+      new Date(NOW.getTime() + 48 * 60 * 60_000),
+    );
+
+    expect(holds.some((h) => h.slotStart.getTime() === start?.getTime())).toBe(true);
   });
 });

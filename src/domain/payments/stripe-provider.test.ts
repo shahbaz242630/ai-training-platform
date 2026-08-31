@@ -2,6 +2,7 @@ import Stripe from "stripe";
 import { describe, it, expect } from "vitest";
 import { StripePaymentProvider, outcomeFor, toPaymentEvent } from "./stripe-provider";
 import { InvalidSignatureError } from "./provider";
+import { DEFAULT_HOLD_TTL_MINUTES } from "@/domain/booking/slot-hold";
 
 /**
  * The REAL adapter, against the REAL Stripe SDK.
@@ -301,5 +302,55 @@ describe("toPaymentEvent", () => {
 describe("StripePaymentProvider construction", () => {
   it("refuses to construct without a signing secret", () => {
     expect(() => new StripePaymentProvider(stripe, "")).toThrow(/STRIPE_WEBHOOK_SECRET/);
+  });
+});
+
+/*
+  The checkout session must not outlive the slot it is paying for. Left unset,
+  Stripe defaults to 24 hours while the hold runs for 35 minutes - so a
+  customer could pay the next morning for a slot released long before, and be
+  charged with no session.
+*/
+describe("checkout session expiry", () => {
+  it("bounds the session rather than accepting the 24-hour default", async () => {
+    const captured: { params?: Stripe.Checkout.SessionCreateParams } = {};
+    const stub = {
+      checkout: {
+        sessions: {
+          create: (params: Stripe.Checkout.SessionCreateParams) => {
+            captured.params = params;
+            return Promise.resolve({ id: "cs_x", url: "https://pay.stripe/x" });
+          },
+        },
+      },
+    } as unknown as Stripe;
+
+    await new StripePaymentProvider(stub, SIGNING_SECRET).startCheckout({
+      line: { slug: "s", title: "S", amountFils: 1000, currency: "AED" },
+      orderId: "o",
+      customerEmail: "a@example.com",
+      slotHoldId: "h",
+      successUrl: "https://example.com/ok",
+      cancelUrl: "https://example.com/no",
+      idempotencyKey: "o",
+    });
+
+    const expiresAt = captured.params?.expires_at;
+    expect(expiresAt).toBeDefined();
+
+    const minutesOut = (Number(expiresAt) - Math.floor(Date.now() / 1000)) / 60;
+    // Stripe refuses anything under 30 minutes, so that is the floor.
+    expect(minutesOut).toBeGreaterThanOrEqual(29);
+    // And it must stay comfortably inside the hold, which runs for 35.
+    expect(minutesOut).toBeLessThan(DEFAULT_HOLD_TTL_MINUTES);
+  });
+
+  /*
+    The invariant that matters more than either number: whatever they are set
+    to, the hold must outlive the session. If this fails, somebody can pay for
+    a slot that has already been released.
+  */
+  it("keeps the hold longer than the payment window", () => {
+    expect(DEFAULT_HOLD_TTL_MINUTES).toBeGreaterThan(30);
   });
 });

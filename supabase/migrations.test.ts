@@ -385,10 +385,39 @@ describe("slot_holds - the double-booking guarantee", () => {
     await expect(hold("2026-10-02T06:00:00Z", "2026-10-02T07:30:00Z")).resolves.toBeDefined();
   });
 
-  it("does not block a slot because an expired or converted hold once used it", async () => {
+  /*
+    CORRECTED 2026-08-31. This asserted that a CONVERTED hold stops blocking,
+    which is the double-booking defect stated at the schema level: converted
+    means somebody paid, and letting the slot go back into the index meant two
+    customers could buy the same hour.
+
+    Only `expired` and `released` free a slot. The constraint predicate is now
+    `status in ('held','converted')`.
+  */
+  it("does not block a slot because an EXPIRED hold once used it", async () => {
     await hold("2026-10-03T06:00:00Z", "2026-10-03T07:30:00Z", "expired");
-    await hold("2026-10-03T06:00:00Z", "2026-10-03T07:30:00Z", "converted");
     await expect(hold("2026-10-03T06:00:00Z", "2026-10-03T07:30:00Z")).resolves.toBeDefined();
+  });
+
+  /*
+    THE regression test for the worst defect this codebase has had. A paid
+    slot must be refused by the DATABASE, not merely filtered out of a list -
+    application code cannot settle a same-millisecond race.
+  */
+  it("REFUSES a hold overlapping a converted one, because somebody paid for it", async () => {
+    await hold("2026-10-13T06:00:00Z", "2026-10-13T07:30:00Z", "converted");
+    expect(await refused(() => hold("2026-10-13T06:00:00Z", "2026-10-13T07:30:00Z"))).toContain(
+      "slot_holds_no_overlapping_live_hold",
+    );
+  });
+
+  // Partial overlap counts too - a session starting inside a paid one is
+  // still a double booking.
+  it("refuses a hold that only partly overlaps a converted one", async () => {
+    await hold("2026-10-14T06:00:00Z", "2026-10-14T07:30:00Z", "converted");
+    expect(await refused(() => hold("2026-10-14T07:00:00Z", "2026-10-14T08:30:00Z"))).toContain(
+      "slot_holds_no_overlapping_live_hold",
+    );
   });
 
   it("refuses a hold that ends before it starts", async () => {
