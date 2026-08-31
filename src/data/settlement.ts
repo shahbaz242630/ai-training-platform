@@ -1,6 +1,7 @@
 import type { QueryRunner } from "./db";
 import { transitionPayment, type Order, type PaymentStatus } from "@/domain/booking/order";
 import { InvalidTransitionError } from "@/domain/booking/transitions";
+import { scheduleBooking, type Booking, type BookingStatus } from "@/domain/booking/booking";
 
 /**
  * What a verified payment event does to an order, its booking and its slot.
@@ -185,29 +186,60 @@ export async function settlePaidOrder(
   */
   const converted =
     input.slotHoldId === null
-      ? { rows: [] }
-      : await runner.query<{ id: string }>(
+      ? { rows: [] as { id: string; slot_start: Date; slot_end: Date }[] }
+      : await runner.query<{ id: string; slot_start: Date; slot_end: Date }>(
           `update slot_holds
               set status = 'converted'
             where id = $1 and order_id = $2 and status = 'held' and expires_at > $3
-            returning id`,
+            returning id, slot_start, slot_end`,
           [input.slotHoldId, order.id, input.now],
         );
 
-  if (converted.rows.length === 0) return "paid_without_slot";
+  const claimed = converted.rows[0];
+  if (!claimed) return "paid_without_slot";
 
   /*
-    The booking already carries its times from checkout, so scheduling is a
-    status move rather than a re-assertion of when the session is. It does NOT
-    go to `confirmed` here: there is no calendar event and no joining link
-    yet, and a booking that says confirmed without one is what produces a
-    confirmation email with nowhere to click.
+    The times come from the hold that was ACTUALLY converted, not from
+    anything written earlier. That is the point: one fact, one place. The
+    booking was created with no times precisely so the two could never drift.
+
+    The move goes through `scheduleBooking`, which is where the rule that a
+    slot must start before it ends lives, and which reads the permitted moves
+    off the transition table. A bare UPDATE here would be shorter and would
+    quietly route around the one place that says which state changes are legal
+    - which is exactly how the Booking aggregate ended up unreferenced by any
+    production code while keeping twenty-seven passing tests.
   */
+  const booking = await loadBookingForOrder(runner, order.id);
+  if (booking === null) {
+    /*
+      An order with no booking should be impossible - they are written in one
+      transaction. Reporting it as settled would claim a session exists for a
+      payment we just took, so this refuses to say so.
+    */
+    return "paid_without_slot";
+  }
+
+  const scheduled = scheduleBooking(
+    booking,
+    { start: claimed.slot_start, end: claimed.slot_end },
+    input.now,
+  );
+
   await runner.query(
     `update bookings
-        set status = 'scheduled', updated_at = $2
-      where order_id = $1 and status = 'awaiting_schedule'`,
-    [order.id, input.now],
+        set status = $2, scheduled_start = $3, scheduled_end = $4, updated_at = $5
+      where id = $1`,
+    [
+      // Scoped to the BOOKING, not the order. A pathway order has two bookings
+      // at two different times, and converting one hold must never mark both
+      // scheduled.
+      scheduled.entity.id,
+      scheduled.entity.status,
+      scheduled.entity.scheduledStart,
+      scheduled.entity.scheduledEnd,
+      scheduled.entity.updatedAt,
+    ],
   );
 
   return "settled";
@@ -289,4 +321,63 @@ export function describeMismatch(order: Order, input: SettleInput): string | nul
   }
 
   return null;
+}
+
+interface BookingRow {
+  readonly id: string;
+  readonly order_id: string;
+  readonly session_slug: string;
+  readonly sequence: number;
+  readonly status: BookingStatus;
+  readonly scheduled_start: Date | null;
+  readonly scheduled_end: Date | null;
+  readonly customer_timezone: string;
+  readonly scheduler_external_id: string | null;
+  readonly calendar_event_id: string | null;
+  readonly meeting_url: string | null;
+  readonly created_at: Date;
+  readonly updated_at: Date;
+}
+
+/**
+ * The booking this order is for.
+ *
+ * Ordered by sequence and taking the first, because v1 sells single sessions
+ * and a pathway would have two. When pathways ship this has to take the
+ * booking matching the converted hold rather than simply the first - which is
+ * why it returns one booking rather than quietly updating every row for the
+ * order, as the SQL it replaced did.
+ */
+async function loadBookingForOrder(runner: QueryRunner, orderId: string): Promise<Booking | null> {
+  const result = await runner.query<BookingRow>(
+    `select id, order_id, session_slug, sequence, status,
+            scheduled_start, scheduled_end, customer_timezone,
+            scheduler_external_id, calendar_event_id, meeting_url,
+            created_at, updated_at
+       from bookings
+      where order_id = $1 and status = 'awaiting_schedule'
+      order by sequence
+      limit 1`,
+    [orderId],
+  );
+
+  const row = result.rows[0];
+  if (!row) return null;
+
+  return {
+    id: row.id,
+    orderId: row.order_id,
+    sessionSlug: row.session_slug,
+    sequence: row.sequence,
+    status: row.status,
+    scheduledStart: row.scheduled_start,
+    scheduledEnd: row.scheduled_end,
+    customerTimezone: row.customer_timezone,
+    schedulerExternalId: row.scheduler_external_id,
+    calendarEventId: row.calendar_event_id,
+    meetingUrl: row.meeting_url,
+    meetingProvider: "microsoft_teams",
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
 }

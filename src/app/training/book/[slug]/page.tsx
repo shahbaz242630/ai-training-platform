@@ -8,6 +8,7 @@ import { BookingPanel } from "@/components/training/BookingPanel";
 import { getSessionBySlug, getActiveSessions } from "@/config/sessions";
 import { formatAed } from "@/lib/money";
 import { offeredSlots } from "./availability";
+import { paymentsAreConfigured } from "@/domain/payments/factory";
 import { logger } from "@/lib/logger";
 
 /*
@@ -121,6 +122,14 @@ export default async function BookSessionPage({ params }: PageProps<"/training/b
             */}
             <aside className="lg:sticky lg:top-24 lg:self-start">
               <BookingPanel
+                /*
+                  Asked BEFORE the form is shown, not after it is filled in.
+                  Without this a customer types their name, email and goal, has
+                  those committed to the database, chooses a time, presses pay -
+                  and only then learns that payment is unavailable. The check
+                  existed and was tested; nothing consulted it.
+                */
+                paymentsAvailable={paymentsAreConfigured()}
                 slug={session.slug}
                 slotStarts={slots.map((slot) => slot.start.toISOString())}
                 durationMinutes={session.durationMinutes}

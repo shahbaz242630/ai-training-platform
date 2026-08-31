@@ -1,5 +1,7 @@
 import type { QueryRunner } from "./db";
+import { randomUUID } from "node:crypto";
 import type { Order } from "@/domain/booking/order";
+import { createBooking } from "@/domain/booking/booking";
 
 /**
  * Writing an order, its booking, and the claim on the time it needs.
@@ -100,17 +102,50 @@ export async function persistPendingOrder(
     ],
   );
 
-  const booking = await runner.query<{ id: string }>(
+  /*
+    Built by the domain rather than assembled in SQL. `createBooking` is where
+    the rules live - sequence must be 1 or 2, a timezone is required - and a
+    hand-written INSERT enforces none of them. This module used to write the
+    row directly, which is how the whole Booking aggregate drifted out of the
+    call graph while keeping its tests green.
+
+    It is born with NO TIMES and that is deliberate. The chosen slot already
+    exists, once, on the slot hold; copying it onto the booking before anybody
+    has paid would create a second place for the same fact to live and disagree
+    from. The times are attached when payment settles, from the hold that was
+    actually converted.
+  */
+  const booking = createBooking({
+    id: randomUUID(),
+    orderId: o.id,
+    sessionSlug: input.sessionSlug,
+    sequence: 1,
+    customerTimezone: input.customerTimezone,
+    now: o.createdAt,
+  });
+
+  await runner.query(
     `insert into bookings (
-       order_id, session_slug, sequence, status,
-       scheduled_start, scheduled_end, customer_timezone
-     ) values ($1, $2, 1, 'awaiting_schedule', $3, $4, $5)
-     returning id`,
-    [o.id, input.sessionSlug, input.slotStart, input.slotEnd, input.customerTimezone],
+       id, order_id, session_slug, sequence, status,
+       scheduled_start, scheduled_end, customer_timezone,
+       meeting_provider, created_at, updated_at
+     ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+    [
+      booking.id,
+      booking.orderId,
+      booking.sessionSlug,
+      booking.sequence,
+      booking.status,
+      booking.scheduledStart,
+      booking.scheduledEnd,
+      booking.customerTimezone,
+      booking.meetingProvider,
+      booking.createdAt,
+      booking.updatedAt,
+    ],
   );
 
-  const bookingId = booking.rows[0]?.id;
-  if (!bookingId) throw new Error("persistPendingOrder stored no booking, which is impossible");
+  const bookingId = booking.id;
 
   /*
     The hold is claimed by this order, and only if it is still live. A hold
