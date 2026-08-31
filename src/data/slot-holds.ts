@@ -1,5 +1,5 @@
 import { withTransaction, type QueryRunner } from "./db";
-import type { SlotHold, SlotHoldStatus } from "@/domain/booking/slot-hold";
+import { sweepExpiredHolds, type SlotHold, type SlotHoldStatus } from "@/domain/booking/slot-hold";
 
 /**
  * Claiming a time slot, and losing that race gracefully.
@@ -194,4 +194,51 @@ export async function listLiveHolds(
     [window.from, window.to, now],
   );
   return result.rows.map(toSlotHold);
+}
+
+/**
+ * The sweep: end the holds whose time ran out, and say which calendar events
+ * need deleting as a result.
+ *
+ * Two runs of this can overlap - a cron that fires every five minutes while a
+ * previous run is still working is normal, not exceptional. `for update skip
+ * locked` is what makes that safe: the second run steps over the rows the
+ * first has already claimed instead of blocking behind them or expiring them
+ * twice.
+ *
+ * The decision about WHICH holds expire is made by the domain, not by this
+ * SQL. That is deliberate - `sweepExpiredHolds` applies the transition table,
+ * so a hold can only reach `expired` by a move the table permits. A bare
+ * `update ... where expires_at < now()` would be shorter and would quietly
+ * route around the one place that says which state changes are legal.
+ *
+ * Returns the holds it ended, each still carrying its `calendarEventId`: the
+ * tentative event has to be deleted too, or the slot stays blocked on the real
+ * calendar even though the hold is gone.
+ */
+export async function claimExpiredHolds(
+  runner: QueryRunner,
+  now: Date,
+  limit = 200,
+): Promise<readonly SlotHold[]> {
+  const claimed = await runner.query<SlotHoldRow>(
+    `select id, slot_start, slot_end, order_id, calendar_event_id,
+            expires_at, status, created_at
+       from slot_holds
+      where status = 'held'
+        and expires_at <= $1
+      order by expires_at
+      limit $2
+      for update skip locked`,
+    [now, limit],
+  );
+
+  const expired = sweepExpiredHolds(claimed.rows.map(toSlotHold), now);
+  if (expired.length === 0) return [];
+
+  await runner.query(`update slot_holds set status = 'expired' where id = any($1::uuid[])`, [
+    expired.map((hold) => hold.id),
+  ]);
+
+  return expired;
 }

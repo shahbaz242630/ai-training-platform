@@ -3,7 +3,13 @@ import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { PGlite } from "@electric-sql/pglite";
 import { beforeAll, afterAll } from "vitest";
-import { holdSlot, isRetryableContention, isSlotTaken, listLiveHolds } from "./slot-holds";
+import {
+  claimExpiredHolds,
+  holdSlot,
+  isRetryableContention,
+  isSlotTaken,
+  listLiveHolds,
+} from "./slot-holds";
 import type { QueryRunner } from "./db";
 
 /**
@@ -350,5 +356,119 @@ describe("listLiveHolds", () => {
     expect(hold).toMatchObject({ status: "held", orderId: null, calendarEventId: null });
     expect(hold?.expiresAt).toBeInstanceOf(Date);
     expect(hold?.createdAt).toBeInstanceOf(Date);
+  });
+});
+
+/*
+  The sweep, against the real table.
+
+  Two properties are worth more than the happy path: it must not expire a hold
+  that is still live, and running it twice must not do the work twice.
+*/
+describe("claimExpiredHolds", () => {
+  const NOW = new Date("2027-06-01T12:00:00Z");
+
+  const insert = (startIso: string, expiresAtIso: string, eventId: string | null = null) =>
+    db
+      .query<{ id: string }>(
+        `insert into slot_holds (slot_start, slot_end, expires_at, calendar_event_id)
+         values ($1, $2, $3, $4) returning id`,
+        [
+          new Date(startIso),
+          new Date(new Date(startIso).getTime() + 90 * 60_000),
+          new Date(expiresAtIso),
+          eventId,
+        ],
+      )
+      .then((r) => r.rows[0]?.id ?? "");
+
+  const statusOf = (id: string) =>
+    db
+      .query<{ status: string }>("select status from slot_holds where id = $1", [id])
+      .then((r) => r.rows[0]?.status);
+
+  it("expires a hold whose time has run out", async () => {
+    const id = await insert("2027-06-02T10:00:00Z", "2027-06-01T11:45:00Z");
+
+    const swept = await claimExpiredHolds(db as unknown as QueryRunner, NOW);
+
+    expect(swept.some((hold) => hold.id === id)).toBe(true);
+    expect(await statusOf(id)).toBe("expired");
+  });
+
+  /*
+    A hold with two minutes left is somebody part way through paying. Expiring
+    it would release the slot from under a customer at the card screen.
+  */
+  it("leaves a hold that has not expired alone", async () => {
+    const id = await insert("2027-06-03T10:00:00Z", "2027-06-01T12:02:00Z");
+
+    await claimExpiredHolds(db as unknown as QueryRunner, NOW);
+
+    expect(await statusOf(id)).toBe("held");
+  });
+
+  // A cron firing while the previous run is still working is normal.
+  it("does nothing on a second pass, so overlapping runs are safe", async () => {
+    const id = await insert("2027-06-04T10:00:00Z", "2027-06-01T11:00:00Z");
+
+    const first = await claimExpiredHolds(db as unknown as QueryRunner, NOW);
+    const second = await claimExpiredHolds(db as unknown as QueryRunner, NOW);
+
+    expect(first.some((hold) => hold.id === id)).toBe(true);
+    expect(second.some((hold) => hold.id === id)).toBe(false);
+    expect(await statusOf(id)).toBe("expired");
+  });
+
+  /*
+    A hold that already converted into a booking must never be expired by a
+    sweep - that would release the slot for a session somebody has paid for.
+  */
+  it("never touches a hold that already ended", async () => {
+    const id = await insert("2027-06-05T10:00:00Z", "2027-06-01T11:00:00Z");
+    await db.query("update slot_holds set status = 'converted' where id = $1", [id]);
+
+    const swept = await claimExpiredHolds(db as unknown as QueryRunner, NOW);
+
+    expect(swept.some((hold) => hold.id === id)).toBe(false);
+    expect(await statusOf(id)).toBe("converted");
+  });
+
+  /*
+    The event id has to come back, or the tentative entry keeps blocking the
+    real calendar after we have released the hold.
+  */
+  it("returns the calendar event that still needs deleting", async () => {
+    const id = await insert("2027-06-06T10:00:00Z", "2027-06-01T11:00:00Z", "graph-event-123");
+
+    const swept = await claimExpiredHolds(db as unknown as QueryRunner, NOW);
+
+    expect(swept.find((hold) => hold.id === id)?.calendarEventId).toBe("graph-event-123");
+  });
+
+  it("reports an empty sweep as empty rather than as an error", async () => {
+    const swept = await claimExpiredHolds(
+      db as unknown as QueryRunner,
+      new Date("2020-01-01T00:00:00Z"),
+    );
+    expect(swept).toEqual([]);
+  });
+
+  // The slot goes back on sale the moment the hold is gone.
+  it("frees the slot it was blocking", async () => {
+    const id = await insert("2027-06-07T10:00:00Z", "2027-06-01T11:00:00Z");
+    await claimExpiredHolds(db as unknown as QueryRunner, NOW);
+
+    const outcome = await holdSlot(
+      {
+        slotStart: new Date("2027-06-07T10:00:00Z"),
+        slotEnd: new Date("2027-06-07T11:30:00Z"),
+        expiresAt: new Date("2027-06-01T12:15:00Z"),
+      },
+      realTransaction,
+    );
+
+    expect(outcome.ok).toBe(true);
+    expect(await statusOf(id)).toBe("expired");
   });
 });
