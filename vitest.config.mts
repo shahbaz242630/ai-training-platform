@@ -42,10 +42,13 @@ export default defineConfig({
         deliberately when real coverage rises - never lower them to go green.
       */
       thresholds: {
-        lines: 91,
-        functions: 91,
+        // Raised 2026-08-31 with the payment port, which arrived at
+        // 94.81/93.80/93.20/93.11. Never lowered - if a change drops coverage
+        // it removed test value, and that is the thing to fix.
+        lines: 93,
+        functions: 92,
         branches: 92,
-        statements: 90,
+        statements: 92,
       },
     },
   },
