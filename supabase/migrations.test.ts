@@ -421,6 +421,88 @@ describe("slot_holds - the double-booking guarantee", () => {
     );
   });
 
+  /*
+    The manual-recovery path was the only one with no protection. Settlement
+    can leave an order paid with its booking unscheduled, and the fix for that
+    is an admin editing bookings.scheduled_start directly - straight on top of
+    a session somebody else has already paid for, with nothing objecting.
+
+    Verified before the constraint existed: Postgres accepted two `scheduled`
+    bookings on identical times.
+  */
+  it("refuses two scheduled bookings on the same time", async () => {
+    const orderA = await newOrder(await newCustomer());
+    const orderB = await newOrder(await newCustomer());
+
+    await db.query(
+      `insert into bookings (order_id, session_slug, sequence, status,
+                             scheduled_start, scheduled_end, customer_timezone)
+       values ($1, 'ai-foundations', 1, 'scheduled', $2, $3, 'Asia/Dubai')`,
+      [orderA, new Date("2028-03-01T10:00:00Z"), new Date("2028-03-01T11:30:00Z")],
+    );
+
+    expect(
+      await refused(() =>
+        db.query(
+          `insert into bookings (order_id, session_slug, sequence, status,
+                                 scheduled_start, scheduled_end, customer_timezone)
+           values ($1, 'ai-foundations', 1, 'scheduled', $2, $3, 'Asia/Dubai')`,
+          [orderB, new Date("2028-03-01T10:00:00Z"), new Date("2028-03-01T11:30:00Z")],
+        ),
+      ),
+    ).toContain("bookings_no_overlapping_session");
+  });
+
+  // The rescue path itself: moving a booking onto a taken time must fail.
+  it("refuses rescheduling a booking onto a time already booked", async () => {
+    const orderA = await newOrder(await newCustomer());
+    const orderB = await newOrder(await newCustomer());
+
+    await db.query(
+      `insert into bookings (order_id, session_slug, sequence, status,
+                             scheduled_start, scheduled_end, customer_timezone)
+       values ($1, 'ai-foundations', 1, 'scheduled', $2, $3, 'Asia/Dubai')`,
+      [orderA, new Date("2028-03-02T10:00:00Z"), new Date("2028-03-02T11:30:00Z")],
+    );
+    const rescued = await db.query<{ id: string }>(
+      `insert into bookings (order_id, session_slug, sequence, status, customer_timezone)
+       values ($1, 'ai-foundations', 1, 'awaiting_schedule', 'Asia/Dubai') returning id`,
+      [orderB],
+    );
+
+    expect(
+      await refused(() =>
+        db.query(
+          `update bookings set status = 'scheduled', scheduled_start = $2, scheduled_end = $3
+            where id = $1`,
+          [rescued.rows[0]?.id, new Date("2028-03-02T10:30:00Z"), new Date("2028-03-02T11:00:00Z")],
+        ),
+      ),
+    ).toContain("bookings_no_overlapping_session");
+  });
+
+  // A cancelled session genuinely frees its time, and keeps its own record.
+  it("allows a booking on a time whose previous session was cancelled", async () => {
+    const orderA = await newOrder(await newCustomer());
+    const orderB = await newOrder(await newCustomer());
+
+    await db.query(
+      `insert into bookings (order_id, session_slug, sequence, status,
+                             scheduled_start, scheduled_end, customer_timezone)
+       values ($1, 'ai-foundations', 1, 'cancelled', $2, $3, 'Asia/Dubai')`,
+      [orderA, new Date("2028-03-03T10:00:00Z"), new Date("2028-03-03T11:30:00Z")],
+    );
+
+    await expect(
+      db.query(
+        `insert into bookings (order_id, session_slug, sequence, status,
+                               scheduled_start, scheduled_end, customer_timezone)
+         values ($1, 'ai-foundations', 1, 'scheduled', $2, $3, 'Asia/Dubai')`,
+        [orderB, new Date("2028-03-03T10:00:00Z"), new Date("2028-03-03T11:30:00Z")],
+      ),
+    ).resolves.toBeDefined();
+  });
+
   it("refuses a hold that ends before it starts", async () => {
     expect(await refused(() => hold("2026-10-04T08:00:00Z", "2026-10-04T06:00:00Z"))).toContain(
       "slot_holds_ordered",

@@ -452,13 +452,58 @@ describe("an event must match the order it names", () => {
   });
 
   /*
-    An absent field is not evidence of a mismatch. Refusing on it would reject
-    legitimate settlements the day the processor changes what an event carries.
+    TIGHTENED 2026-08-31. This asserted that an absent event field skips its
+    check. For the checkout session that was exploitable: the attacker chooses
+    the event, so an optional check is optional for them too - a session shape
+    carrying no id skipped every comparison at once.
+
+    Once WE know which session an order belongs to, a match is now required.
   */
-  it("skips a check the event did not carry, rather than failing it", () => {
+  it("refuses an event carrying no session id once the order knows its own", () => {
     expect(
       describeMismatch(orderFor("o5"), { orderId: "o5", slotHoldId: null, now: NOW }),
+    ).toContain("different checkout session");
+  });
+
+  /*
+    The genuine skip that remains: our OWN side is null. The session id is
+    attached in a separate transaction just after checkout starts, so an event
+    can legitimately arrive before we have recorded it.
+  */
+  it("still settles when we have not yet recorded a session id of our own", () => {
+    const order = { ...orderFor("o6"), stripeCheckoutSessionId: null };
+    expect(
+      describeMismatch(order, {
+        orderId: "o6",
+        slotHoldId: null,
+        checkoutSessionId: "cs_whatever",
+        paidAmountFils: 129900,
+        now: NOW,
+      }),
     ).toBeNull();
+  });
+
+  /*
+    The failure path was unguarded, which made it the CHEAPER attack: an
+    expiring session costs nothing and released somebody else's slot.
+  */
+  it("refuses a failure event that names a different session", async () => {
+    const { orderId, slotHoldId } = await pendingOrder("failure-mismatch@example.com");
+    await db.query("update orders set stripe_checkout_session_id = $2 where id = $1", [
+      orderId,
+      "cs_ours",
+    ]);
+
+    const outcome = await releaseFailedOrder(runner, {
+      orderId,
+      slotHoldId,
+      checkoutSessionId: "cs_someone_elses",
+      now: NOW,
+    });
+
+    expect(outcome).toBe("mismatched");
+    expect((await statusOf(orderId)).order).toBe("pending");
+    expect(await holdStatus(slotHoldId)).toBe("held");
   });
 
   it("does not settle an order when the event does not match", async () => {

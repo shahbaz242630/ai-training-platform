@@ -203,3 +203,28 @@ describe("countPaidButUnscheduled", () => {
     expect(await countPaidButUnscheduled(runner)).toBe(before);
   });
 });
+
+/*
+  TRUNCATE is a separate trigger event. The row-level trigger that refuses
+  UPDATE and DELETE does not fire on it at all, so the table could be emptied
+  in one statement while every other protection looked intact.
+*/
+describe("append-only survives TRUNCATE", () => {
+  it("refuses to truncate the audit trail", async () => {
+    await insertAuditEvent(runner, event());
+    await expect(db.query("truncate audit_events")).rejects.toThrow(/append-only/i);
+  });
+
+  it("leaves the rows in place after a refused truncate", async () => {
+    const e = event();
+    await insertAuditEvent(runner, e);
+    await db.query("truncate audit_events").catch(() => undefined);
+
+    const remaining = await db
+      .query<{ n: number }>("select count(*)::int as n from audit_events where subject = $1", [
+        e.subject,
+      ])
+      .then((r) => r.rows[0]?.n);
+    expect(remaining).toBe(1);
+  });
+});

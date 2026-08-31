@@ -52,16 +52,24 @@ reach our infrastructure at any point.
 - **Idempotent webhook handling** keyed on the Stripe event ID.
 - **Redacting logger** - tokens, keys, card fields, cookies and authorization
   headers are stripped before anything is written.
-- **Audit trail persisted to Postgres**, and **append-only enforced by a
-  database trigger** rather than by convention — an audit row that can be
-  edited is not evidence. Covers order creation, slot holds and their release,
-  and every payment webhook outcome. Booking confirmation and cancellation
-  events are declared but not yet emitted, because those flows do not exist.
+- **Audit trail persisted to Postgres**, and **append-only enforced by database
+  triggers** — against `UPDATE`, `DELETE` and `TRUNCATE`, the last needing its
+  own statement-level trigger that the first migration omitted. An audit row
+  that can be edited, or a table that can be emptied in one statement, is not
+  evidence. Covers order creation, slot holds and their release, and the
+  settled, failed and duplicate webhook outcomes. **It does not yet cover the
+  mismatched, refused or unknown-order outcomes**, which are the ones that
+  indicate probing — those currently log only. Booking confirmation and
+  cancellation are declared but not emitted, because those flows do not exist.
 - **Zod validation** on every external input, server-side.
 - **Database TLS chain verification** when `DATABASE_CA_CERT` is configured.
-  Without it the connection is encrypted but *not authenticated*; the absence
-  is logged at error level rather than passed over silently, and it is a
-  launch blocker.
+  TLS parameters are stripped from `DATABASE_URL` first, because the driver
+  lets a parsed connection string overwrite the `ssl` option passed beside it —
+  so `?sslmode=require` silently discarded the CA and `?sslmode=no-verify`
+  disabled verification entirely while this code took its secure branch.
+  Without a certificate the connection is encrypted but *not authenticated*;
+  the absence is logged at error level rather than passed over, and it remains
+  a launch blocker.
 - **Payment events are checked against the order they name** — checkout
   session, amount and currency — because a verified signature proves an event
   came from the processor, not that it is about our order.

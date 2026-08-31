@@ -52,12 +52,22 @@ export async function insertAuditEvent(runner: QueryRunner, event: AuditEvent): 
  * should alert on the number and never log customer records on a timer.
  */
 export async function countPaidButUnscheduled(runner: QueryRunner): Promise<number> {
+  /*
+    A LEFT JOIN, and the difference matters.
+
+    An inner join counted only paid orders that HAVE a booking waiting. An
+    order with no booking row at all produced no row, so the count stayed zero
+    and the alarm never fired - and that is a reachable state: settlement
+    converts the hold before loading the booking, so a missing booking leaves
+    the slot permanently blocked, the money taken, and nothing pointing at it.
+    The one case with no other trace was the one the alarm could not see.
+  */
   const result = await runner.query<{ n: number }>(
     `select count(*)::int as n
        from orders o
-       join bookings b on b.order_id = o.id
+       left join bookings b on b.order_id = o.id
       where o.payment_status = 'paid'
-        and b.status = 'awaiting_schedule'`,
+        and (b.id is null or b.status = 'awaiting_schedule')`,
   );
   return result.rows[0]?.n ?? 0;
 }

@@ -149,6 +149,11 @@ export async function POST(request: Request): Promise<NextResponse> {
           : await releaseFailedOrder(runner, {
               orderId: event.orderId ?? "",
               slotHoldId: event.slotHoldId,
+              // Checked here too. Releasing somebody else's slot needs no
+              // money, so the failure path is the cheaper one to attack.
+              checkoutSessionId: event.checkoutSessionId,
+              paidAmountFils: event.amountFils,
+              paidCurrency: event.currency,
               now: new Date(),
             });
 
@@ -263,6 +268,18 @@ async function reportOutcome(
       path this is either a misconfiguration or somebody trying it on.
     */
     case "mismatched":
+      /*
+        Written to the trail, not only logged. This outcome means either a
+        misconfiguration or somebody trying it on, and those are exactly the
+        ones worth durable evidence of - leaving them in stdout is the failure
+        the audit table was built to end.
+      */
+      await recordAudit({
+        action: "webhook.signature_rejected",
+        actor: { kind: "provider", provider: "stripe" },
+        subject: `order:${orderId}`,
+        metadata: { eventId, eventType, reason: "event did not match the order it named" },
+      });
       logger.error("a payment event did not match the order it named", {
         orderId,
         eventId,
@@ -271,6 +288,18 @@ async function reportOutcome(
       return;
 
     case "refused":
+      /*
+        Written to the trail, not only logged. This outcome means either a
+        misconfiguration or somebody trying it on, and those are exactly the
+        ones worth durable evidence of - leaving them in stdout is the failure
+        the audit table was built to end.
+      */
+      await recordAudit({
+        action: "webhook.signature_rejected",
+        actor: { kind: "provider", provider: "stripe" },
+        subject: `order:${orderId}`,
+        metadata: { eventId, eventType, reason: "state machine refused the move" },
+      });
       logger.error("a payment event was refused by the state machine", {
         orderId,
         eventId,
@@ -280,7 +309,20 @@ async function reportOutcome(
 
     case "unknown_order":
       // Verified by signature, so it really came from the processor - and yet
-      // names an order we have never written. Worth knowing about.
+      // names an order we have never written. This is the shape of somebody
+      // guessing at order ids, so it is kept rather than only logged.
+      /*
+        Written to the trail, not only logged. This outcome means either a
+        misconfiguration or somebody trying it on, and those are exactly the
+        ones worth durable evidence of - leaving them in stdout is the failure
+        the audit table was built to end.
+      */
+      await recordAudit({
+        action: "webhook.signature_rejected",
+        actor: { kind: "provider", provider: "stripe" },
+        subject: `order:${orderId}`,
+        metadata: { eventId, eventType, reason: "no such order" },
+      });
       logger.error("a verified payment event named an order we do not have", { orderId, eventId });
       return;
   }

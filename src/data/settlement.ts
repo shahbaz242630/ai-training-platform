@@ -263,6 +263,18 @@ export async function releaseFailedOrder(
   const order = await lockOrder(runner, input.orderId);
   if (order === null) return "unknown_order";
 
+  /*
+    The FAILURE path is checked too, and it was not before.
+
+    The paid path was guarded and this one was left open, which made the
+    cheaper attack the unguarded one: an event naming somebody else's order
+    moves it to `failed` and releases its slot hold, and an expiring checkout
+    session costs whoever created it nothing at all. Guarding only the path
+    where money moves misses that the damage here needs no money.
+  */
+  const mismatch = describeMismatch(order, input);
+  if (mismatch !== null) return "mismatched";
+
   let moved;
   try {
     moved = transitionPayment(order, "failed", input.now);
@@ -304,8 +316,18 @@ export async function releaseFailedOrder(
 export function describeMismatch(order: Order, input: SettleInput): string | null {
   const { checkoutSessionId, paidAmountFils, paidCurrency } = input;
 
+  /*
+    Once WE know which session an order belongs to, a matching session id is
+    REQUIRED rather than merely compared when offered. Skipping on an absent
+    event field let a caller choose a shape that carries no session id and slip
+    every check at once - the attacker picks the event, so an optional check is
+    an optional check for them too.
+
+    It still skips while our own side is null, which is a real window: the
+    session id is attached in a separate transaction just after checkout
+    starts.
+  */
   if (
-    checkoutSessionId != null &&
     order.stripeCheckoutSessionId != null &&
     checkoutSessionId !== order.stripeCheckoutSessionId
   ) {
