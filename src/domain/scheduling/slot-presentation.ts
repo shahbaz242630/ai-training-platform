@@ -139,6 +139,15 @@ function dayKey(instant: Date, timeZone: string): string {
   return `${value("year")}-${value("month")}-${value("day")}`;
 }
 
+/**
+ * An instant on that zone's clock. Exported so nothing else invents its own
+ * formatting - an hour cycle that differs from the calendar's would show a
+ * customer their hold expiring at "23:40" beside a slot labelled "11:40 pm".
+ */
+export function formatClockTime(instant: Date, timeZone: string): string {
+  return formatTime(instant, timeZone);
+}
+
 function formatTime(instant: Date, timeZone: string): string {
   return new Intl.DateTimeFormat(LOCALE, {
     timeZone,

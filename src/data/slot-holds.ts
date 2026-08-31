@@ -1,4 +1,5 @@
 import { withTransaction, type QueryRunner } from "./db";
+import type { SlotHold, SlotHoldStatus } from "@/domain/booking/slot-hold";
 
 /**
  * Claiming a time slot, and losing that race gracefully.
@@ -61,6 +62,31 @@ export function isSlotTaken(error: unknown): boolean {
 export function isRetryableContention(error: unknown): boolean {
   const code = errorCode(error);
   return code === DEADLOCK_DETECTED || code === SERIALIZATION_FAILURE;
+}
+
+interface SlotHoldRow {
+  readonly id: string;
+  readonly slot_start: Date;
+  readonly slot_end: Date;
+  readonly order_id: string | null;
+  readonly calendar_event_id: string | null;
+  readonly expires_at: Date;
+  readonly status: SlotHoldStatus;
+  readonly created_at: Date;
+}
+
+/** Rows in, domain type out. Nothing above this line knows about column names. */
+function toSlotHold(row: SlotHoldRow): SlotHold {
+  return {
+    id: row.id,
+    slotStart: row.slot_start,
+    slotEnd: row.slot_end,
+    orderId: row.order_id,
+    calendarEventId: row.calendar_event_id,
+    expiresAt: row.expires_at,
+    status: row.status,
+    createdAt: row.created_at,
+  };
 }
 
 export interface HoldSlotInput {
@@ -138,4 +164,34 @@ export async function holdSlot(
   }
   // Unreachable: the loop either returns or throws on the second attempt.
   throw new Error("holdSlot exhausted its attempts without a verdict");
+}
+
+/**
+ * The holds that still block a slot, within the window being shown.
+ *
+ * Expiry is applied HERE in SQL as well as by status, deliberately. A hold
+ * whose fifteen minutes ran out two seconds ago is not blocking anything, and
+ * availability must not depend on whether the sweep has caught up with it yet
+ * - a late cron run must never take a sellable slot off the calendar.
+ *
+ * Returns the domain type rather than rows, so the same `isSlotAvailable` the
+ * tests exercise is what decides what a customer is offered.
+ */
+export async function listLiveHolds(
+  runner: QueryRunner,
+  window: { readonly from: Date; readonly to: Date },
+  now: Date,
+): Promise<readonly SlotHold[]> {
+  const result = await runner.query<SlotHoldRow>(
+    `select id, slot_start, slot_end, order_id, calendar_event_id,
+            expires_at, status, created_at
+       from slot_holds
+      where status = 'held'
+        and expires_at > $3
+        and slot_start < $2
+        and slot_end > $1
+      order by slot_start`,
+    [window.from, window.to, now],
+  );
+  return result.rows.map(toSlotHold);
 }

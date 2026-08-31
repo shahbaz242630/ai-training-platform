@@ -3,7 +3,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { PGlite } from "@electric-sql/pglite";
 import { beforeAll, afterAll } from "vitest";
-import { holdSlot, isRetryableContention, isSlotTaken } from "./slot-holds";
+import { holdSlot, isRetryableContention, isSlotTaken, listLiveHolds } from "./slot-holds";
 import type { QueryRunner } from "./db";
 
 /**
@@ -223,5 +223,132 @@ describe("holdSlot", () => {
   it("lets a genuine failure through rather than calling it a lost race", async () => {
     const broken = () => Promise.reject(Object.assign(new Error("no table"), { code: "42P01" }));
     await expect(holdSlot(slot("2027-01-11T06:00:00Z"), broken)).rejects.toThrow("no table");
+  });
+});
+
+/*
+  listLiveHolds decides what a customer is OFFERED, so the two things that
+  matter are that a hold blocks its slot, and that it stops blocking the
+  instant it expires - whether or not a sweep has run. A late cron must never
+  take a sellable slot off the calendar.
+*/
+describe("listLiveHolds", () => {
+  const WINDOW_FROM = new Date("2027-03-01T00:00:00Z");
+  const WINDOW_TO = new Date("2027-03-08T00:00:00Z");
+  const NOW = new Date("2027-03-01T09:00:00Z");
+
+  const insert = (startIso: string, expiresAtIso: string, status = "held") =>
+    db.query(
+      `insert into slot_holds (slot_start, slot_end, expires_at, status)
+       values ($1, $2, $3, $4) returning id`,
+      [
+        new Date(startIso),
+        new Date(new Date(startIso).getTime() + 90 * 60_000),
+        new Date(expiresAtIso),
+        status,
+      ],
+    );
+
+  it("returns a hold that is still live", async () => {
+    await insert("2027-03-02T10:00:00Z", "2027-03-01T09:15:00Z");
+
+    const holds = await listLiveHolds(
+      db as unknown as QueryRunner,
+      {
+        from: WINDOW_FROM,
+        to: WINDOW_TO,
+      },
+      NOW,
+    );
+
+    expect(holds.some((h) => h.slotStart.toISOString() === "2027-03-02T10:00:00.000Z")).toBe(true);
+  });
+
+  /*
+    THE one that matters. An abandoned checkout must not hold a slot hostage
+    until a cron run happens to notice - availability is never allowed to
+    depend on the sweep having kept up.
+  */
+  it("ignores a hold whose expiry has passed, even though nothing has swept it", async () => {
+    await insert("2027-03-03T10:00:00Z", "2027-03-01T08:59:00Z");
+
+    const holds = await listLiveHolds(
+      db as unknown as QueryRunner,
+      {
+        from: WINDOW_FROM,
+        to: WINDOW_TO,
+      },
+      NOW,
+    );
+
+    expect(holds.some((h) => h.slotStart.toISOString() === "2027-03-03T10:00:00.000Z")).toBe(false);
+  });
+
+  it("ignores holds that already ended, whatever ended them", async () => {
+    await insert("2027-03-04T10:00:00Z", "2027-03-01T23:00:00Z", "converted");
+    await insert("2027-03-04T13:00:00Z", "2027-03-01T23:00:00Z", "released");
+    await insert("2027-03-04T15:00:00Z", "2027-03-01T23:00:00Z", "expired");
+
+    const holds = await listLiveHolds(
+      db as unknown as QueryRunner,
+      {
+        from: WINDOW_FROM,
+        to: WINDOW_TO,
+      },
+      NOW,
+    );
+
+    const onThatDay = holds.filter((h) => h.slotStart.toISOString().startsWith("2027-03-04"));
+    expect(onThatDay).toEqual([]);
+  });
+
+  // Reading the whole table to render one week would get slower every month.
+  it("does not return holds outside the window being shown", async () => {
+    await insert("2027-04-20T10:00:00Z", "2027-03-01T23:00:00Z");
+
+    const holds = await listLiveHolds(
+      db as unknown as QueryRunner,
+      {
+        from: WINDOW_FROM,
+        to: WINDOW_TO,
+      },
+      NOW,
+    );
+
+    expect(holds.some((h) => h.slotStart.toISOString().startsWith("2027-04"))).toBe(false);
+  });
+
+  // A hold that starts before the window but runs into it still blocks it.
+  it("includes a hold that only overlaps the edge of the window", async () => {
+    await insert("2027-02-28T23:30:00Z", "2027-03-01T23:00:00Z");
+
+    const holds = await listLiveHolds(
+      db as unknown as QueryRunner,
+      {
+        from: WINDOW_FROM,
+        to: WINDOW_TO,
+      },
+      NOW,
+    );
+
+    expect(holds.some((h) => h.slotStart.toISOString() === "2027-02-28T23:30:00.000Z")).toBe(true);
+  });
+
+  it("hands back the domain shape, not database column names", async () => {
+    await insert("2027-03-05T10:00:00Z", "2027-03-01T23:00:00Z");
+
+    const holds = await listLiveHolds(
+      db as unknown as QueryRunner,
+      {
+        from: WINDOW_FROM,
+        to: WINDOW_TO,
+      },
+      NOW,
+    );
+    const hold = holds.find((h) => h.slotStart.toISOString() === "2027-03-05T10:00:00.000Z");
+
+    expect(hold).toMatchObject({ status: "held", orderId: null, calendarEventId: null });
+    expect(hold?.expiresAt).toBeInstanceOf(Date);
+    expect(hold?.createdAt).toBeInstanceOf(Date);
   });
 });
