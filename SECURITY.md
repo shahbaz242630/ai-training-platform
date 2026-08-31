@@ -52,11 +52,11 @@ reach our infrastructure at any point.
 - **Idempotent webhook handling** keyed on the Stripe event ID.
 - **Redacting logger** - tokens, keys, card fields, cookies and authorization
   headers are stripped before anything is written.
-- **Audit trail** for payment webhook events — signature rejections, duplicate
-  deliveries, and payment success/failure. **It is written through the logger,
-  not to a database.** There is no audit table yet, and order creation and slot
-  holds are not audited at all, so this is narrower than the name suggests.
-  Persisting it is tracked as a launch item.
+- **Audit trail persisted to Postgres**, and **append-only enforced by a
+  database trigger** rather than by convention — an audit row that can be
+  edited is not evidence. Covers order creation, slot holds and their release,
+  and every payment webhook outcome. Booking confirmation and cancellation
+  events are declared but not yet emitted, because those flows do not exist.
 - **Zod validation** on every external input, server-side.
 - **Database TLS chain verification** when `DATABASE_CA_CERT` is configured.
   Without it the connection is encrypted but *not authenticated*; the absence

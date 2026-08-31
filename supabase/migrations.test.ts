@@ -89,6 +89,7 @@ describe("applying the migrations", () => {
     );
     expect(result.rows.map((row) => row.table_name)).toEqual([
       "attributions",
+      "audit_events",
       "bookings",
       "communication_log",
       "customers",

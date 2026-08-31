@@ -8,6 +8,7 @@ import { parsePrePaymentIntake, type IntakeFieldError } from "@/domain/intake/pr
 import { createRateLimiter } from "@/lib/rate-limit";
 import { clientAddressFrom, isUsableReturnUrl } from "@/lib/client-address";
 import { logger } from "@/lib/logger";
+import { recordAudit } from "@/lib/audit";
 import { clientEnv, serverEnv } from "@/lib/env";
 import { writeLeadSession, readLeadSession } from "@/lib/lead-session";
 import { holdSlot, releaseHoldById } from "@/data/slot-holds";
@@ -286,6 +287,22 @@ export async function startCheckoutAction(input: unknown): Promise<StartCheckout
     }
     heldId = outcome.hold.id;
 
+    /*
+      A sellable time has just come off the calendar. Until now nothing
+      recorded that, so there was no answer to "who reserved this slot, and
+      when" - the question anybody investigating a disputed booking asks first.
+    */
+    await recordAudit({
+      action: "booking.slot_held",
+      actor: { kind: "customer", customerId: lead.customerId },
+      subject: `slot_hold:${outcome.hold.id}`,
+      metadata: {
+        sessionSlug: session.slug,
+        slotStart: interval.start.toISOString(),
+        expiresAt: outcome.hold.expiresAt.toISOString(),
+      },
+    });
+
     return await createOrderAndCheckout({
       lead,
       session,
@@ -404,6 +421,18 @@ async function createOrderAndCheckout(args: {
     attachCheckoutSession(runner, orderId, started.checkoutSessionId),
   );
 
+  await recordAudit({
+    action: "order.created",
+    actor: { kind: "customer", customerId: args.lead.customerId },
+    subject: `order:${orderId}`,
+    metadata: {
+      sessionSlug: args.session.slug,
+      grossAmountFils: price.amountFils,
+      currency: price.currency,
+      checkoutSessionId: started.checkoutSessionId,
+    },
+  });
+
   logger.info("checkout started", {
     orderId,
     sessionSlug: args.session.slug,
@@ -425,7 +454,15 @@ async function readAttributionCookie(): Promise<string | null> {
  */
 async function releaseHeldSlotQuietly(holdId: string): Promise<void> {
   try {
-    await withTransaction((runner) => releaseHoldById(runner, holdId));
+    const released = await withTransaction((runner) => releaseHoldById(runner, holdId));
+    if (released) {
+      await recordAudit({
+        action: "booking.hold_released",
+        actor: { kind: "system", process: "checkout" },
+        subject: `slot_hold:${holdId}`,
+        metadata: { reason: "checkout could not be started" },
+      });
+    }
   } catch (error) {
     logger.error("a slot hold could not be released after a failed checkout", {
       holdId,
