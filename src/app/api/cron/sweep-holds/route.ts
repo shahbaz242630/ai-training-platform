@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { withTransaction } from "@/data/db";
 import { claimExpiredHolds } from "@/data/slot-holds";
+import { countPaidButUnscheduled } from "@/data/audit-events";
+import { recordAudit } from "@/lib/audit";
 import { authoriseCronRequest } from "@/lib/cron-auth";
 import { serverEnv } from "@/lib/env";
 import { logger } from "@/lib/logger";
@@ -50,6 +52,35 @@ export async function POST(request: Request): Promise<NextResponse> {
   try {
     const expired = await withTransaction((runner) => claimExpiredHolds(runner, now));
 
+    if (expired.length > 0) {
+      await recordAudit({
+        action: "booking.hold_released",
+        actor: { kind: "system", process: "sweep-holds" },
+        subject: `sweep:${now.toISOString()}`,
+        metadata: { expired: expired.length },
+      });
+    }
+
+    /*
+      THE STATE THAT NEEDS A HUMAN, checked on a timer.
+
+      An order that is paid while its booking still waits to be scheduled means
+      the money is ours and the customer appears in no calendar. It was
+      previously visible only as one console.error line at the moment it
+      happened - so if nobody was watching stdout in that second, nobody ever
+      knew. This job already runs every five minutes; asking the question here
+      costs one indexed count and turns a missed line into a standing alarm.
+    */
+    const paidButUnscheduled = await withTransaction((runner) => countPaidButUnscheduled(runner));
+
+    if (paidButUnscheduled > 0) {
+      logger.error(
+        "PAID BUT NOT SCHEDULED - customers have paid and have no session booked. " +
+          "Reschedule by hand. DO NOT charge again.",
+        { count: paidButUnscheduled },
+      );
+    }
+
     /*
       The tentative calendar events belong here: an expired hold whose event
       survives leaves the slot blocked on the real calendar even though we
@@ -72,6 +103,9 @@ export async function POST(request: Request): Promise<NextResponse> {
       sweptAt: now.toISOString(),
       expired: expired.length,
       awaitingCalendarRelease,
+      // Reported on every run, so the number is visible to whatever calls this
+      // rather than only in a log somebody has to go looking for.
+      paidButUnscheduled,
     });
   } catch (error) {
     /*

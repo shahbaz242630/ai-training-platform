@@ -1,5 +1,11 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
-import { recordAudit, setAuditSink, resetAuditSink, type AuditEvent } from "./audit";
+import {
+  recordAudit,
+  setAuditSink,
+  resetAuditSink,
+  useLoggerAuditSink,
+  type AuditEvent,
+} from "./audit";
 import { setLogSink, resetLogSink, REDACTED } from "./logger";
 
 afterEach(() => {
@@ -43,6 +49,13 @@ describe("recordAudit", () => {
   it("redacts sensitive metadata on the way to the log sink", async () => {
     const logs: { context?: Record<string, unknown> }[] = [];
     setLogSink((record) => logs.push(record));
+    /*
+      The default sink is now the DATABASE. This test is about what the logger
+      does to a value on the way through, so it asks for the logger sink
+      explicitly rather than relying on it being the default - which it was
+      when this test was written and no longer is.
+    */
+    useLoggerAuditSink();
 
     await recordAudit({
       action: "webhook.received",
