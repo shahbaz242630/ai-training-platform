@@ -35,6 +35,14 @@ const serverSchema = z.object({
     than become `undefined` inside a query.
   */
   DATABASE_URL: optional(z.string()),
+  /*
+    The PEM the database certificate chain is verified against. Without it the
+    connection is encrypted but UNAUTHENTICATED - anything in the network path
+    can present its own certificate and read or rewrite customer records and
+    payment status. Supabase publishes a per-project certificate under Project
+    Settings -> Database -> SSL Configuration.
+  */
+  DATABASE_CA_CERT: optional(z.string()),
   SUPABASE_SERVICE_ROLE_KEY: optional(z.string()),
 
   STRIPE_SECRET_KEY: optional(z.string()),

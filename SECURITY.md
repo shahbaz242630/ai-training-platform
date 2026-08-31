@@ -52,8 +52,19 @@ reach our infrastructure at any point.
 - **Idempotent webhook handling** keyed on the Stripe event ID.
 - **Redacting logger** - tokens, keys, card fields, cookies and authorization
   headers are stripped before anything is written.
-- **Audit trail** for booking and payment events.
+- **Audit trail** for payment webhook events — signature rejections, duplicate
+  deliveries, and payment success/failure. **It is written through the logger,
+  not to a database.** There is no audit table yet, and order creation and slot
+  holds are not audited at all, so this is narrower than the name suggests.
+  Persisting it is tracked as a launch item.
 - **Zod validation** on every external input, server-side.
+- **Database TLS chain verification** when `DATABASE_CA_CERT` is configured.
+  Without it the connection is encrypted but *not authenticated*; the absence
+  is logged at error level rather than passed over silently, and it is a
+  launch blocker.
+- **Payment events are checked against the order they name** — checkout
+  session, amount and currency — because a verified signature proves an event
+  came from the processor, not that it is about our order.
 - **Secrets are server-only.** Nothing sensitive sits behind `NEXT_PUBLIC_*`;
   a guard script fails the build if it does.
 
@@ -99,6 +110,13 @@ discovered:
 - The counters live in memory, per application instance. Across several
   instances the effective limit is that much higher, and a restart clears
   them. A shared store is the fix, and it is not built yet.
+- The caller is identified from `X-Forwarded-For`, counting in from the
+  right-hand end by the number of proxies in front of the application. That
+  count is a fact about the deployment, and it is currently assumed to be one.
+  **It has not been verified against the live host.** Too high and the key
+  becomes a value the client controls; too low and every visitor shares one
+  bucket. Verify with a request carrying a forged header before relying on
+  these limits.
 - Reserving a slot takes a real, sellable time off the calendar for fifteen
   minutes without any payment. Rate limiting raises the cost of occupying the
   diary that way; it does not make it impossible. The short hold lifetime, the

@@ -4,8 +4,9 @@ import { cookies } from "next/headers";
 import { z } from "zod";
 import { withTransaction } from "@/data/db";
 import { recordAttributionVisit } from "@/data/attributions";
-import { clientEnv } from "@/lib/env";
+import { clientEnv, serverEnv } from "@/lib/env";
 import { createRateLimiter } from "@/lib/rate-limit";
+import { clientAddressFrom } from "@/lib/client-address";
 import { logger } from "@/lib/logger";
 
 /**
@@ -47,14 +48,13 @@ const visitSchema = z
   })
   .strict();
 
-async function callerKey(headerList: Headers): Promise<string> {
-  const forwarded = headerList.get("x-forwarded-for");
-  const first = forwarded?.split(",")[0]?.trim();
-  return first && first.length > 0 ? first : "unknown";
+/** See lib/client-address - the leftmost entry is the one a client can forge. */
+function callerKey(headerList: Headers): string {
+  return clientAddressFrom(headerList.get("x-forwarded-for"));
 }
 
 export async function POST(request: Request): Promise<NextResponse> {
-  const rate = limiter.check(await callerKey(request.headers), new Date());
+  const rate = limiter.check(callerKey(request.headers), new Date());
   if (!rate.allowed) return new NextResponse(null, { status: 429 });
 
   let body: unknown;
@@ -101,7 +101,12 @@ export async function POST(request: Request): Promise<NextResponse> {
       // Lax, not Strict: the cookie must survive the click from an ad or a
       // search result, which is the entire point of measuring attribution.
       sameSite: "lax",
-      secure: clientEnv.NEXT_PUBLIC_SITE_ENV !== "development",
+      /*
+        NODE_ENV, which the build sets, rather than NEXT_PUBLIC_SITE_ENV, which
+        a person sets per deployment and which defaults to "development". A
+        forgotten manual variable must not be able to drop Secure silently.
+      */
+      secure: serverEnv().NODE_ENV === "production",
       path: "/",
       maxAge: COOKIE_MAX_AGE_SECONDS,
     });

@@ -29,6 +29,8 @@ import { logger } from "@/lib/logger";
 
 export const dynamic = "force-dynamic";
 
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export async function POST(request: Request): Promise<NextResponse> {
   let payments;
   try {
@@ -82,6 +84,20 @@ export async function POST(request: Request): Promise<NextResponse> {
     return NextResponse.json({ ok: true, ignored: event.type });
   }
 
+  /*
+    The order id arrives in processor metadata, so it is external input like
+    any other. A value that is not a UUID reaches Postgres, raises an
+    invalid-syntax error, becomes a 500, and is then retried by the processor
+    FOREVER. Refusing it here acknowledges the delivery instead.
+  */
+  if (event.orderId !== null && !UUID_PATTERN.test(event.orderId)) {
+    logger.error("a payment event carried an order id that is not a UUID", {
+      eventId: event.eventId,
+      type: event.type,
+    });
+    return NextResponse.json({ ok: true, ignored: "malformed order id" });
+  }
+
   if (event.orderId === null) {
     // Verified, consumable, and carrying nothing that identifies an order.
     // Acknowledged so it is not retried, and logged because it should not happen.
@@ -122,6 +138,12 @@ export async function POST(request: Request): Promise<NextResponse> {
           ? await settlePaidOrder(runner, {
               orderId: event.orderId ?? "",
               slotHoldId: event.slotHoldId,
+              // Checked against the order rather than trusted. A verified
+              // signature proves the event is from the processor, not that it
+              // is about this order or for the right amount.
+              checkoutSessionId: event.checkoutSessionId,
+              paidAmountFils: event.amountFils,
+              paidCurrency: event.currency,
               now: new Date(),
             })
           : await releaseFailedOrder(runner, {
@@ -232,6 +254,20 @@ async function reportOutcome(
 
     case "already_settled":
       logger.info("a settled order received another delivery, nothing done", { orderId, eventId });
+      return;
+
+    /*
+      The event does not belong to this order, or disagrees about the amount.
+      Never settled. Acknowledged so it is not retried - a retry cannot make a
+      mismatched event match - and logged at error level, because on a money
+      path this is either a misconfiguration or somebody trying it on.
+    */
+    case "mismatched":
+      logger.error("a payment event did not match the order it named", {
+        orderId,
+        eventId,
+        eventType,
+      });
       return;
 
     case "refused":

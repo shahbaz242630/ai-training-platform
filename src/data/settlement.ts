@@ -34,7 +34,12 @@ export type SettlementOutcome =
    * but it is not something a retry can fix, so the caller still acknowledges
    * the delivery rather than leaving the processor retrying forever.
    */
-  | "refused";
+  | "refused"
+  /**
+   * The event does not belong to this order, or does not agree with it about
+   * how much was paid. Never settled, always alerted.
+   */
+  | "mismatched";
 
 interface OrderRow {
   readonly id: string;
@@ -97,6 +102,11 @@ export interface SettleInput {
   readonly orderId: string;
   readonly slotHoldId: string | null;
   readonly stripePaymentIntentId?: string | null;
+  /** The processor session this event belongs to. Checked against the order. */
+  readonly checkoutSessionId?: string | null;
+  /** What the processor says was actually paid. Checked against the order. */
+  readonly paidAmountFils?: number | null;
+  readonly paidCurrency?: string | null;
   readonly now: Date;
 }
 
@@ -121,6 +131,22 @@ export async function settlePaidOrder(
 ): Promise<SettlementOutcome> {
   const order = await lockOrder(runner, input.orderId);
   if (order === null) return "unknown_order";
+
+  /*
+    THE EVENT MUST BELONG TO THIS ORDER.
+    
+    A verified signature proves the event came from the processor. It does NOT
+    prove the event is about our order: the order id travels in metadata and
+    in client_reference_id, and anything on the same processor account that
+    can create a checkout session can set those - a payment link takes
+    client_reference_id straight from a URL. Without this check, a one-dirham
+    payment naming somebody else's pending order would settle it.
+    
+    The session id and the amount are both already in hand and were previously
+    discarded at exactly the point they were needed.
+  */
+  const mismatch = describeMismatch(order, input);
+  if (mismatch !== null) return "mismatched";
 
   let moved;
   try {
@@ -230,4 +256,37 @@ export async function releaseFailedOrder(
   }
 
   return "released";
+}
+
+/**
+ * Whether a payment event actually corresponds to the order it names.
+ *
+ * Returns a reason rather than a boolean so the caller can log WHICH check
+ * failed - "mismatched" alone would send somebody reading a database by hand.
+ *
+ * Each comparison is skipped when the event did not carry that field, rather
+ * than failed. An absent value is not evidence of a mismatch, and refusing on
+ * it would reject legitimate settlements the day the processor changes what a
+ * given event type includes.
+ */
+export function describeMismatch(order: Order, input: SettleInput): string | null {
+  const { checkoutSessionId, paidAmountFils, paidCurrency } = input;
+
+  if (
+    checkoutSessionId != null &&
+    order.stripeCheckoutSessionId != null &&
+    checkoutSessionId !== order.stripeCheckoutSessionId
+  ) {
+    return "the event names a different checkout session";
+  }
+
+  if (paidAmountFils != null && paidAmountFils !== order.grossAmountFils) {
+    return "the amount paid does not match the order";
+  }
+
+  if (paidCurrency != null && paidCurrency.toUpperCase() !== order.currency.toUpperCase()) {
+    return "the currency paid does not match the order";
+  }
+
+  return null;
 }
