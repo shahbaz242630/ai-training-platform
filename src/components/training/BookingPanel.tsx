@@ -3,9 +3,8 @@
 import { useMemo, useState, useTransition } from "react";
 import { SlotPicker, type SelectedSlot } from "./SlotPicker";
 import { useCustomerTimeZone } from "./useCustomerTimeZone";
-import { captureLeadAction, reserveSlotAction } from "@/app/training/book/[slug]/actions";
+import { captureLeadAction, startCheckoutAction } from "@/app/training/book/[slug]/actions";
 import { parsePrePaymentIntake, type IntakeFieldError } from "@/domain/intake/pre-payment-intake";
-import { formatClockTime } from "@/domain/scheduling/slot-presentation";
 
 /**
  * The booking box: who you are, then when, then payment.
@@ -55,12 +54,6 @@ export interface BookingPanelProps {
   readonly availabilityFailed?: boolean;
 }
 
-/** The claim on a time, once the server has granted it. */
-interface HeldSlot {
-  readonly holdId: string;
-  readonly expiresAt: string;
-}
-
 export function BookingPanel({
   slug,
   slotStarts,
@@ -75,7 +68,6 @@ export function BookingPanel({
   const [selected, setSelected] = useState<SelectedSlot | null>(null);
   const [saving, startSaving] = useTransition();
   const [reserving, startReserving] = useTransition();
-  const [held, setHeld] = useState<HeldSlot | null>(null);
   const [slotError, setSlotError] = useState<string | null>(null);
 
   /*
@@ -89,7 +81,6 @@ export function BookingPanel({
   if (renderedSlots !== slotStarts) {
     setRenderedSlots(slotStarts);
     setSlots(slotStarts);
-    setHeld(null);
     setSelected(null);
   }
 
@@ -126,33 +117,44 @@ export function BookingPanel({
   }
 
   /**
-   * Claim the chosen time, at the moment checkout begins and not before.
+   * Claim the chosen time and go and pay for it.
    *
    * Selecting a radio button deliberately reserves nothing. Somebody weighing
    * up four times would otherwise take four slots off the calendar for fifteen
    * minutes each without paying for any of them.
+   *
+   * On success the browser leaves for the payment page, so there is no
+   * success state to render here - only the ways it can fail.
    */
   function reserveAndContinue() {
     if (selected === null) return;
     const wanted = selected.isoStart;
 
     startReserving(async () => {
-      const result = await reserveSlotAction({ slug, slotStart: wanted });
+      const result = await startCheckoutAction({ slug, slotStart: wanted });
 
       if (!result.ok) {
         setSlotError(result.message ?? "That time is no longer available.");
-        setHeld(null);
         /*
           Losing a race clears the selection on purpose. Leaving the taken time
           highlighted invites a second click on a slot that cannot succeed.
         */
         if (result.slotStarts !== undefined) setSlots(result.slotStarts);
-        setSelected(null);
+        if (result.reason === "slot_taken" || result.reason === "not_offered") setSelected(null);
         return;
       }
 
-      setSlotError(null);
-      setHeld({ holdId: result.holdId ?? "", expiresAt: result.expiresAt ?? "" });
+      if (result.redirectUrl === undefined) {
+        setSlotError("We could not reach the payment page. Please try again in a moment.");
+        return;
+      }
+
+      /*
+        A full navigation rather than a router push. The destination is the
+        payment provider, not a route in this application, and the browser
+        must genuinely leave.
+      */
+      window.location.assign(result.redirectUrl);
     });
   }
 
@@ -283,8 +285,6 @@ export function BookingPanel({
                 durationMinutes={durationMinutes}
                 selectedIso={selected?.isoStart ?? null}
                 onSelect={(slot) => {
-                  // Choosing a different time abandons any claim on the old one.
-                  setHeld(null);
                   setSlotError(null);
                   setSelected(slot);
                 }}
@@ -321,44 +321,18 @@ export function BookingPanel({
                   <span className="text-ink text-lg font-semibold tabular-nums">{priceLabel}</span>
                 </div>
 
-                {held === null ? (
-                  <>
-                    <button
-                      type="button"
-                      onClick={reserveAndContinue}
-                      disabled={reserving}
-                      className="bg-ink hover:bg-deep-soft mt-4 w-full rounded-lg px-6 py-3.5 text-sm font-semibold text-white transition-colors duration-150 disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      {reserving ? "Holding your time…" : "Continue to payment"}
-                    </button>
-                    <p className="text-ink-muted mt-3 text-xs leading-relaxed">
-                      Choosing a time reserves nothing on its own. The slot is held when you
-                      continue, and the booking is confirmed only after payment is verified.
-                    </p>
-                  </>
-                ) : (
-                  <>
-                    <p
-                      role="status"
-                      className="border-line bg-surface text-ink mt-4 rounded-lg border px-3 py-2.5 text-xs leading-relaxed"
-                    >
-                      This time is held for you until{" "}
-                      <span className="font-semibold tabular-nums">
-                        {formatClockTime(new Date(held.expiresAt), timeZone)}
-                      </span>
-                      .
-                    </p>
-                    {/*
-                      Honest about where the flow actually stops. The hold is
-                      real and the slot really is blocked; what does not exist
-                      yet is the payment step that would convert it.
-                    */}
-                    <p className="text-ink-muted mt-3 text-xs leading-relaxed">
-                      Payment is not connected yet, so the booking cannot be completed. The hold is
-                      released automatically when it expires, and nothing has been charged.
-                    </p>
-                  </>
-                )}
+                <button
+                  type="button"
+                  onClick={reserveAndContinue}
+                  disabled={reserving}
+                  className="bg-ink hover:bg-deep-soft mt-4 w-full rounded-lg px-6 py-3.5 text-sm font-semibold text-white transition-colors duration-150 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {reserving ? "Taking you to payment…" : "Continue to payment"}
+                </button>
+                <p className="text-ink-muted mt-3 text-xs leading-relaxed">
+                  Choosing a time reserves nothing on its own. Your slot is held while you pay, and
+                  the booking is confirmed only once the payment is verified.
+                </p>
               </div>
             )}
           </div>

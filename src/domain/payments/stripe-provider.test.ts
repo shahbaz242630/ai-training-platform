@@ -292,3 +292,14 @@ describe("toPaymentEvent", () => {
     expect(reduced.occurredAt.toISOString()).toBe("2027-01-15T08:00:00.000Z");
   });
 });
+
+/*
+  Construction. A provider that comes into existence without a signing secret
+  is one that will accept its first real delivery unverified, so the assertion
+  belongs at construction rather than at the moment a webhook lands.
+*/
+describe("StripePaymentProvider construction", () => {
+  it("refuses to construct without a signing secret", () => {
+    expect(() => new StripePaymentProvider(stripe, "")).toThrow(/STRIPE_WEBHOOK_SECRET/);
+  });
+});
