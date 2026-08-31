@@ -23,7 +23,15 @@
  * allowlist entry must carry a written reason.
  */
 
-const ENTRY_POINTS = /^src\/app\/.*\.(ts|tsx)$/;
+/**
+ * Real Next.js route files, not everything parked under `src/app`.
+ *
+ * Treating any file in that tree as an entry point meant an orphan helper
+ * dropped there laundered every module it imported as "reached", permanently
+ * and silently. Only files Next itself will load can confer reachability.
+ */
+const ENTRY_POINTS =
+  /^src\/app\/(?:.*\/)?(page|layout|route|actions|template|default|loading|error|global-error|not-found|sitemap|robots|opengraph-image|icon|apple-icon|manifest|instrumentation|middleware)\.(ts|tsx)$/;
 const GOVERNED = /^src\/(config|domain|data|lib)\/.*\.(ts|tsx)$/;
 const IS_TEST = /\.test\.(ts|tsx)$/;
 
@@ -43,15 +51,46 @@ export const REACHABILITY_ALLOWLIST = {
     "C9. Blocked on real company identity and on a safe serialisation approach; emitting placeholder JSON-LD would be cached by answer engines.",
 };
 
-/** `@/x`, `./x`, `../x` - the three forms this codebase uses. */
+/**
+ * `@/x`, `./x`, `../x` - the three forms this codebase uses.
+ *
+ * TWO things are deliberately NOT counted as reachability, because neither
+ * means the module runs:
+ *
+ *   `import type { T } from "x"`  is erased at compile time and contributes
+ *                                 zero bytes to the bundle. A module whose
+ *                                 only reference is a type import is dead by
+ *                                 any runtime definition, and this was the
+ *                                 cheapest accidental bypass available - one
+ *                                 keyword wide.
+ *
+ *   a COMMENTED-OUT import        is not a reference at all. Counting it is a
+ *                                 false negative on exactly the defect shape
+ *                                 this guard exists to catch: a module that
+ *                                 looks wired in and is not.
+ */
 function importsIn(content) {
   const specifiers = [];
-  const pattern = /(?:from|import)\s+["']([^"']+)["']/g;
-  for (const match of content.matchAll(pattern)) {
-    const specifier = match[1];
-    if (specifier.startsWith("@/") || specifier.startsWith(".")) specifiers.push(specifier);
+
+  for (const rawLine of stripBlockComments(content).split(/\r?\n/)) {
+    // Anything after `//` is not code. Checked per line, before matching.
+    const line = rawLine.replace(/\/\/.*$/, "");
+
+    // `import type ...` and `export type ...` are erased by the compiler.
+    if (/^\s*(?:import|export)\s+type\s/.test(line)) continue;
+
+    for (const match of line.matchAll(/(?:from|import)\s+["']([^"']+)["']/g)) {
+      const specifier = match[1];
+      if (specifier.startsWith("@/") || specifier.startsWith(".")) specifiers.push(specifier);
+    }
   }
+
   return specifiers;
+}
+
+/** Block comments can hide a whole import, and often do in commented-out code. */
+function stripBlockComments(content) {
+  return content.replace(/\/\*[\s\S]*?\*\//g, " ");
 }
 
 /** Resolve a specifier to the repo-relative module path it names, if we have it. */

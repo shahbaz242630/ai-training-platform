@@ -78,12 +78,16 @@ reach our infrastructure at any point.
 
 ### Repository
 - **Module reachability guard.** Every module under `src/config`, `src/domain`,
-  `src/data` and `src/lib` must be reachable by walking imports from a page,
-  route handler or server action. A module imported only by its own test file
-  does not count — that is the shape of a defect that occurred four times here,
-  each time at over 90% coverage, because coverage counts a module its own test
-  exercises. Deliberately-unwired modules are allowlisted with a written reason,
-  and a stale or unexplained entry fails the build.
+  `src/data` and `src/lib` must be reachable by walking imports from a real
+  Next route file. A module imported only by its own test file does not count —
+  that is the shape of a defect that occurred four times here, each time at over
+  90% coverage, because coverage counts a module its own test exercises.
+  Type-only imports, commented-out imports and non-route files under `src/app`
+  do not confer reachability either; each of those let a dead module through
+  until an adversarial re-audit found them. Deliberately-unwired modules are
+  allowlisted with a written reason, and a stale or unexplained entry fails the
+  build. **Known limit:** it is module-granular, so a dead export inside a live
+  module is not detected.
 - `main` is protected: pull request required, CI must pass, force-push and
   deletion blocked.
 - Production deployment gated behind a protected environment.

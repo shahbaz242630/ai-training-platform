@@ -78,27 +78,68 @@ describe("checkCopyVocabulary", () => {
     The one deliberate use: a disclaimer must be able to name the thing it
     denies. Removing the denial to satisfy a word list would invert the rule.
   */
-  it("allows a file with a written reason", () => {
+  const footerAllowing = (words) => ({
+    "src/components/layout/SiteFooter.tsx": {
+      reason: "The D15 disclaimer must name the thing it denies, and nothing more than that.",
+      allow: words,
+    },
+  });
+
+  it("allows the exact word a file was permitted", () => {
     const problems = checkCopyVocabulary(
       file("src/components/layout/SiteFooter.tsx", "<p>no qualification is issued</p>"),
-      {
-        "src/components/layout/SiteFooter.tsx": "The D15 disclaimer must name the thing it denies.",
-      },
+      footerAllowing(["qualification"]),
     );
     expect(problems).toEqual([]);
+  });
+
+  /*
+    THE hole this closes. The allowlist was FILE-level while its own docstring
+    said "lines", so SiteFooter - which renders on every page - was wholly
+    exempt. A footer could have carried "certificate", "accreditation" and
+    "academy" and returned zero findings.
+  */
+  it("still catches other banned words in an allowlisted file", () => {
+    const problems = checkCopyVocabulary(
+      file(
+        "src/components/layout/SiteFooter.tsx",
+        "<p>no qualification is issued by our accredited academy</p>",
+      ),
+      footerAllowing(["qualification"]),
+    );
+    expect(problems).toHaveLength(2);
+    expect(problems.join(" ")).toContain("accredited");
+    expect(problems.join(" ")).toContain("academy");
   });
 
   it("refuses an allowlist entry with no adequate reason", () => {
     const problems = checkCopyVocabulary(
       file("src/components/layout/SiteFooter.tsx", "<p>accredited</p>"),
-      { "src/components/layout/SiteFooter.tsx": "ok" },
+      { "src/components/layout/SiteFooter.tsx": { reason: "ok", allow: ["accredited"] } },
     );
-    expect(problems).toHaveLength(1);
+    expect(problems.length).toBeGreaterThan(0);
+  });
+
+  // An entry naming no words is a file-level exemption by the back door.
+  it("refuses an allowlist entry that names no permitted words", () => {
+    const problems = checkCopyVocabulary(
+      file("src/components/layout/SiteFooter.tsx", "<p>hi</p>"),
+      {
+        "src/components/layout/SiteFooter.tsx": {
+          reason: "A reason long enough to pass the length check but naming nothing.",
+          allow: [],
+        },
+      },
+    );
+    expect(problems.join(" ")).toContain("must name the words it permits");
   });
 
   it("reports an allowlist entry naming a file that does not exist", () => {
     const problems = checkCopyVocabulary(file("src/config/x.ts", "const a = 1;"), {
-      "src/components/Gone.tsx": "A reason that was true once, for a file since deleted.",
+      "src/components/Gone.tsx": {
+        reason: "A reason that was true once, for a file since deleted.",
+        allow: ["certificate"],
+      },
     });
     expect(problems[0]).toContain("does not exist");
   });
@@ -106,9 +147,12 @@ describe("checkCopyVocabulary", () => {
 
 describe("the real vocabulary allowlist", () => {
   it("gives every entry a written reason", () => {
-    for (const [path, reason] of Object.entries(VOCABULARY_ALLOWLIST)) {
-      expect(typeof reason, path).toBe("string");
-      expect(reason.trim().length, path).toBeGreaterThanOrEqual(20);
+    for (const [path, entry] of Object.entries(VOCABULARY_ALLOWLIST)) {
+      expect(typeof entry.reason, path).toBe("string");
+      expect(entry.reason.trim().length, path).toBeGreaterThanOrEqual(20);
+      // And it must name what it permits, rather than exempting the file.
+      expect(Array.isArray(entry.allow), path).toBe(true);
+      expect(entry.allow.length, path).toBeGreaterThan(0);
     }
   });
 });
