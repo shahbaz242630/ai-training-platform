@@ -102,6 +102,21 @@ export async function POST(request: Request): Promise<NextResponse> {
       const claim = await claimWebhookEvent(runner, event.eventId, event.type);
       if (!claim.isFirstDelivery) return "duplicate" as const;
 
+      /*
+        THREE outcomes, not two. `unpaid` is a real one and it is neither a
+        success nor a failure: with a delayed-notification payment method the
+        completed event arrives while the money is still in flight, and the
+        result lands hours later as its own event.
+
+        Treating it as a failure - which a two-way branch does by default -
+        marked the order failed and RELEASED THE SLOT while the customer was
+        still paying. Someone else could then buy that time, and when the money
+        arrived the payer had no session. Waiting is the entire correct
+        response: keep the order pending, keep the hold, and settle when the
+        later event says what actually happened.
+      */
+      if (event.outcome === "unpaid") return "awaiting_payment" as const;
+
       const settled: SettlementOutcome =
         event.outcome === "paid"
           ? await settlePaidOrder(runner, {
@@ -144,12 +159,25 @@ export async function POST(request: Request): Promise<NextResponse> {
  * genuinely failed.
  */
 async function reportOutcome(
-  outcome: SettlementOutcome | "duplicate",
+  outcome: SettlementOutcome | "duplicate" | "awaiting_payment",
   eventId: string,
   orderId: string,
   eventType: string,
 ): Promise<void> {
   switch (outcome) {
+    /*
+      Money in flight. Recorded, acknowledged, and deliberately left alone -
+      the order stays pending and the hold keeps running, so the slot is still
+      the payer's when the result arrives.
+    */
+    case "awaiting_payment":
+      logger.info("payment is in flight, waiting for the result", {
+        orderId,
+        eventId,
+        eventType,
+      });
+      return;
+
     case "duplicate":
       await recordAudit({
         action: "webhook.duplicate_ignored",

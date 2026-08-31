@@ -169,10 +169,17 @@ export async function holdSlot(
 /**
  * The holds that still block a slot, within the window being shown.
  *
- * Expiry is applied HERE in SQL as well as by status, deliberately. A hold
- * whose fifteen minutes ran out two seconds ago is not blocking anything, and
- * availability must not depend on whether the sweep has caught up with it yet
- * - a late cron run must never take a sellable slot off the calendar.
+ * TWO statuses block, not one. `held` blocks while its countdown runs, and
+ * `converted` blocks permanently - somebody has PAID for that time. Reading
+ * only `held` here is what let a paid slot go back on sale the moment
+ * settlement converted its hold, so two customers could buy the same hour.
+ *
+ * Expiry applies to `held` alone, and is applied HERE in SQL as well as by
+ * status: a hold whose countdown ran out two seconds ago is not blocking
+ * anything, and availability must never depend on whether the sweep has
+ * caught up. A converted hold has no countdown left to run, so `expires_at`
+ * is irrelevant to it - checking expiry there would put a paid session back
+ * on sale thirty-five minutes after it was bought.
  *
  * Returns the domain type rather than rows, so the same `isSlotAvailable` the
  * tests exercise is what decides what a customer is offered.
@@ -186,8 +193,7 @@ export async function listLiveHolds(
     `select id, slot_start, slot_end, order_id, calendar_event_id,
             expires_at, status, created_at
        from slot_holds
-      where status = 'held'
-        and expires_at > $3
+      where (status = 'converted' or (status = 'held' and expires_at > $3))
         and slot_start < $2
         and slot_end > $1
       order by slot_start`,

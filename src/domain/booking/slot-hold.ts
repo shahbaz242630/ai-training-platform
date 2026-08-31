@@ -26,8 +26,21 @@ import { assertTransition, type TransitionResult, type TransitionTable } from ".
 
 export type SlotHoldStatus = "held" | "converted" | "expired" | "released";
 
-/** Long enough to pay by card, short enough that an abandoned checkout costs little. */
-export const DEFAULT_HOLD_TTL_MINUTES = 15;
+/**
+ * Long enough to pay by card, short enough that an abandoned checkout costs
+ * little - and deliberately LONGER than the payment session it protects.
+ *
+ * The processor will not expire a checkout session sooner than 30 minutes
+ * after it is created. A 15-minute hold therefore left a 15-minute window in
+ * which a customer could still pay, having already lost their slot: charged,
+ * with no session, needing a manual rescue. The hold now outlives the session
+ * by five minutes, so anything the processor still accepts has a slot waiting
+ * for it.
+ *
+ * Change this and CHECKOUT_SESSION_TTL_MINUTES together, or that window
+ * reopens silently.
+ */
+export const DEFAULT_HOLD_TTL_MINUTES = 35;
 
 export interface SlotHold {
   readonly id: string;
@@ -101,13 +114,27 @@ export function hasExpired(hold: SlotHold, now: Date): boolean {
 }
 
 /**
- * Whether this hold still blocks its slot.
+ * Whether this hold is still counting down.
  *
  * Deliberately not just `status === "held"`: a hold that expired thirty
- * seconds ago is not blocking anything, even though no sweep has run.
+ * seconds ago is not counting down, even though no sweep has run.
  */
 export function isHoldActive(hold: SlotHold, now: Date): boolean {
   return hold.status === "held" && !hasExpired(hold, now);
+}
+
+/**
+ * Whether this hold takes its slot off the market.
+ *
+ * NOT the same question as `isHoldActive`, and conflating the two is what
+ * allowed the same time to be sold twice. A `converted` hold has no countdown
+ * left to run - somebody has PAID for that slot - so it blocks permanently
+ * and is the single most important case here. Only `expired` and `released`
+ * put a slot back on sale.
+ */
+export function blocksSlot(hold: SlotHold, now: Date): boolean {
+  if (hold.status === "converted") return true;
+  return isHoldActive(hold, now);
 }
 
 /** Payment verified - the hold becomes a booking and the tentative event is confirmed. */
@@ -145,8 +172,7 @@ export function findBlockingHold(
 ): SlotHold | undefined {
   return holds.find(
     (hold) =>
-      isHoldActive(hold, now) &&
-      intervalsOverlap(slot, { start: hold.slotStart, end: hold.slotEnd }),
+      blocksSlot(hold, now) && intervalsOverlap(slot, { start: hold.slotStart, end: hold.slotEnd }),
   );
 }
 

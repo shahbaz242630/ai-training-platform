@@ -46,6 +46,20 @@ const EXPIRED = "checkout.session.expired";
 
 const HANDLED_EVENTS = new Set([COMPLETED, ASYNC_SUCCEEDED, ASYNC_FAILED, EXPIRED]);
 
+/**
+ * How long a customer has to pay.
+ *
+ * Stripe will not accept an expiry sooner than 30 minutes from creation, so
+ * this is its floor. Left unset, a session lives TWENTY-FOUR HOURS: somebody
+ * could open checkout, be interrupted, pay the next morning, and be charged
+ * for a slot released long before - a routine outcome dressed up as an edge
+ * case, and one that needs a human to unpick every time.
+ *
+ * The slot hold deliberately outlives this (DEFAULT_HOLD_TTL_MINUTES), so a
+ * payment the processor still accepts always has a slot waiting for it.
+ */
+const CHECKOUT_SESSION_TTL_MINUTES = 30;
+
 /** Our own keys on the Stripe object, so an event can find its order and its slot. */
 const ORDER_ID = "orderId";
 const SLOT_HOLD_ID = "slotHoldId";
@@ -126,6 +140,12 @@ export class StripePaymentProvider implements PaymentProvider {
           being handled when it is not. Turn this on with a TRN, not before.
         */
         automatic_tax: { enabled: false },
+        /*
+          Bounded rather than left to the 24-hour default. An expiry here turns
+          "paid far too late for the slot we reserved" into an ordinary expired
+          session that releases cleanly, instead of a charge with no session.
+        */
+        expires_at: Math.floor(Date.now() / 1000) + CHECKOUT_SESSION_TTL_MINUTES * 60,
         success_url: input.successUrl,
         cancel_url: input.cancelUrl,
       },

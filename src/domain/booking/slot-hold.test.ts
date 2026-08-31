@@ -33,15 +33,20 @@ const aHold = (overrides: Partial<SlotHold> = {}): SlotHold => ({
 });
 
 describe("createSlotHold", () => {
-  it("expires fifteen minutes out by default", () => {
+  /*
+    The default was 15 and is now 35, so that the hold outlives the 30-minute
+    payment session it protects. Asserted against the constant AND against a
+    concrete instant, so a change to one without the other fails here.
+  */
+  it("expires thirty-five minutes out by default", () => {
     const hold = createSlotHold({
       id: "hold_1",
       slotStart: SLOT_START,
       slotEnd: SLOT_END,
       now: NOW,
     });
-    expect(DEFAULT_HOLD_TTL_MINUTES).toBe(15);
-    expect(hold.expiresAt).toEqual(minutesAfter(NOW, 15));
+    expect(DEFAULT_HOLD_TTL_MINUTES).toBe(35);
+    expect(hold.expiresAt).toEqual(minutesAfter(NOW, 35));
     expect(hold.status).toBe("held");
     expect(hold.orderId).toBeNull();
   });
@@ -87,11 +92,11 @@ describe("createSlotHold", () => {
 
 describe("hasExpired and isHoldActive", () => {
   it("is not expired a minute before its deadline", () => {
-    expect(hasExpired(aHold(), minutesAfter(NOW, 14))).toBe(false);
+    expect(hasExpired(aHold(), minutesAfter(NOW, DEFAULT_HOLD_TTL_MINUTES - 1))).toBe(false);
   });
 
   it("is expired exactly on its deadline, not a moment after", () => {
-    expect(hasExpired(aHold(), minutesAfter(NOW, 15))).toBe(true);
+    expect(hasExpired(aHold(), minutesAfter(NOW, DEFAULT_HOLD_TTL_MINUTES))).toBe(true);
   });
 
   it("blocks its slot while held and unexpired", () => {
@@ -101,7 +106,7 @@ describe("hasExpired and isHoldActive", () => {
   // The point of checking time as well as status: availability must be correct
   // even when the sweep has not run, or did not run at all.
   it("stops blocking the moment it expires, with no sweep involved", () => {
-    expect(isHoldActive(aHold(), minutesAfter(NOW, 16))).toBe(false);
+    expect(isHoldActive(aHold(), minutesAfter(NOW, DEFAULT_HOLD_TTL_MINUTES + 1))).toBe(false);
   });
 
   it("stops blocking once it has ended for any reason", () => {
@@ -159,12 +164,27 @@ describe("findBlockingHold and isSlotAvailable", () => {
 
   // An abandoned checkout must never take a sellable slot off the calendar.
   it("frees the slot once an abandoned hold expires, even before any sweep", () => {
-    expect(isSlotAvailable(slot, [aHold()], minutesAfter(NOW, 16))).toBe(true);
+    expect(isSlotAvailable(slot, [aHold()], minutesAfter(NOW, DEFAULT_HOLD_TTL_MINUTES + 1))).toBe(
+      true,
+    );
   });
 
-  it("frees the slot when the hold was released or converted", () => {
+  /*
+    CORRECTED 2026-08-31. This asserted that a `converted` hold frees its slot.
+    It was the double-booking defect written down as an expectation: converted
+    means somebody PAID, so it is the state that must block hardest. Releasing
+    it put a paid session back on sale.
+  */
+  it("frees the slot when released, but never when converted", () => {
     expect(isSlotAvailable(slot, [aHold({ status: "released" })], NOW)).toBe(true);
-    expect(isSlotAvailable(slot, [aHold({ status: "converted" })], NOW)).toBe(true);
+    expect(isSlotAvailable(slot, [aHold({ status: "converted" })], NOW)).toBe(false);
+  });
+
+  // A converted hold has no countdown left. Time passing cannot free a slot
+  // somebody has paid for.
+  it("keeps a converted hold blocking long after its expiry would have passed", () => {
+    const converted = aHold({ status: "converted" });
+    expect(isSlotAvailable(slot, [converted], minutesAfter(NOW, 60 * 24))).toBe(false);
   });
 
   it("ignores an active hold on a different time", () => {
@@ -186,14 +206,17 @@ describe("sweepExpiredHolds", () => {
   it("returns only the holds it changed", () => {
     const expired = aHold({ id: "hold_expired" });
     const fresh = aHold({ id: "hold_fresh", expiresAt: minutesAfter(NOW, 60) });
-    const swept = sweepExpiredHolds([expired, fresh], minutesAfter(NOW, 16));
+    const swept = sweepExpiredHolds(
+      [expired, fresh],
+      minutesAfter(NOW, DEFAULT_HOLD_TTL_MINUTES + 1),
+    );
     expect(swept).toHaveLength(1);
     expect(swept[0]?.id).toBe("hold_expired");
     expect(swept[0]?.status).toBe("expired");
   });
 
   it("keeps the calendar event id, because the tentative event must be deleted too", () => {
-    const swept = sweepExpiredHolds([aHold()], minutesAfter(NOW, 16));
+    const swept = sweepExpiredHolds([aHold()], minutesAfter(NOW, DEFAULT_HOLD_TTL_MINUTES + 1));
     expect(swept[0]?.calendarEventId).toBe("evt_tentative");
   });
 

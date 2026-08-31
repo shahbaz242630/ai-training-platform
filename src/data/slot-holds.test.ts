@@ -291,22 +291,33 @@ describe("listLiveHolds", () => {
     expect(holds.some((h) => h.slotStart.toISOString() === "2027-03-03T10:00:00.000Z")).toBe(false);
   });
 
-  it("ignores holds that already ended, whatever ended them", async () => {
+  /*
+    CORRECTED 2026-08-31. This previously asserted that a `converted` hold
+    stops blocking, alongside `released` and `expired`. That was not a
+    harmless simplification - it was the double-booking defect written down as
+    an expectation: converted means somebody PAID, and treating it as ended
+    put their slot back on sale.
+
+    Only `released` and `expired` end a claim. `converted` blocks hardest, and
+    forever.
+  */
+  it("ignores released and expired holds, but never a converted one", async () => {
     await insert("2027-03-04T10:00:00Z", "2027-03-01T23:00:00Z", "converted");
     await insert("2027-03-04T13:00:00Z", "2027-03-01T23:00:00Z", "released");
     await insert("2027-03-04T15:00:00Z", "2027-03-01T23:00:00Z", "expired");
 
     const holds = await listLiveHolds(
       db as unknown as QueryRunner,
-      {
-        from: WINDOW_FROM,
-        to: WINDOW_TO,
-      },
+      { from: WINDOW_FROM, to: WINDOW_TO },
       NOW,
     );
 
-    const onThatDay = holds.filter((h) => h.slotStart.toISOString().startsWith("2027-03-04"));
-    expect(onThatDay).toEqual([]);
+    const startsAt = (hour: string) =>
+      holds.some((h) => h.slotStart.toISOString() === "2027-03-04T" + hour + ":00:00.000Z");
+
+    expect(startsAt("10")).toBe(true); // converted - somebody paid for this slot
+    expect(startsAt("13")).toBe(false); // released
+    expect(startsAt("15")).toBe(false); // expired
   });
 
   // Reading the whole table to render one week would get slower every month.
@@ -523,5 +534,102 @@ describe("releaseHoldById", () => {
     expect(
       await releaseHoldById(db as unknown as QueryRunner, "00000000-0000-4000-8000-000000000000"),
     ).toBe(false);
+  });
+});
+
+/*
+  THE DOUBLE-BOOKING REGRESSION.
+
+  A paid booking must keep its slot. The exclusion constraint used to be
+  predicated on `status = 'held'` alone, so the moment settlement converted a
+  hold it left the index and the slot went back on sale - two customers could
+  pay for the same hour and nothing noticed.
+
+  These run against the real constraint in a real Postgres. A mock would only
+  confirm that the code agrees with itself.
+*/
+describe("a paid slot stays blocked", () => {
+  const NOW = new Date("2027-11-01T09:00:00Z");
+
+  const insert = (startIso: string, status: string, expiresAt: Date) =>
+    db
+      .query<{ id: string }>(
+        `insert into slot_holds (slot_start, slot_end, expires_at, status)
+         values ($1, $2, $3, $4) returning id`,
+        [
+          new Date(startIso),
+          new Date(new Date(startIso).getTime() + 90 * 60_000),
+          expiresAt,
+          status,
+        ],
+      )
+      .then((r) => r.rows[0]?.id ?? "");
+
+  /*
+    The one that matters most. Someone has paid; the database itself must
+    refuse to let that time be claimed again.
+  */
+  it("refuses a second hold overlapping a CONVERTED one", async () => {
+    await insert("2027-11-10T10:00:00Z", "converted", new Date("2027-11-01T08:00:00Z"));
+
+    await expect(
+      db.query(
+        `insert into slot_holds (slot_start, slot_end, expires_at)
+         values ($1, $2, $3)`,
+        [
+          new Date("2027-11-10T10:30:00Z"),
+          new Date("2027-11-10T11:30:00Z"),
+          new Date("2027-11-01T10:00:00Z"),
+        ],
+      ),
+    ).rejects.toThrow();
+  });
+
+  /*
+    A converted hold has no countdown left to run. Its expires_at is long past
+    - it was set when the slot was first claimed - and checking expiry on it
+    would put a paid session back on sale half an hour after it was bought.
+  */
+  it("keeps blocking availability even though its expires_at is in the past", async () => {
+    await insert("2027-11-11T10:00:00Z", "converted", new Date("2027-11-01T08:00:00Z"));
+
+    const holds = await listLiveHolds(
+      db as unknown as QueryRunner,
+      { from: new Date("2027-11-01T00:00:00Z"), to: new Date("2027-11-30T00:00:00Z") },
+      NOW,
+    );
+
+    expect(holds.some((h) => h.slotStart.toISOString() === "2027-11-11T10:00:00.000Z")).toBe(true);
+  });
+
+  // Released and expired holds put the slot back on sale - that is their job.
+  it("does not block for a released or expired hold", async () => {
+    await insert("2027-11-12T10:00:00Z", "released", new Date("2027-11-01T20:00:00Z"));
+    await insert("2027-11-13T10:00:00Z", "expired", new Date("2027-11-01T20:00:00Z"));
+
+    const holds = await listLiveHolds(
+      db as unknown as QueryRunner,
+      { from: new Date("2027-11-01T00:00:00Z"), to: new Date("2027-11-30T00:00:00Z") },
+      NOW,
+    );
+
+    expect(holds.some((h) => h.slotStart.toISOString().startsWith("2027-11-12"))).toBe(false);
+    expect(holds.some((h) => h.slotStart.toISOString().startsWith("2027-11-13"))).toBe(false);
+  });
+
+  // And a released slot really can be sold again, at the database level.
+  it("allows a new hold once the previous one was released", async () => {
+    await insert("2027-11-14T10:00:00Z", "released", new Date("2027-11-01T20:00:00Z"));
+
+    const outcome = await holdSlot(
+      {
+        slotStart: new Date("2027-11-14T10:00:00Z"),
+        slotEnd: new Date("2027-11-14T11:30:00Z"),
+        expiresAt: new Date("2027-11-01T10:00:00Z"),
+      },
+      realTransaction,
+    );
+
+    expect(outcome.ok).toBe(true);
   });
 });
