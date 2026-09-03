@@ -7,7 +7,11 @@ import {
   MockSchedulingProvider,
   type MockSchedulingProviderOptions,
 } from "@/domain/scheduling/mock-provider";
-import type { SchedulingProvider } from "@/domain/scheduling/provider";
+import type {
+  ConfirmSlotInput,
+  HoldSlotInput,
+  SchedulingProvider,
+} from "@/domain/scheduling/provider";
 import { resetAuditSink, setAuditSink, type AuditEvent } from "@/lib/audit";
 import { resetLogSink, setLogSink, type LogRecord } from "@/lib/logger";
 import { at, type Weekday } from "@/lib/time";
@@ -298,8 +302,8 @@ describe("edges", () => {
     const base = calendar();
     const linkless: SchedulingProvider = {
       ...base,
-      holdSlot: (input) => base.holdSlot(input),
-      confirmSlot: async (id, attendee) => ({
+      holdSlot: (input: HoldSlotInput) => base.holdSlot(input),
+      confirmSlot: async (id: string, attendee: ConfirmSlotInput) => ({
         ...(await base.confirmSlot(id, attendee)),
         meetingUrl: null,
       }),
