@@ -148,7 +148,18 @@ export async function POST(request: Request): Promise<NextResponse> {
         response: keep the order pending, keep the hold, and settle when the
         later event says what actually happened.
       */
-      if (event.outcome === "unpaid") return "awaiting_payment" as const;
+      if (event.outcome === "unpaid") {
+        /*
+          Finished, not abandoned. The claim is marked processed like every
+          other delivery this route completes: `processed_at` means "we did
+          what this event asked", and what an in-flight payment asks is that
+          we wait. Leaving it null filed every such event as a delivery we
+          accepted and then failed to finish, which is the one signal an
+          investigation relies on.
+        */
+        await markWebhookProcessed(runner, event.eventId);
+        return "awaiting_payment" as const;
+      }
 
       const settled: SettlementOutcome =
         event.outcome === "paid"
