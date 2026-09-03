@@ -381,8 +381,11 @@ describe("a delivery whose money is still in flight", () => {
       booking: "awaiting_schedule",
       hold: "held",
     });
-    // Claimed, so a retry of this exact delivery is a no-op rather than a second look.
-    expect(await claimsFor(event.id)).toHaveLength(1);
+    // Claimed, so a retry of this exact delivery is a no-op rather than a second
+    // look - and marked processed, because deciding to wait IS handling it.
+    const claims = await claimsFor(event.id);
+    expect(claims).toHaveLength(1);
+    expect(claims[0]?.processed_at).not.toBeNull();
     expect(errorMessages()).toEqual([]);
   });
 
