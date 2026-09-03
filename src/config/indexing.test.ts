@@ -44,11 +44,12 @@ describe("isIndexable", () => {
     expect(isIndexable("production", { ...CONFIGURED, legalEntityName: null })).toBe(false);
   });
 
-  it("is false for every environment under the current real configuration", () => {
-    // Guards the live state: nothing about this repository is indexable today.
-    for (const env of ["development", "staging", "production"] as const) {
-      expect(isIndexable(env), env).toBe(false);
-    }
+  it("under the current configuration, only production can index, and only once identity is real", () => {
+    // Used to assert false everywhere, which pinned the placeholder state and
+    // would have failed the day identity was filled in. This is the rule.
+    expect(isIndexable("development")).toBe(false);
+    expect(isIndexable("staging")).toBe(false);
+    expect(isIndexable("production")).toBe(isPubliclyConfigured());
   });
 
   it("is strictly stronger than isPubliclyConfigured", () => {
