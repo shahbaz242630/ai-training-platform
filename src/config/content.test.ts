@@ -79,16 +79,40 @@ describe("placeholder discipline", () => {
     expect(placeholder("Acme", "COMPANY_NAME")).toBe("Acme");
   });
 
-  it("suppresses structured data until a real identity exists", () => {
-    // Guards against publishing "[COMPANY_NAME]" into search and answer engines.
-    expect(isPubliclyConfigured()).toBe(false);
-    expect(buildTrainingJsonLd()).toBeNull();
+  /*
+    These two used to assert the placeholder state itself - that every identity
+    field was null - which meant filling in the real company name turned the
+    gate red until the tests were rewritten. They now assert the rule, which
+    holds before and after: structured data exists exactly when identity is
+    public, and a field is either unset or real, never a guess.
+  */
+  it("publishes structured data exactly when identity is publicly configured", () => {
+    expect(buildTrainingJsonLd() === null).toBe(!isPubliclyConfigured());
   });
 
-  it("keeps company identity unset rather than guessed", () => {
-    expect(SITE.companyName).toBeNull();
-    expect(SITE.legalEntityName).toBeNull();
-    expect(SITE.instructorName).toBeNull();
+  it("keeps every identity field either unset or real, never guessed", () => {
+    // A bracketed token, a dummy word, or a host that is not ours.
+    const guessed =
+      /^\[.*\]$|\b(example|acme|placeholder|tbd|todo|lorem)\b|hostingersite|localhost/i;
+    const fields = [
+      "companyName",
+      "legalEntityName",
+      "domain",
+      "supportEmail",
+      "instructorName",
+      "instructorBio",
+      "phone",
+    ] as const;
+
+    for (const field of fields) {
+      const value = SITE[field];
+      if (value === null) continue;
+      expect(value.trim().length, field).toBeGreaterThan(0);
+      expect(value, field).not.toMatch(guessed);
+    }
+    if (SITE.supportEmail !== null) expect(SITE.supportEmail).toMatch(/^[^@\s]+@[^@\s]+\.[^@\s]+$/);
+    // A bare host name. A scheme or a path here would break every URL built from it.
+    if (SITE.domain !== null) expect(SITE.domain).not.toMatch(/^https?:|\//);
   });
 });
 

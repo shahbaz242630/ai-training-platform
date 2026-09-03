@@ -27,7 +27,15 @@ const CONFIGURED: SitePlaceholders = {
 
 describe("buildTrainingJsonLd", () => {
   it("emits nothing while identity is unset", () => {
-    expect(buildTrainingJsonLd(SITE)).toBeNull();
+    const unset: SitePlaceholders = {
+      ...SITE,
+      companyName: null,
+      legalEntityName: null,
+      domain: null,
+      supportEmail: null,
+      instructorName: null,
+    };
+    expect(buildTrainingJsonLd(unset)).toBeNull();
   });
 
   it("emits nothing when any required identity field is missing", () => {
