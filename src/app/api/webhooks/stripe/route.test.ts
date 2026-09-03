@@ -57,6 +57,34 @@ vi.mock("@/data/db", async (importOriginal) => ({
   },
 }));
 
+/*
+  The calendar behind the settlement. The in-memory provider with rules that
+  accept any time, so the confirmation step that follows a paid delivery can
+  run here without a tenant. Injected through the factory so nothing else in
+  the route changes.
+*/
+vi.mock("@/domain/scheduling/factory", async () => {
+  const { MockSchedulingProvider } = await import("@/domain/scheduling/mock-provider");
+  const { at } = await import("@/lib/time");
+  const everyDay = {
+    windows: [0, 1, 2, 3, 4, 5, 6].map((weekday) => ({
+      weekday,
+      startMinutes: at(0),
+      endMinutes: at(24),
+    })),
+    slotIntervalMinutes: 30,
+    bufferMinutes: 0,
+    minimumNoticeHours: 0,
+    bookingHorizonDays: 3650,
+  };
+  const provider = new MockSchedulingProvider({ rules: everyDay });
+  return {
+    getSchedulingProvider: () => provider,
+    calendarIsConfigured: () => true,
+    resetSchedulingProvider: () => undefined,
+  };
+});
+
 import { POST } from "./route";
 
 const NOW = new Date("2027-10-01T09:00:00Z");
@@ -293,7 +321,7 @@ describe("verified deliveries that carry nothing to act on", () => {
 });
 
 describe("a paid delivery", () => {
-  it("settles the order, converts the hold, schedules the booking, and marks the claim processed", async () => {
+  it("settles the order, converts the hold, confirms the booking on the calendar, and marks the claim processed", async () => {
     const { orderId, slotHoldId } = await pendingOrder();
     const event = paidEvent(orderId, slotHoldId, { paymentIntentId: "pi_test_1" });
 
@@ -302,7 +330,7 @@ describe("a paid delivery", () => {
     expect(result).toEqual({ status: 200, body: { ok: true, outcome: "settled" } });
     expect(await stateOf(orderId, slotHoldId)).toEqual({
       order: "paid",
-      booking: "scheduled",
+      booking: "confirmed",
       hold: "converted",
     });
     const [claim] = await claimsFor(event.id);
@@ -320,14 +348,30 @@ describe("a paid delivery", () => {
     );
     expect(stored.rows[0]?.stripe_payment_intent_id).toBe("pi_test_1");
 
-    // The first thing a paying customer will receive, promised in the same
-    // transaction as the settlement.
+    // The acknowledgement is promised in the settlement transaction; the
+    // confirmation, reminders and follow-up follow once the calendar step has
+    // issued the join link.
     const queued = await db.query<{ template_key: string; status: string }>(
       `select template_key, status from communication_log
-        where booking_id = (select id from bookings where order_id = $1)`,
+        where booking_id = (select id from bookings where order_id = $1)
+        order by template_key`,
       [orderId],
     );
-    expect(queued.rows).toEqual([{ template_key: "payment_receipt", status: "queued" }]);
+    expect(queued.rows.map((r) => r.template_key)).toEqual([
+      "booking_confirmation",
+      "follow_up",
+      "payment_receipt",
+      "reminder_24h",
+      "reminder_3h",
+    ]);
+    expect(queued.rows.every((r) => r.status === "queued")).toBe(true);
+
+    const confirmed = await db.query<{
+      meeting_url: string | null;
+      calendar_event_id: string | null;
+    }>("select meeting_url, calendar_event_id from bookings where order_id = $1", [orderId]);
+    expect(confirmed.rows[0]?.meeting_url).toMatch(/^https:\/\/teams\.mock\.invalid\//);
+    expect(confirmed.rows[0]?.calendar_event_id).toMatch(/^mock_evt_/);
   });
 
   it("does nothing the second time the same event arrives", async () => {
@@ -350,7 +394,7 @@ describe("a paid delivery", () => {
     expect(errorMessages()).toEqual([]);
     expect(await stateOf(orderId, slotHoldId)).toEqual({
       order: "paid",
-      booking: "scheduled",
+      booking: "confirmed",
       hold: "converted",
     });
   });
@@ -424,7 +468,7 @@ describe("a delivery whose money is still in flight", () => {
     expect(result.body).toMatchObject({ outcome: "settled" });
     expect(await stateOf(orderId, slotHoldId)).toEqual({
       order: "paid",
-      booking: "scheduled",
+      booking: "confirmed",
       hold: "converted",
     });
   });

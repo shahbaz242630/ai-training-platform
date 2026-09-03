@@ -186,12 +186,24 @@ export async function settlePaidOrder(
   */
   const converted =
     input.slotHoldId === null
-      ? { rows: [] as { id: string; slot_start: Date; slot_end: Date }[] }
-      : await runner.query<{ id: string; slot_start: Date; slot_end: Date }>(
+      ? {
+          rows: [] as {
+            id: string;
+            slot_start: Date;
+            slot_end: Date;
+            calendar_event_id: string | null;
+          }[],
+        }
+      : await runner.query<{
+          id: string;
+          slot_start: Date;
+          slot_end: Date;
+          calendar_event_id: string | null;
+        }>(
           `update slot_holds
               set status = 'converted'
             where id = $1 and order_id = $2 and status = 'held' and expires_at > $3
-            returning id, slot_start, slot_end`,
+            returning id, slot_start, slot_end, calendar_event_id`,
           [input.slotHoldId, order.id, input.now],
         );
 
@@ -220,15 +232,22 @@ export async function settlePaidOrder(
     return "paid_without_slot";
   }
 
+  // The tentative event travels from the hold to the booking here, so the
+  // confirmation step that follows knows which event to promote.
   const scheduled = scheduleBooking(
     booking,
-    { start: claimed.slot_start, end: claimed.slot_end },
+    {
+      start: claimed.slot_start,
+      end: claimed.slot_end,
+      calendarEventId: claimed.calendar_event_id,
+    },
     input.now,
   );
 
   await runner.query(
     `update bookings
-        set status = $2, scheduled_start = $3, scheduled_end = $4, updated_at = $5
+        set status = $2, scheduled_start = $3, scheduled_end = $4, updated_at = $5,
+            calendar_event_id = $6
       where id = $1`,
     [
       // Scoped to the BOOKING, not the order. A pathway order has two bookings
@@ -239,6 +258,7 @@ export async function settlePaidOrder(
       scheduled.entity.scheduledStart,
       scheduled.entity.scheduledEnd,
       scheduled.entity.updatedAt,
+      scheduled.entity.calendarEventId,
     ],
   );
 

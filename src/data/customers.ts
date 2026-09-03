@@ -114,3 +114,36 @@ export async function captureLead(
   const stored = await recordIntake(runner, customer.id, intake.primaryGoal);
   return { customerId: customer.id, intakeId: stored.id, isNewCustomer: customer.isNew };
 }
+
+export interface CustomerDetails {
+  readonly id: string;
+  readonly firstName: string;
+  readonly lastName: string;
+  readonly email: string;
+  readonly timezone: string;
+}
+
+/** Who a booking is for, by id. Null when there is no such customer. */
+export async function findCustomerById(
+  runner: QueryRunner,
+  customerId: string,
+): Promise<CustomerDetails | null> {
+  const result = await runner.query<{
+    id: string;
+    first_name: string;
+    last_name: string;
+    email: string;
+    timezone: string;
+  }>(`select id, first_name, last_name, email, timezone from customers where id = $1`, [
+    customerId,
+  ]);
+  const row = result.rows[0];
+  if (!row) return null;
+  return {
+    id: row.id,
+    firstName: row.first_name,
+    lastName: row.last_name,
+    email: row.email,
+    timezone: row.timezone,
+  };
+}

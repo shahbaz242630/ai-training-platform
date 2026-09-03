@@ -35,6 +35,8 @@ export default defineConfig({
         // The send job decides which customer gets which message and when to
         // give up. Same reasoning: a regression there must be able to fail the build.
         "src/app/api/cron/send-communications/**",
+        // The hold sweep now deletes calendar events and retries confirmations.
+        "src/app/api/cron/sweep-holds/**",
       ],
       // Thin process wrappers with no branching logic of their own. Excluded
       // rather than counted, so the percentage keeps describing code where a

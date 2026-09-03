@@ -270,3 +270,66 @@ export async function releaseHoldById(runner: QueryRunner, holdId: string): Prom
   );
   return result.rows.length > 0;
 }
+
+/**
+ * Record the tentative calendar event that now backs a hold.
+ *
+ * Only a LIVE hold takes an event id. If the hold expired or was released in
+ * the moment between the database taking it and the calendar answering, the
+ * event is already orphaned - so the caller learns that from the false and
+ * deletes it, rather than attaching it to a row nobody will sweep.
+ */
+export async function attachCalendarEvent(
+  runner: QueryRunner,
+  holdId: string,
+  calendarEventId: string,
+): Promise<boolean> {
+  const result = await runner.query<{ id: string }>(
+    `update slot_holds
+        set calendar_event_id = $2
+      where id = $1 and status = 'held'
+      returning id`,
+    [holdId, calendarEventId],
+  );
+  return result.rows.length > 0;
+}
+
+/** A hold that no longer needs its calendar event, and still has one. */
+export interface HoldAwaitingCalendarRelease {
+  readonly id: string;
+  readonly calendarEventId: string;
+}
+
+/**
+ * Holds whose tentative event must be deleted: expired or released, event id
+ * present, deletion not yet recorded. Locked so two sweeps divide the work.
+ */
+export async function claimHoldsAwaitingCalendarRelease(
+  runner: QueryRunner,
+  limit = 100,
+): Promise<readonly HoldAwaitingCalendarRelease[]> {
+  const result = await runner.query<{ id: string; calendar_event_id: string }>(
+    `select id, calendar_event_id
+       from slot_holds
+      where calendar_event_id is not null
+        and calendar_released_at is null
+        and status in ('expired', 'released')
+      order by expires_at
+      limit $1
+      for update skip locked`,
+    [limit],
+  );
+  return result.rows.map((row) => ({ id: row.id, calendarEventId: row.calendar_event_id }));
+}
+
+/** The event is gone from the calendar; say so, so the sweep stops trying. */
+export async function markCalendarReleased(
+  runner: QueryRunner,
+  holdId: string,
+  now: Date,
+): Promise<void> {
+  await runner.query(`update slot_holds set calendar_released_at = $2 where id = $1`, [
+    holdId,
+    now,
+  ]);
+}
