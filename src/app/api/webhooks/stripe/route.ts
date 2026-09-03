@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
 import { withTransaction } from "@/data/db";
+import { queueForOrder } from "@/data/communications";
 import { claimWebhookEvent, markWebhookProcessed } from "@/data/webhook-events";
 import { releaseFailedOrder, settlePaidOrder, type SettlementOutcome } from "@/data/settlement";
 import { getPaymentProvider } from "@/domain/payments/factory";
+import { messagesOnSettlement } from "@/domain/messaging/schedule";
 import { InvalidSignatureError } from "@/domain/payments/provider";
 import { recordAudit } from "@/lib/audit";
 import { clientAddressFrom } from "@/lib/client-address";
@@ -184,6 +186,16 @@ export async function POST(request: Request): Promise<NextResponse> {
               paidCurrency: event.currency,
               now: new Date(),
             });
+
+      /*
+        The first message a paying customer receives, queued in the same
+        transaction as the settlement so that neither can exist without the
+        other. It says the payment is in and the time is reserved; the joining
+        details follow when the calendar side confirms.
+      */
+      if (settled === "settled") {
+        await queueForOrder(runner, event.orderId ?? "", messagesOnSettlement(new Date()));
+      }
 
       await markWebhookProcessed(runner, event.eventId);
       return settled;

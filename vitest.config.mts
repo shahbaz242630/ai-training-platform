@@ -32,6 +32,9 @@ export default defineConfig({
         // was outside coverage while its three-way outcome branch had no
         // test, so a regression there could not fail the build.
         "src/app/api/webhooks/**",
+        // The send job decides which customer gets which message and when to
+        // give up. Same reasoning: a regression there must be able to fail the build.
+        "src/app/api/cron/send-communications/**",
       ],
       // Thin process wrappers with no branching logic of their own. Excluded
       // rather than counted, so the percentage keeps describing code where a

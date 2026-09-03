@@ -53,6 +53,34 @@ select cron.schedule(
   $$
 );
 
+-- The send job. Same cadence and the same secret; only the URL differs.
+--
+--   send_communications_url   https://<your-deployment>/api/cron/send-communications
+--
+-- Reminders are queued with a due time and this is what delivers them, so it
+-- must run at least as often as the tightest reminder tolerates. Five minutes
+-- against a three-hour reminder is comfortably inside that.
+select cron.unschedule('send-communications')
+where exists (select 1 from cron.job where jobname = 'send-communications');
+
+select cron.schedule(
+  'send-communications',
+  '*/5 * * * *',
+  $
+  select net.http_post(
+    url     := (select decrypted_secret from vault.decrypted_secrets
+                 where name = 'send_communications_url'),
+    headers := jsonb_build_object(
+      'Content-Type', 'application/json',
+      'Authorization', 'Bearer ' || (select decrypted_secret from vault.decrypted_secrets
+                                      where name = 'sweep_holds_secret')
+    ),
+    body    := '{}'::jsonb,
+    timeout_milliseconds := 30000
+  );
+  $
+);
+
 -- Check it afterwards:
 --   select jobname, schedule, active from cron.job;
 --   select * from cron.job_run_details order by start_time desc limit 10;
