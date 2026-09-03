@@ -68,7 +68,7 @@ vi.mock("@/domain/scheduling/factory", async () => {
   const { at } = await import("@/lib/time");
   const everyDay = {
     windows: [0, 1, 2, 3, 4, 5, 6].map((weekday) => ({
-      weekday,
+      weekday: weekday as 0 | 1 | 2 | 3 | 4 | 5 | 6,
       startMinutes: at(0),
       endMinutes: at(24),
     })),

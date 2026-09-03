@@ -3,7 +3,10 @@ import { join } from "node:path";
 import { PGlite } from "@electric-sql/pglite";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { AvailabilityRules } from "@/config/availability";
-import { MockSchedulingProvider } from "@/domain/scheduling/mock-provider";
+import {
+  MockSchedulingProvider,
+  type MockSchedulingProviderOptions,
+} from "@/domain/scheduling/mock-provider";
 import type { SchedulingProvider } from "@/domain/scheduling/provider";
 import { resetAuditSink, setAuditSink, type AuditEvent } from "@/lib/audit";
 import { resetLogSink, setLogSink, type LogRecord } from "@/lib/logger";
@@ -104,7 +107,7 @@ async function scheduledBooking(options: { paid?: boolean; calendarEventId?: str
   return { orderId: order.rows[0]?.id ?? "", bookingId: booking.rows[0]?.id ?? "", start };
 }
 
-const calendar = (seed: Parameters<typeof MockSchedulingProvider.prototype.constructor>[0] = {}) =>
+const calendar = (seed: MockSchedulingProviderOptions = {}) =>
   new MockSchedulingProvider({ now: () => NOW, rules: EVERY_DAY, ...seed });
 
 const bookingRow = async (id: string) =>
