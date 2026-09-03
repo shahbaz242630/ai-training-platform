@@ -35,6 +35,10 @@ export default defineConfig({
         "src/data/db.ts",
         "scripts/check-zap-report.mjs",
         "scripts/build.mjs",
+        // The migration CLI: argument parsing and a live connection. The logic
+        // it calls - migrations.mjs and db-connection.mjs - is covered against
+        // an in-process Postgres.
+        "scripts/db-migrate.mjs",
       ],
       /*
         Set just below measured coverage so they act as a ratchet: coverage can
