@@ -3,9 +3,18 @@ import {
   GraphClient,
   GraphError,
   GraphNotFoundError,
+  graphCredentialsFromEnv,
   type GraphCredentials,
 } from "./microsoft-graph";
 import { resetLogSink, setLogSink, type LogRecord } from "./logger";
+
+const env = vi.hoisted(() => ({
+  MS_TENANT_ID: undefined as string | undefined,
+  MS_CLIENT_ID: undefined as string | undefined,
+  MS_CLIENT_SECRET: undefined as string | undefined,
+}));
+
+vi.mock("@/lib/env", () => ({ serverEnv: () => ({ ...env }) }));
 
 /**
  * The client against a scripted fetch. Every behaviour a real tenant would
@@ -20,7 +29,13 @@ const CREDENTIALS: GraphCredentials = {
   clientSecret: "super-secret-value",
 };
 
-type Scripted = { status: number; body?: unknown; headers?: Record<string, string> };
+type Scripted = {
+  status: number;
+  body?: unknown;
+  /** Sent verbatim instead of JSON, for answers that are not JSON at all. */
+  raw?: string;
+  headers?: Record<string, string>;
+};
 
 /** A fetch that answers from a queue and records what it was asked. */
 function scriptedFetch(answers: Scripted[]) {
@@ -30,7 +45,12 @@ function scriptedFetch(answers: Scripted[]) {
     const next = answers.shift();
     if (!next) throw new Error("scripted fetch ran out of answers");
     // A 204 or 202 must be constructed with no body at all, not an empty one.
-    const text = next.body === undefined ? null : JSON.stringify(next.body);
+    const text =
+      next.raw !== undefined
+        ? next.raw
+        : next.body === undefined
+          ? null
+          : JSON.stringify(next.body);
     return new Response(text, {
       status: next.status,
       headers: { "Content-Type": "application/json", ...next.headers },
@@ -303,5 +323,75 @@ describe("list", () => {
   it("returns an empty list for an empty collection", async () => {
     const { graph } = client([token(), { status: 200, body: { value: [] } }]);
     expect(await graph.list({ path: "/users/x/events" })).toEqual([]);
+  });
+});
+
+describe("answers that are not what the API documents", () => {
+  it("treats a body that is not JSON as no body", async () => {
+    const { graph } = client([token(), { status: 200, raw: "<html>gateway page</html>" }]);
+    expect(await graph.request({ method: "GET", path: "/a" })).toEqual({ status: 200, body: null });
+  });
+
+  it("names a failure by status when there is no error envelope to read", async () => {
+    const { graph } = client([token(), { status: 502, raw: "" }], 1);
+    await expect(graph.request({ method: "GET", path: "/a" })).rejects.toMatchObject({
+      status: 502,
+      code: "http_502",
+      retryable: true,
+    });
+  });
+
+  it("falls back to a short fixed wait when Retry-After is not a number", async () => {
+    sleeps.length = 0;
+    const { graph } = client([
+      token(),
+      { status: 429, body: {}, headers: { "Retry-After": "Wed, 21 Oct 2026 07:28:00 GMT" } },
+      { status: 200, body: {} },
+    ]);
+    await graph.request({ method: "GET", path: "/a" });
+    expect(sleeps).toEqual([2000]);
+  });
+
+  it("treats a token with no expiry as already expired, so it is never reused", async () => {
+    const { graph, calls } = client([
+      { status: 200, body: { access_token: "tok_noexp" } },
+      { status: 200, body: {} },
+      { status: 200, body: { access_token: "tok_noexp_2" } },
+      { status: 200, body: {} },
+    ]);
+    await graph.request({ method: "GET", path: "/a" });
+    await graph.request({ method: "GET", path: "/b" });
+    expect(calls.filter((c) => c.url.includes("/oauth2/"))).toHaveLength(2);
+  });
+
+  it("reports a token endpoint that answers with nothing usable", async () => {
+    const { graph } = client([{ status: 500, raw: "" }]);
+    await expect(graph.request({ method: "GET", path: "/a" })).rejects.toMatchObject({
+      code: "token_request_failed",
+      retryable: true,
+    });
+  });
+
+  it("constructs with the real clock, fetch and sleep when told nothing", () => {
+    expect(new GraphClient({ credentials: CREDENTIALS })).toBeInstanceOf(GraphClient);
+  });
+});
+
+describe("graphCredentialsFromEnv", () => {
+  it("is null while any part of the registration is missing", () => {
+    env.MS_TENANT_ID = "t";
+    env.MS_CLIENT_ID = "c";
+    env.MS_CLIENT_SECRET = undefined;
+    expect(graphCredentialsFromEnv()).toBeNull();
+    env.MS_CLIENT_SECRET = "s";
+    env.MS_TENANT_ID = undefined;
+    expect(graphCredentialsFromEnv()).toBeNull();
+  });
+
+  it("returns the three values once they all exist", () => {
+    env.MS_TENANT_ID = "t";
+    env.MS_CLIENT_ID = "c";
+    env.MS_CLIENT_SECRET = "s";
+    expect(graphCredentialsFromEnv()).toEqual({ tenantId: "t", clientId: "c", clientSecret: "s" });
   });
 });
