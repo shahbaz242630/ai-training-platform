@@ -22,7 +22,17 @@ export default defineConfig({
         meaningless global percentage that hides regressions in the code that
         actually decides what a customer is charged.
       */
-      include: ["src/config/**", "src/domain/**", "src/data/**", "src/lib/**", "scripts/*.mjs"],
+      include: [
+        "src/config/**",
+        "src/domain/**",
+        "src/data/**",
+        "src/lib/**",
+        "scripts/*.mjs",
+        // The webhook route is the only code that may confirm a payment. It
+        // was outside coverage while its three-way outcome branch had no
+        // test, so a regression there could not fail the build.
+        "src/app/api/webhooks/**",
+      ],
       // Thin process wrappers with no branching logic of their own. Excluded
       // rather than counted, so the percentage keeps describing code where a
       // regression could actually change behaviour.
