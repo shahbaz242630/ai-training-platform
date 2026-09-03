@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { PGlite } from "@electric-sql/pglite";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import {
   LEDGER_TABLE,
   MigrationError,
@@ -33,15 +33,29 @@ let pg;
 let db;
 let dir;
 
-beforeEach(async () => {
+/*
+  One Postgres for the whole file, with the schema wiped between tests.
+  Starting an instance per test is simple but slow enough that, with the rest
+  of the suite running alongside, the first one overran the hook timeout in
+  the full gate while passing on its own. Dropping and recreating the schema
+  gives each test the same clean slate in a fraction of the time.
+*/
+beforeAll(async () => {
   pg = await PGlite.create();
   // The runner's contract: one parameterised statement, or a whole file.
   db = { query: (text, params) => pg.query(text, params), run: pg.exec.bind(pg) };
+}, 120_000);
+
+afterAll(async () => {
+  await pg?.close();
+});
+
+beforeEach(async () => {
+  await db.run("drop schema public cascade; create schema public;");
   dir = mkdtempSync(join(tmpdir(), "migrations-"));
 });
 
-afterEach(async () => {
-  await pg.close();
+afterEach(() => {
   rmSync(dir, { recursive: true, force: true });
 });
 
