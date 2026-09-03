@@ -43,8 +43,8 @@ const IS_TEST = /\.test\.(ts|tsx)$/;
  * an unwired module is intentional.
  */
 export const REACHABILITY_ALLOWLIST = {
-  "src/domain/messaging/sending-policy.ts":
-    "Phase 5 (email). Classification must exist before the first send loop does, per D38 - wiring it after would mean adding it to code that already sends.",
+  "src/domain/messaging/mock-provider.ts":
+    "Deliberately unreachable from production and must stay so: there is no fallback to a mock when email is unconfigured, because a sweep that marks messages sent into memory would record a customer as told when they were told nothing.",
   "src/domain/payments/mock-provider.ts":
     "Deliberately unreachable from production and must stay so: there is no fallback to a mock when Stripe is unconfigured, because a checkout that appears to work and charges nothing is worse than an outage.",
   "src/lib/structured-data.ts":

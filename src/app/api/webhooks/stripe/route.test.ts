@@ -311,6 +311,15 @@ describe("a paid delivery", () => {
       expect.objectContaining({ action: "order.payment_succeeded", subject: `order:${orderId}` }),
     );
     expect(errorMessages()).toEqual([]);
+
+    // The first thing a paying customer will receive, promised in the same
+    // transaction as the settlement.
+    const queued = await db.query<{ template_key: string; status: string }>(
+      `select template_key, status from communication_log
+        where booking_id = (select id from bookings where order_id = $1)`,
+      [orderId],
+    );
+    expect(queued.rows).toEqual([{ template_key: "payment_receipt", status: "queued" }]);
   });
 
   it("does nothing the second time the same event arrives", async () => {
