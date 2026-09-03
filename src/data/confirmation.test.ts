@@ -279,3 +279,35 @@ describe("lookups", () => {
     });
   });
 });
+
+describe("edges", () => {
+  it("still confirms a booking whose session is no longer in the catalogue, with a plain subject", async () => {
+    const provider = calendar();
+    const { bookingId } = await scheduledBooking();
+    await db.query("update bookings set session_slug = 'retired-session' where id = $1", [
+      bookingId,
+    ]);
+
+    expect(await confirmBookingOnCalendar({ bookingId, provider, now: NOW, transaction })).toBe(
+      "confirmed",
+    );
+  });
+
+  it("refuses to record a confirmation the calendar issued without a link", async () => {
+    const { bookingId } = await scheduledBooking();
+    const base = calendar();
+    const linkless: SchedulingProvider = {
+      ...base,
+      holdSlot: (input) => base.holdSlot(input),
+      confirmSlot: async (id, attendee) => ({
+        ...(await base.confirmSlot(id, attendee)),
+        meetingUrl: null,
+      }),
+    } as unknown as SchedulingProvider;
+
+    await expect(
+      confirmBookingOnCalendar({ bookingId, provider: linkless, now: NOW, transaction }),
+    ).rejects.toThrow(/without a meeting link/);
+    expect((await bookingRow(bookingId))?.status).toBe("scheduled");
+  });
+});

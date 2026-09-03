@@ -88,3 +88,17 @@ describe("blockCalendar", () => {
     ).toBe(true);
   });
 });
+
+describe("blockCalendar, when the failure is not even an Error", () => {
+  it("still reports it, as text", async () => {
+    const odd: SchedulingProvider = {
+      listAvailability: () => Promise.reject("nope"),
+      holdSlot: () => Promise.reject("nope"),
+      confirmSlot: () => Promise.reject("nope"),
+      releaseSlot: () => Promise.reject("nope"),
+      cancelEvent: () => Promise.reject("nope"),
+      getEvent: () => Promise.reject("nope"),
+    };
+    expect(await blockCalendar(input(odd))).toEqual({ kind: "unblocked", reason: "nope" });
+  });
+});

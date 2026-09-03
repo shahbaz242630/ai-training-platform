@@ -19,6 +19,7 @@ import { at } from "@/lib/time";
 const state = vi.hoisted(() => ({
   cronSecret: "sweep-secret" as string | undefined,
   calendarDown: false,
+  databaseDown: false,
 }));
 
 const EVERY_DAY = {
@@ -52,8 +53,10 @@ vi.mock("@/domain/scheduling/factory", () => ({
 
 vi.mock("@/data/db", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/data/db")>()),
-  withTransaction: async <T>(work: (runner: QueryRunner) => Promise<T>): Promise<T> =>
-    db.transaction((tx) => work(tx as unknown as QueryRunner)),
+  withTransaction: async <T>(work: (runner: QueryRunner) => Promise<T>): Promise<T> => {
+    if (state.databaseDown) throw new Error("connection refused");
+    return db.transaction((tx) => work(tx as unknown as QueryRunner));
+  },
 }));
 
 import { POST } from "./route";
@@ -80,6 +83,7 @@ afterAll(async () => {
 beforeEach(() => {
   state.cronSecret = "sweep-secret";
   state.calendarDown = false;
+  state.databaseDown = false;
   provider = new MockSchedulingProvider({ rules: EVERY_DAY });
   logs = [];
   setLogSink((r) => {
@@ -250,5 +254,87 @@ describe("paid bookings the calendar step did not finish", () => {
     expect(result.status).toBe(200);
     expect(result.body).toMatchObject({ confirmations: expect.objectContaining({ confirmed: 0 }) });
     expect((result.body.confirmations as { failed: number }).failed).toBeGreaterThan(0);
+  });
+});
+
+describe("what the sweep reports and survives", () => {
+  it("raises the standing alarm for a paid order whose booking has no time", async () => {
+    counter += 1;
+    const customer = await db.query<{ id: string }>(
+      `insert into customers (first_name, last_name, email, timezone)
+       values ('Amina', 'Khan', $1, 'Asia/Dubai') returning id`,
+      [`alarm${counter}@example.com`],
+    );
+    const order = await db.query<{ id: string }>(
+      `insert into orders (customer_id, order_type, session_slug, gross_amount_fils, payment_status)
+       values ($1, 'single', 'claude-claude-code', 149900, 'paid') returning id`,
+      [customer.rows[0]?.id],
+    );
+    await db.query(
+      `insert into bookings (order_id, session_slug, sequence, status, customer_timezone)
+       values ($1, 'claude-claude-code', 1, 'awaiting_schedule', 'Asia/Dubai')`,
+      [order.rows[0]?.id],
+    );
+
+    const result = await run();
+
+    expect(Number(result.body.paidButUnscheduled)).toBeGreaterThan(0);
+    expect(
+      logs.some((l) => l.level === "error" && l.message.startsWith("PAID BUT NOT SCHEDULED")),
+    ).toBe(true);
+  });
+
+  it("answers 500 when the database is unreachable, so an outage is never a quiet run", async () => {
+    state.databaseDown = true;
+    expect(await run()).toEqual({ status: 500, body: { error: "Sweep failed" } });
+  });
+
+  it("keeps a stale event for the next run when the calendar refuses to delete it", async () => {
+    const { holdId } = await holdWithEvent(PAST);
+    provider.releaseSlot = () => Promise.reject(new Error("throttled"));
+
+    const result = await run();
+
+    expect(result.body).toMatchObject({ calendarEventsStillBlocking: 1 });
+    expect((await holdRow(holdId))?.calendar_released_at).toBeNull();
+    expect(logs.some((l) => l.level === "error" && l.message.includes("still blocks"))).toBe(true);
+  });
+
+  it("counts a confirmation that throws as failed and carries on", async () => {
+    await paidScheduledBooking();
+    provider.confirmSlot = () => Promise.reject(new Error("throttled"));
+
+    const result = await run();
+
+    expect(result.status).toBe(200);
+    expect((result.body.confirmations as { failed: number }).failed).toBeGreaterThan(0);
+    expect(logs.some((l) => l.level === "error" && l.message.includes("will retry"))).toBe(true);
+  });
+
+  it("counts a booking whose slot the calendar has lost", async () => {
+    const bookingId = await paidScheduledBooking();
+    const row = await db.query<{ scheduled_start: Date; scheduled_end: Date }>(
+      "select scheduled_start, scheduled_end from bookings where id = $1",
+      [bookingId],
+    );
+    const held = await provider.holdSlot({
+      slot: { start: row.rows[0]!.scheduled_start, end: row.rows[0]!.scheduled_end },
+      subject: "x",
+      attendeeName: "A",
+      attendeeEmail: "a@example.com",
+    });
+    await provider.cancelEvent(held.externalId);
+    await db.query("update bookings set calendar_event_id = $2 where id = $1", [
+      bookingId,
+      held.externalId,
+    ]);
+
+    const result = await run();
+
+    expect((result.body.confirmations as { slotLost: number }).slotLost).toBe(1);
+    const after = await db.query<{ status: string }>("select status from bookings where id = $1", [
+      bookingId,
+    ]);
+    expect(after.rows[0]?.status).toBe("awaiting_schedule");
   });
 });
