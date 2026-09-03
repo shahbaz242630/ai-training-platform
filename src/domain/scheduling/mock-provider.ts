@@ -4,6 +4,7 @@ import {
   EventNotFoundError,
   SlotUnavailableError,
   type AvailabilityQuery,
+  type ConfirmSlotInput,
   type ExternalEvent,
   type HoldSlotInput,
   type SchedulingProvider,
@@ -42,6 +43,8 @@ export class MockSchedulingProvider implements SchedulingProvider {
   private readonly now: () => Date;
   private readonly rules: AvailabilityRules;
   private readonly events = new Map<string, ExternalEvent>();
+  /** Who was invited at confirmation, by event. Test and development helper. */
+  readonly invitations = new Map<string, ConfirmSlotInput>();
   private readonly idPrefix: string;
   private nextId = 1;
 
@@ -74,7 +77,7 @@ export class MockSchedulingProvider implements SchedulingProvider {
     return Promise.resolve(event);
   }
 
-  confirmSlot(externalId: string): Promise<ExternalEvent> {
+  confirmSlot(externalId: string, attendee: ConfirmSlotInput): Promise<ExternalEvent> {
     const event = this.events.get(externalId);
     if (!event) return Promise.reject(new EventNotFoundError(externalId));
 
@@ -91,6 +94,8 @@ export class MockSchedulingProvider implements SchedulingProvider {
       meetingUrl: `https://teams.mock.invalid/meet/${externalId}`,
     };
     this.events.set(externalId, confirmed);
+    // Recorded so a test can assert who would have received the invitation.
+    this.invitations.set(externalId, attendee);
     return Promise.resolve(confirmed);
   }
 
