@@ -1,13 +1,5 @@
-import { AVAILABILITY, windowsForWeekday, type AvailabilityRules } from "@/config/availability";
-import {
-  addDays,
-  addMinutes,
-  gstDayStartUtc,
-  gstTimeOnDayUtc,
-  intervalsOverlap,
-  padInterval,
-  toGstParts,
-} from "@/lib/time";
+import { AVAILABILITY, type AvailabilityRules } from "@/config/availability";
+import type { Interval } from "@/lib/time";
 import {
   EventNotFoundError,
   SlotUnavailableError,
@@ -17,16 +9,18 @@ import {
   type SchedulingProvider,
   type TimeSlot,
 } from "./provider";
+import { candidateSlots, isBookableSlot } from "./rules";
 
 /**
  * An in-memory scheduling provider.
  *
  * This is not a stub that returns canned answers. It applies the same rules
  * the real calendar has to apply - working hours, buffers, notice, horizon,
- * and conflicts against events already on the calendar - so a booking flow
- * that works against this one is exercising real logic rather than a
- * pass-through. Everything downstream of scheduling can be built and tested
- * before a Microsoft tenant is involved at all.
+ * and conflicts against events already on the calendar - through the same
+ * functions the real provider uses. Only the source of "what is already
+ * taken" differs: here it is a map in memory, there it is the calendar.
+ * Everything downstream of scheduling can be built and tested before a
+ * Microsoft tenant is involved at all.
  *
  * It is also the only implementation that can run in a test: the real one
  * needs a tenant, a licence and a secret.
@@ -61,44 +55,11 @@ export class MockSchedulingProvider implements SchedulingProvider {
   }
 
   listAvailability(query: AvailabilityQuery): Promise<readonly TimeSlot[]> {
-    if (query.durationMinutes <= 0) return Promise.resolve([]);
-
-    const now = this.now();
-    const earliest = maxDate(query.from, addMinutes(now, this.rules.minimumNoticeHours * 60));
-    const latest = minDate(query.to, addDays(now, this.rules.bookingHorizonDays));
-    if (earliest.getTime() >= latest.getTime()) return Promise.resolve([]);
-
-    const slots: TimeSlot[] = [];
-    let day = gstDayStartUtc(earliest);
-
-    while (day.getTime() <= latest.getTime()) {
-      const weekday = toGstParts(day).weekday;
-      for (const window of windowsForWeekday(this.rules, weekday)) {
-        for (
-          let minutes = window.startMinutes;
-          minutes + query.durationMinutes <= window.endMinutes;
-          minutes += this.rules.slotIntervalMinutes
-        ) {
-          const start = gstTimeOnDayUtc(day, minutes);
-          const slot = { start, end: addMinutes(start, query.durationMinutes) };
-          if (start.getTime() < earliest.getTime()) continue;
-          if (slot.end.getTime() > latest.getTime()) continue;
-          if (this.conflictsWithCalendar(slot)) continue;
-          slots.push(slot);
-        }
-      }
-      day = addDays(day, 1);
-    }
-
-    return Promise.resolve(slots);
+    return Promise.resolve(candidateSlots(query, this.rules, this.now(), this.busy()));
   }
 
   holdSlot(input: HoldSlotInput): Promise<ExternalEvent> {
-    // Re-validated here rather than trusted from whatever the browser sent.
-    // The slot must be one this provider would actually have offered, not just
-    // one that happens to be free - otherwise a request can book 3am, or a
-    // time inside the notice period, simply by asking for it.
-    if (!this.isBookable(input.slot)) {
+    if (!isBookableSlot(input.slot, this.rules, this.now(), this.busy())) {
       return Promise.reject(new SlotUnavailableError(input.slot));
     }
 
@@ -160,45 +121,13 @@ export class MockSchedulingProvider implements SchedulingProvider {
     return [...this.events.values()];
   }
 
-  private isBookable(slot: TimeSlot): boolean {
-    const durationMinutes = (slot.end.getTime() - slot.start.getTime()) / 60_000;
-    if (durationMinutes <= 0) return false;
-
-    const now = this.now();
-    if (slot.start.getTime() < addMinutes(now, this.rules.minimumNoticeHours * 60).getTime()) {
-      return false;
-    }
-    if (slot.start.getTime() > addDays(now, this.rules.bookingHorizonDays).getTime()) {
-      return false;
-    }
-
-    const parts = toGstParts(slot.start);
-    const fitsAWindow = windowsForWeekday(this.rules, parts.weekday).some((window) => {
-      const startsInWindow = parts.minutesOfDay >= window.startMinutes;
-      const endsInWindow = parts.minutesOfDay + durationMinutes <= window.endMinutes;
-      const offset = parts.minutesOfDay - window.startMinutes;
-      const alignedToInterval = offset % this.rules.slotIntervalMinutes === 0;
-      return startsInWindow && endsInWindow && alignedToInterval;
-    });
-
-    return fitsAWindow && !this.conflictsWithCalendar(slot);
-  }
-
-  /** A slot conflicts if it lands within the buffer around any live event. */
-  private conflictsWithCalendar(slot: TimeSlot): boolean {
+  /** What is already taken: every live event. A cancelled one frees its time. */
+  private busy(): Interval[] {
+    const taken: Interval[] = [];
     for (const event of this.events.values()) {
       if (event.status === "cancelled") continue;
-      const blocked = padInterval({ start: event.start, end: event.end }, this.rules.bufferMinutes);
-      if (intervalsOverlap(slot, blocked)) return true;
+      taken.push({ start: event.start, end: event.end });
     }
-    return false;
+    return taken;
   }
-}
-
-function maxDate(a: Date, b: Date): Date {
-  return a.getTime() >= b.getTime() ? a : b;
-}
-
-function minDate(a: Date, b: Date): Date {
-  return a.getTime() <= b.getTime() ? a : b;
 }
