@@ -30,7 +30,7 @@ vi.mock("@/lib/env", () => ({
 
 vi.mock("@/domain/messaging/factory", () => ({
   getEmailProvider: () => {
-    if (!state.emailConfigured) throw new Error("RESEND_API_KEY is not configured");
+    if (!state.emailConfigured) throw new Error("MS_CLIENT_SECRET is not configured");
     return provider;
   },
   emailIsConfigured: () => state.emailConfigured,

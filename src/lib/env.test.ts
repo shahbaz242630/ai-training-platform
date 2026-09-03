@@ -7,8 +7,8 @@ import { describe, it, expect, afterEach, vi } from "vitest";
  * as an empty string, which Zod reads as "present" - so `.optional()` never
  * applies and any format check on it fails. The failure then surfaces wherever
  * the environment is first read, which is nowhere near the blank line that
- * caused it. This actually happened: a blank EMAIL_FROM broke the booking form
- * and reported itself as "lead capture failed".
+ * caused it. This actually happened: a blank sender address broke the booking
+ * form and reported itself as "lead capture failed".
  */
 
 const ORIGINAL = { ...process.env };
@@ -26,23 +26,23 @@ async function freshServerEnv() {
 
 describe("serverEnv", () => {
   it("treats a blank optional variable as absent rather than invalid", async () => {
-    process.env.EMAIL_FROM = "";
+    process.env.MS_CALENDAR_USER_ID = "";
     const env = await freshServerEnv();
-    expect(env.EMAIL_FROM).toBeUndefined();
+    expect(env.MS_CALENDAR_USER_ID).toBeUndefined();
   });
 
   it("still rejects a value that is present and genuinely wrong", async () => {
-    process.env.EMAIL_FROM = "not-an-email";
-    await expect(freshServerEnv()).rejects.toThrow(/EMAIL_FROM/);
+    process.env.NEXT_PUBLIC_SITE_URL = "not a url";
+    await expect(freshServerEnv()).rejects.toThrow(/NEXT_PUBLIC_SITE_URL/);
   });
 
   it("accepts a real value", async () => {
-    process.env.EMAIL_FROM = "hello@example.com";
+    process.env.MS_CALENDAR_USER_ID = "booking@example.com";
     const env = await freshServerEnv();
-    expect(env.EMAIL_FROM).toBe("hello@example.com");
+    expect(env.MS_CALENDAR_USER_ID).toBe("booking@example.com");
   });
 
-  it("treats every blank optional variable as absent, not only the email one", async () => {
+  it("treats every blank optional variable as absent, not only the mailbox", async () => {
     process.env.DATABASE_URL = "";
     process.env.STRIPE_SECRET_KEY = "";
     process.env.MS_CLIENT_SECRET = "";

@@ -5,7 +5,7 @@ import { z } from "zod";
  *
  * Fails fast at startup rather than producing confusing runtime errors later.
  * Integration secrets are optional at this stage so the app still boots before
- * Stripe, Microsoft and Resend credentials exist - each adapter is responsible
+ * Stripe and Microsoft credentials exist - each adapter is responsible
  * for asserting its own requirements when it is actually used.
  */
 /**
@@ -52,9 +52,6 @@ const serverSchema = z.object({
   MS_CLIENT_ID: optional(z.string()),
   MS_CLIENT_SECRET: optional(z.string()),
   MS_CALENDAR_USER_ID: optional(z.string()),
-
-  RESEND_API_KEY: optional(z.string()),
-  EMAIL_FROM: optional(z.string().email()),
 
   CRON_SECRET: optional(z.string()),
   SENTRY_DSN: optional(z.string()),
