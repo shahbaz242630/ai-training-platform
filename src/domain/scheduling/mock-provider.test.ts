@@ -149,6 +149,9 @@ describe("listAvailability", () => {
   });
 });
 
+/** Who is invited at confirmation. Ignored in memory, required by the port. */
+const ATTENDEE = { attendeeName: "A Customer", attendeeEmail: "customer@example.com" };
+
 describe("holdSlot", () => {
   const holdInput = {
     slot: FIRST_SATURDAY_SLOT,
@@ -289,7 +292,7 @@ describe("confirmSlot", () => {
   it("promotes the tentative event and issues the meeting link", async () => {
     const scheduler = provider();
     const held = await scheduler.holdSlot(holdInput);
-    const confirmed = await scheduler.confirmSlot(held.externalId);
+    const confirmed = await scheduler.confirmSlot(held.externalId, ATTENDEE);
     expect(confirmed.status).toBe("confirmed");
     expect(confirmed.meetingUrl).toContain(held.externalId);
     expect(confirmed.start).toEqual(held.start);
@@ -298,20 +301,22 @@ describe("confirmSlot", () => {
   it("is a no-op the second time, because the webhook that triggers it retries", async () => {
     const scheduler = provider();
     const held = await scheduler.holdSlot(holdInput);
-    const first = await scheduler.confirmSlot(held.externalId);
-    const second = await scheduler.confirmSlot(held.externalId);
+    const first = await scheduler.confirmSlot(held.externalId, ATTENDEE);
+    const second = await scheduler.confirmSlot(held.externalId, ATTENDEE);
     expect(second).toEqual(first);
   });
 
   it("refuses an event that is not there", async () => {
-    await expect(provider().confirmSlot("nope")).rejects.toBeInstanceOf(EventNotFoundError);
+    await expect(provider().confirmSlot("nope", ATTENDEE)).rejects.toBeInstanceOf(
+      EventNotFoundError,
+    );
   });
 
   it("refuses to confirm a cancelled event", async () => {
     const scheduler = provider();
     const held = await scheduler.holdSlot(holdInput);
     await scheduler.cancelEvent(held.externalId);
-    await expect(scheduler.confirmSlot(held.externalId)).rejects.toBeInstanceOf(
+    await expect(scheduler.confirmSlot(held.externalId, ATTENDEE)).rejects.toBeInstanceOf(
       SlotUnavailableError,
     );
   });
@@ -345,7 +350,7 @@ describe("releaseSlot and cancelEvent", () => {
   it("frees the slot and drops the meeting link when a session is cancelled", async () => {
     const scheduler = provider();
     const held = await scheduler.holdSlot(holdInput);
-    await scheduler.confirmSlot(held.externalId);
+    await scheduler.confirmSlot(held.externalId, ATTENDEE);
     await scheduler.cancelEvent(held.externalId);
 
     const event = await scheduler.getEvent(held.externalId);

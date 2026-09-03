@@ -52,6 +52,8 @@ export default defineConfig({
         // it calls - migrations.mjs and db-connection.mjs - is covered against
         // an in-process Postgres.
         "scripts/db-migrate.mjs",
+        // A wrapper that sets one flag and spawns vitest on the live smoke test.
+        "scripts/graph-smoke.mjs",
       ],
       /*
         Set just below measured coverage so they act as a ratchet: coverage can

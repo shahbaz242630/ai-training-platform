@@ -22,6 +22,7 @@
     "check:security:test": "vitest run scripts/security-check.test.mjs",
     "db:check": "node --env-file-if-exists=.env.local scripts/db-migrate.mjs --check",
     "db:migrate": "node --env-file-if-exists=.env.local scripts/db-migrate.mjs",
+    "graph:smoke": "node --env-file-if-exists=.env.local scripts/graph-smoke.mjs",
     "prepare": "husky"
   },
   "dependencies": {

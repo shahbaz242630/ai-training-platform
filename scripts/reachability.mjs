@@ -47,8 +47,6 @@ export const REACHABILITY_ALLOWLIST = {
     "Deliberately unreachable from production and must stay so: there is no fallback to a mock when email is unconfigured, because a sweep that marks messages sent into memory would record a customer as told when they were told nothing.",
   "src/domain/payments/mock-provider.ts":
     "Deliberately unreachable from production and must stay so: there is no fallback to a mock when Stripe is unconfigured, because a checkout that appears to work and charges nothing is worse than an outage.",
-  "src/lib/microsoft-graph.ts":
-    "Phase 4. The Graph client lands one slice before the calendar provider that calls it, so the client can be reviewed and tested on its own; the provider slice removes this entry.",
   "src/lib/structured-data.ts":
     "C9. Blocked on real company identity and on a safe serialisation approach; emitting placeholder JSON-LD would be cached by answer engines.",
 };

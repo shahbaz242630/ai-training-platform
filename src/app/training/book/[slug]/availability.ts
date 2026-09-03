@@ -1,7 +1,7 @@
 import { withTransaction } from "@/data/db";
 import { listLiveHolds } from "@/data/slot-holds";
 import { isSlotAvailable } from "@/domain/booking/slot-hold";
-import { MockSchedulingProvider } from "@/domain/scheduling/mock-provider";
+import { getSchedulingProvider } from "@/domain/scheduling/factory";
 import type { TimeSlot } from "@/domain/scheduling/provider";
 import { AVAILABILITY } from "@/config/availability";
 import { addDays } from "@/lib/time";
@@ -24,10 +24,10 @@ import { addDays } from "@/lib/time";
  * another customer thirty seconds ago must disappear from this list, and only
  * the database knows about it.
  *
- * NOTE: the scheduling provider here is the in-memory mock. It applies the
- * real rules but knows nothing about the actual Outlook calendar, so a
- * personal appointment is not yet respected. Swapping it for the Graph
- * implementation changes the one line below and nothing else.
+ * The provider comes from the factory: the real calendar when it is
+ * configured, the in-memory one outside production when it is not, and a
+ * refusal in production - which the page reports honestly rather than
+ * offering times nobody checked.
  */
 export async function offeredSlots(
   durationMinutes: number,
@@ -35,7 +35,7 @@ export async function offeredSlots(
 ): Promise<readonly TimeSlot[]> {
   const to = addDays(now, AVAILABILITY.bookingHorizonDays);
 
-  const scheduler = new MockSchedulingProvider();
+  const scheduler = getSchedulingProvider();
   const candidates = await scheduler.listAvailability({ from: now, to, durationMinutes });
 
   const holds = await withTransaction((runner) => listLiveHolds(runner, { from: now, to }, now));

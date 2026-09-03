@@ -52,6 +52,25 @@ export interface HoldSlotInput {
   readonly subject: string;
   readonly attendeeName: string;
   readonly attendeeEmail: string;
+  /**
+   * Our own id for this hold, handed to the provider so a retried create
+   * cannot block the same time twice. A provider that supports it uses it as
+   * an idempotency key; one that does not may ignore it.
+   */
+  readonly holdReference?: string;
+}
+
+/**
+ * Who the session is for, given at confirmation rather than at hold time.
+ *
+ * Adding the attendee to a calendar event is what makes the calendar send
+ * them an invitation. Before payment that would tell a customer they have a
+ * session they do not yet have, so the attendee is attached only when the
+ * event is promoted.
+ */
+export interface ConfirmSlotInput {
+  readonly attendeeName: string;
+  readonly attendeeEmail: string;
 }
 
 /** Base type, so a caller can catch every scheduling failure in one place. */
@@ -102,8 +121,11 @@ export interface SchedulingProvider {
    */
   holdSlot(input: HoldSlotInput): Promise<ExternalEvent>;
 
-  /** Payment verified: promote the tentative event and issue the meeting link. */
-  confirmSlot(externalId: string): Promise<ExternalEvent>;
+  /**
+   * Payment verified: promote the tentative event, invite the attendee, and
+   * issue the meeting link. Idempotent - the webhook that triggers it retries.
+   */
+  confirmSlot(externalId: string, attendee: ConfirmSlotInput): Promise<ExternalEvent>;
 
   /**
    * Give the slot back - checkout abandoned, expired, or payment failed.
