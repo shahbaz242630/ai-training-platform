@@ -56,11 +56,26 @@ reach our infrastructure at any point.
   triggers** — against `UPDATE`, `DELETE` and `TRUNCATE`, the last needing its
   own statement-level trigger that the first migration omitted. An audit row
   that can be edited, or a table that can be emptied in one statement, is not
-  evidence. Covers order creation, slot holds and their release, and the
-  settled, failed and duplicate webhook outcomes. **It does not yet cover the
-  mismatched, refused or unknown-order outcomes**, which are the ones that
-  indicate probing — those currently log only. Booking confirmation and
+  evidence. Covers order creation, slot holds and their release, every webhook
+  outcome including the mismatched, refused and unknown-order ones that
+  indicate probing, and rejected signatures. Booking confirmation and
   cancellation are declared but not emitted, because those flows do not exist.
+- **Evidence of forged webhook deliveries is budgeted.** A signature failure
+  is recorded to the trail only within a per-source and a total allowance per
+  minute; beyond that it is still refused and logged. Without the budget,
+  anybody who could reach the public endpoint could grow an append-only table
+  without bound, having authenticated nothing.
+- **The webhook route is tested end to end and sits inside the coverage
+  gate**: signed deliveries through a provider that genuinely verifies, into
+  an in-process Postgres running the real migrations, for every outcome the
+  route can produce.
+- **Schema migrations are applied through a runner that keeps a ledger.** Each
+  file is applied in its own transaction and recorded with a checksum;
+  `pnpm db:check` is read-only and fails when the database is behind or a
+  file was edited after it ran. This exists because five reviewed migrations
+  once sat unapplied on the real database for three days with nothing able to
+  notice. **Known limit:** the check must be run by a person or a deploy step;
+  nothing runs it automatically yet.
 - **Zod validation** on every external input, server-side.
 - **Database TLS chain verification** when `DATABASE_CA_CERT` is configured.
   TLS parameters are stripped from `DATABASE_URL` first, because the driver
@@ -88,14 +103,19 @@ reach our infrastructure at any point.
   allowlisted with a written reason, and a stale or unexplained entry fails the
   build. **Known limit:** it is module-granular, so a dead export inside a live
   module is not detected.
-- `main` is protected: pull request required, CI must pass, force-push and
-  deletion blocked.
-- Production deployment gated behind a protected environment.
+- `main` is protected: pull request required, seven status checks must pass on
+  the exact commit, branches must be up to date, force-push and deletion
+  blocked, and the rules apply to administrators too.
+- A `production` environment with a required reviewer exists in the
+  repository settings. **No workflow in this repository deploys anything**;
+  the host pulls `main` directly, so that gate is not yet exercised by any
+  code here and should be read as intent rather than as a control in force.
 
 ## Status
 
 This application is **not yet live**. It handles no real customer data, takes no
-payments, and has no production deployment.
+payments, and has no production deployment. A staging deployment exists on a
+throwaway host domain, marked `noindex` and with no payment credentials.
 
 Known weaknesses are tracked internally and reviewed before launch, rather than
 enumerated here. One is worth stating publicly because it is observable from any
@@ -136,11 +156,11 @@ discovered:
   becomes a value the client controls; too low and every visitor shares one
   bucket. Verify with a request carrying a forged header before relying on
   these limits.
-- Reserving a slot takes a real, sellable time off the calendar for fifteen
-  minutes without any payment. Rate limiting raises the cost of occupying the
-  diary that way; it does not make it impossible. The short hold lifetime, the
-  expiry applied at read time, and the sweep together bound the damage to
-  minutes rather than days. A determined actor rotating addresses could still
+- Reserving a slot takes a real, sellable time off the calendar for the length
+  of a hold without any payment. Rate limiting raises the cost of occupying
+  the diary that way; it does not make it impossible. The bounded hold
+  lifetime, the expiry applied at read time, and the sweep together limit the
+  damage to well under an hour rather than days. A determined actor rotating addresses could still
   degrade availability, and closing that properly needs bot protection at the
   edge, which is tracked for launch.
 
