@@ -47,7 +47,7 @@ export class TemplateNotAvailableError extends Error {
 }
 
 /**
- * The identity placeholders look like `[COMPANY_NAME]`. One of those in a
+ * The identity placeholders are an upper-case name in square brackets. One in a
  * customer's inbox would be worse than no email, so a rendered message is
  * checked for the pattern before it is allowed anywhere near a provider.
  */

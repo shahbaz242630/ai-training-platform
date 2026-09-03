@@ -106,6 +106,17 @@ Gulf Standard Time reference.
 panel. Built on native `<details>` with a small hash handler, so it degrades
 gracefully without JavaScript.
 
+
+**Every message a customer is owed is a row first.** Settlement and confirmation
+queue rows in `communication_log` with a template key and a due time in UTC; a
+job called every five minutes claims what is due, renders the current template,
+sends it, and records the result. A failed send is retried with backoff and then
+left for a person, and never breaks a booking. The provider is handed the row id
+as an idempotency key, so a retry after a crash cannot deliver twice. Email goes
+through a port with a real adapter and an in-memory one; there is no fallback to
+the in-memory one when the real one is unconfigured, because a message marked
+sent into memory is a customer recorded as told when they were told nothing.
+
 ## Security
 
 See [SECURITY.md](./SECURITY.md) for controls and how to report a vulnerability.

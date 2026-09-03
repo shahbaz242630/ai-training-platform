@@ -12,6 +12,14 @@ import { afterEach, describe, it, expect, vi } from "vitest";
  * first test happened to set.
  */
 
+/*
+  Every test here cold-imports the Stripe SDK after a module reset. Alone that
+  takes well under a second; under the full gate, alongside several in-process
+  Postgres suites, it has overrun the five-second default. The budget matches
+  what the test actually does rather than the default.
+*/
+vi.setConfig({ testTimeout: 30_000 });
+
 const ORIGINAL = { ...process.env };
 
 async function loadFactory(env: Record<string, string | undefined>) {
