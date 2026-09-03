@@ -57,8 +57,33 @@ pnpm dev                     # http://localhost:3000/training
 | `pnpm test` | Unit tests |
 | `pnpm test:coverage` | Tests with coverage thresholds enforced |
 | `pnpm check:security` | Project security guards |
+| `pnpm db:check` | Read-only: is the database current with `supabase/migrations`? Non-zero exit if not |
+| `pnpm db:migrate` | Apply every pending migration, in order, each in its own transaction |
 
 `pnpm verify` is what CI runs. If it passes locally it should pass on push.
+
+## Database migrations
+
+Schema changes live in `supabase/migrations`, one file per change, named
+`YYYYMMDDHHMMSS_short_name.sql`. `pnpm db:migrate` applies them in that order,
+each in its own transaction, and records each one in a `schema_migrations`
+ledger together with a checksum of the file as applied. `pnpm db:check` is
+read-only and exits non-zero when anything is pending or the history has
+drifted, so it can gate a deploy.
+
+Both read `DATABASE_URL` and `DATABASE_CA_CERT` from the environment, or from
+`.env.local` locally. Run them once per environment: each database keeps its
+own ledger.
+
+A file edited after it was applied is reported as drift and blocks further
+migrations, because a file that no longer matches what the database did is a
+false record. Write a new migration instead. `pnpm db:migrate --mark-applied FILE`
+exists for one case only, a schema that was applied by hand before the ledger
+existed, and is never a way to skip a migration.
+
+The test suite also applies every migration to an in-process Postgres and then
+attempts each constraint it adds, so a migration is verified before it is
+merged, not only when it is run.
 
 ## Architecture notes
 

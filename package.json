@@ -20,6 +20,8 @@
     "test:coverage": "vitest run --coverage",
     "check:security": "node scripts/security-check.mjs",
     "check:security:test": "vitest run scripts/security-check.test.mjs",
+    "db:check": "node --env-file-if-exists=.env.local scripts/db-migrate.mjs --check",
+    "db:migrate": "node --env-file-if-exists=.env.local scripts/db-migrate.mjs",
     "prepare": "husky"
   },
   "dependencies": {
