@@ -308,3 +308,21 @@ export function graphCredentialsFromEnv(): GraphCredentials | null {
     clientSecret: env.MS_CLIENT_SECRET,
   };
 }
+
+const shared = globalThis as typeof globalThis & {
+  graphClient?: GraphClient;
+  graphClientFor?: string;
+};
+
+/**
+ * One client per process for a given registration, so the calendar and the
+ * mail adapters share a token rather than each fetching their own, and a
+ * new request never means a new token.
+ */
+export function sharedGraphClient(credentials: GraphCredentials): GraphClient {
+  const key = `${credentials.tenantId}/${credentials.clientId}`;
+  if (shared.graphClient && shared.graphClientFor === key) return shared.graphClient;
+  shared.graphClient = new GraphClient({ credentials });
+  shared.graphClientFor = key;
+  return shared.graphClient;
+}

@@ -1,6 +1,6 @@
 import { clientEnv, serverEnv } from "@/lib/env";
 import { logger } from "@/lib/logger";
-import { GraphClient, graphCredentialsFromEnv } from "@/lib/microsoft-graph";
+import { graphCredentialsFromEnv, sharedGraphClient } from "@/lib/microsoft-graph";
 import { GraphSchedulingProvider } from "./graph-provider";
 import { MockSchedulingProvider } from "./mock-provider";
 import { SchedulingError, type SchedulingProvider } from "./provider";
@@ -59,7 +59,7 @@ function create(): SchedulingProvider {
   const mailbox = serverEnv().MS_CALENDAR_USER_ID;
 
   if (credentials && mailbox) {
-    return new GraphSchedulingProvider({ client: new GraphClient({ credentials }), mailbox });
+    return new GraphSchedulingProvider({ client: sharedGraphClient(credentials), mailbox });
   }
 
   if (clientEnv.NEXT_PUBLIC_SITE_ENV === "production") {

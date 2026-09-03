@@ -35,7 +35,7 @@ export type AuditActor =
   | { readonly kind: "customer"; readonly customerId: string }
   | { readonly kind: "admin"; readonly adminId: string }
   | { readonly kind: "system"; readonly process: string }
-  | { readonly kind: "provider"; readonly provider: "stripe" | "microsoft" | "resend" };
+  | { readonly kind: "provider"; readonly provider: "stripe" | "microsoft" };
 
 export interface AuditEvent {
   readonly action: AuditAction;

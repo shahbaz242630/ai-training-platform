@@ -24,7 +24,7 @@ One Next.js application serves two surfaces on a single domain:
 | Database | Supabase Postgres |
 | Payments | Stripe Checkout, webhook-authoritative |
 | Scheduling | Microsoft Graph Calendar API |
-| Email | Resend |
+| Email | Microsoft Graph, sent from the booking mailbox |
 | Jobs | Supabase Cron → authenticated API route |
 | Hosting | Managed Node.js host |
 
