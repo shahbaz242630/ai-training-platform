@@ -172,7 +172,7 @@ export interface StartCheckoutResult {
  *   3. start checkout  - and only now does the customer go anywhere
  *
  * If step 3 fails, step 1 is undone. Otherwise a failure to reach Stripe
- * would block a sellable slot for fifteen minutes for nothing.
+ * would block a sellable slot for the whole length of a hold for nothing.
  *
  * NOTHING here confirms a booking. The order is `pending` and the booking is
  * `awaiting_schedule` until a verified webhook says otherwise.

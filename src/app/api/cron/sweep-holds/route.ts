@@ -10,7 +10,7 @@ import { logger } from "@/lib/logger";
 /**
  * Release the slots nobody paid for.
  *
- * A hold blocks a sellable time for fifteen minutes. Expiry already applies
+ * A hold blocks a sellable time until it expires. Expiry already applies
  * when availability is READ, so an abandoned checkout never keeps a slot off
  * the calendar - this job does the part that reading cannot: settling the row
  * and deleting the tentative calendar event that still blocks the real diary.

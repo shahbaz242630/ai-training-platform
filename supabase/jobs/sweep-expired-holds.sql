@@ -33,8 +33,8 @@ where exists (select 1 from cron.job where jobname = 'sweep-expired-holds');
 
 select cron.schedule(
   'sweep-expired-holds',
-  -- Every five minutes. A hold lives fifteen, so a slot is released within a
-  -- third of its lifetime of falling due. Tighter buys nothing: availability
+  -- Every five minutes, so a slot is back on sale within five minutes of its
+  -- hold falling due. Tighter buys nothing: availability
   -- already ignores an expired hold the moment it expires, whether or not this
   -- has run.
   '*/5 * * * *',
