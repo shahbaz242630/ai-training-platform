@@ -5,6 +5,8 @@ import { releaseFailedOrder, settlePaidOrder, type SettlementOutcome } from "@/d
 import { getPaymentProvider } from "@/domain/payments/factory";
 import { InvalidSignatureError } from "@/domain/payments/provider";
 import { recordAudit } from "@/lib/audit";
+import { clientAddressFrom } from "@/lib/client-address";
+import { createEvidenceBudget } from "@/lib/evidence-budget";
 import { logger } from "@/lib/logger";
 
 /**
@@ -30,6 +32,16 @@ import { logger } from "@/lib/logger";
 export const dynamic = "force-dynamic";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/*
+  A forged delivery is worth a row in the audit trail - but only so many. This
+  endpoint is public and the trail is append-only, so recording every
+  rejection let anybody who could reach the URL grow that table without bound,
+  having authenticated nothing. The first few rejections per source per minute
+  are recorded, with a total cap that holds even when sources cannot be told
+  apart. The rest are still refused and still logged. See lib/evidence-budget.
+*/
+const REJECTION_EVIDENCE = createEvidenceBudget({ perSource: 5, total: 60, windowMs: 60_000 });
 
 export async function POST(request: Request): Promise<NextResponse> {
   let payments;
@@ -63,11 +75,16 @@ export async function POST(request: Request): Promise<NextResponse> {
         answering 500 would invite the processor to retry something that can
         never become valid.
       */
-      await recordAudit({
-        action: "webhook.signature_rejected",
-        actor: { kind: "provider", provider: "stripe" },
-        subject: "stripe:unverified",
-      });
+      const source = clientAddressFrom(request.headers.get("x-forwarded-for"));
+      if (REJECTION_EVIDENCE.shouldRecord(source, new Date())) {
+        await recordAudit({
+          action: "webhook.signature_rejected",
+          actor: { kind: "provider", provider: "stripe" },
+          subject: "stripe:unverified",
+        });
+      } else {
+        logger.warn("a forged delivery was refused but not recorded: evidence budget spent");
+      }
       logger.error("a stripe webhook failed signature verification");
       return NextResponse.json({ error: "Invalid signature" }, { status: 400 });
     }

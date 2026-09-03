@@ -157,11 +157,12 @@ async function pendingOrder() {
 }
 
 /** A delivery the way the processor would send it: raw body, signature header. */
-async function deliver(body: MockEventBody, signature?: string | null) {
+async function deliver(body: MockEventBody, signature?: string | null, forwardedFor?: string) {
   const raw = mockEventBody(body);
   const headers = new Headers();
   const presented = signature === undefined ? provider.sign(raw) : signature;
   if (presented !== null) headers.set("stripe-signature", presented);
+  if (forwardedFor !== undefined) headers.set("x-forwarded-for", forwardedFor);
 
   const response = await POST(
     new Request("https://example.test/api/webhooks/stripe", {
@@ -549,5 +550,43 @@ describe("when the database cannot be reached", () => {
     expect(await claimsFor(event.id)).toEqual([]);
     // The retry then starts cleanly and settles.
     expect((await deliver(event)).body).toMatchObject({ outcome: "settled" });
+  });
+});
+
+describe("evidence of forged deliveries is bounded", () => {
+  const warnings = () => logs.filter((l) => l.level === "warn").map((l) => l.message);
+
+  it("records the first few rejections from a source, then keeps refusing without recording", async () => {
+    const { orderId, slotHoldId } = await pendingOrder();
+    const event = paidEvent(orderId, slotHoldId);
+    const forged = provider.sign(mockEventBody({ ...event, amountFils: 1 }));
+
+    const statuses: number[] = [];
+    for (let i = 0; i < 7; i += 1) {
+      statuses.push((await deliver(event, forged, "203.0.113.7")).status);
+    }
+
+    // Every one refused; only the first five left a row behind.
+    expect(statuses).toEqual([400, 400, 400, 400, 400, 400, 400]);
+    expect(auditActions().filter((a) => a === "webhook.signature_rejected")).toHaveLength(5);
+    expect(warnings()).toEqual([
+      "a forged delivery was refused but not recorded: evidence budget spent",
+      "a forged delivery was refused but not recorded: evidence budget spent",
+    ]);
+    expect(errorMessages()).toHaveLength(7);
+    expect(await stateOf(orderId, slotHoldId)).toMatchObject({ order: "pending", hold: "held" });
+  });
+
+  it("does not let one noisy source silence the evidence of another", async () => {
+    const { orderId, slotHoldId } = await pendingOrder();
+    const event = paidEvent(orderId, slotHoldId);
+    const forged = provider.sign(mockEventBody({ ...event, amountFils: 1 }));
+
+    for (let i = 0; i < 8; i += 1) await deliver(event, forged, "203.0.113.8");
+    audits = [];
+
+    await deliver(event, forged, "203.0.113.9");
+
+    expect(auditActions()).toEqual(["webhook.signature_rejected"]);
   });
 });
