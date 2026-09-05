@@ -1,4 +1,5 @@
 import type { QueryRunner } from "./db";
+import { promoteIntakeToCustomer } from "./customers";
 import { transitionPayment, type Order, type PaymentStatus } from "@/domain/booking/order";
 import { InvalidTransitionError } from "@/domain/booking/transitions";
 import { scheduleBooking, type Booking, type BookingStatus } from "@/domain/booking/booking";
@@ -178,6 +179,15 @@ export async function settlePaidOrder(
       where id = $1`,
     [order.id, input.stripePaymentIntentId ?? null, input.now],
   );
+
+  /*
+    Paid is the proof. The name, phone and consent typed at the form were kept
+    on the intake, because a form matched on email alone cannot prove who sent
+    it; now that this attempt has been paid for, they become the customer's.
+    In the same transaction, so the receipt queued below and everything sent
+    after it greet the person who actually paid.
+  */
+  await promoteIntakeToCustomer(runner, order.id, input.now);
 
   /*
     Convert only a hold that is still LIVE and still belongs to this order.
