@@ -1,10 +1,12 @@
 import { NextResponse } from "next/server";
 import { withTransaction } from "@/data/db";
 import { queueForOrder } from "@/data/communications";
+import { bookingIdsForOrder, confirmBookingOnCalendar } from "@/data/confirmation";
 import { claimWebhookEvent, markWebhookProcessed } from "@/data/webhook-events";
 import { releaseFailedOrder, settlePaidOrder, type SettlementOutcome } from "@/data/settlement";
 import { getPaymentProvider } from "@/domain/payments/factory";
 import { messagesOnSettlement } from "@/domain/messaging/schedule";
+import { getSchedulingProvider } from "@/domain/scheduling/factory";
 import { InvalidSignatureError } from "@/domain/payments/provider";
 import { recordAudit } from "@/lib/audit";
 import { clientAddressFrom } from "@/lib/client-address";
@@ -205,6 +207,16 @@ export async function POST(request: Request): Promise<NextResponse> {
     });
 
     await reportOutcome(outcome, event.eventId, event.orderId, event.type);
+
+    /*
+      AFTER the transaction, on purpose. Promoting the calendar event and
+      issuing the join link talks to Microsoft, and the settlement above must
+      never wait on that or be rolled back by it. If this fails, the booking
+      stays scheduled and the five-minute sweep tries again; the customer's
+      acknowledgement is already queued either way.
+    */
+    if (outcome === "settled") await confirmOnCalendar(event.orderId);
+
     return NextResponse.json({ ok: true, outcome });
   } catch (error) {
     /*
@@ -218,6 +230,43 @@ export async function POST(request: Request): Promise<NextResponse> {
       error: (error as Error).message,
     });
     return NextResponse.json({ error: "Could not settle" }, { status: 500 });
+  }
+}
+
+/**
+ * The step after settlement: the calendar event becomes the session, with a
+ * join link, and the confirmation and reminders are queued. Never throws -
+ * the processor has been answered by the settlement, and a retry belongs to
+ * the sweep, not to Stripe.
+ */
+async function confirmOnCalendar(orderId: string): Promise<void> {
+  let provider;
+  try {
+    provider = getSchedulingProvider();
+  } catch (error) {
+    logger.error("the calendar is not configured; confirmation is deferred to the sweep", {
+      orderId,
+      error: (error as Error).message,
+    });
+    return;
+  }
+
+  const bookingIds = await withTransaction((runner) => bookingIdsForOrder(runner, orderId));
+  for (const bookingId of bookingIds) {
+    try {
+      const result = await confirmBookingOnCalendar({
+        bookingId,
+        provider,
+        now: new Date(),
+        transaction: withTransaction,
+      });
+      logger.info("calendar confirmation after settlement", { bookingId, result });
+    } catch (error) {
+      logger.error("calendar confirmation failed after settlement; the sweep will retry", {
+        bookingId,
+        error: (error as Error).message,
+      });
+    }
   }
 }
 

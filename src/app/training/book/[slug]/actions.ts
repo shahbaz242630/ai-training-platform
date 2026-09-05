@@ -2,7 +2,7 @@
 
 import { randomUUID } from "node:crypto";
 import { cookies, headers } from "next/headers";
-import { captureLead } from "@/data/customers";
+import { captureLead, findCustomerById } from "@/data/customers";
 import { withTransaction } from "@/data/db";
 import { parsePrePaymentIntake, type IntakeFieldError } from "@/domain/intake/pre-payment-intake";
 import { createRateLimiter } from "@/lib/rate-limit";
@@ -11,7 +11,7 @@ import { logger } from "@/lib/logger";
 import { recordAudit } from "@/lib/audit";
 import { clientEnv, serverEnv } from "@/lib/env";
 import { writeLeadSession, readLeadSession } from "@/lib/lead-session";
-import { holdSlot, releaseHoldById } from "@/data/slot-holds";
+import { attachCalendarEvent, holdSlot, releaseHoldById } from "@/data/slot-holds";
 import {
   attributionIdForSession,
   attachCheckoutSession,
@@ -23,6 +23,8 @@ import { getSessionBySlug } from "@/config/sessions";
 import { resolvePrice } from "@/domain/pricing/resolve-price";
 import { createOrder } from "@/domain/booking/order";
 import { DEFAULT_HOLD_TTL_MINUTES } from "@/domain/booking/slot-hold";
+import { blockCalendar } from "@/domain/booking/calendar-hold";
+import { getSchedulingProvider } from "@/domain/scheduling/factory";
 import { getPaymentProvider } from "@/domain/payments/factory";
 import {
   holdInterval,
@@ -303,6 +305,33 @@ export async function startCheckoutAction(input: unknown): Promise<StartCheckout
       },
     });
 
+    /*
+      The real calendar, second. The database hold above already protects the
+      slot inside our own system; the tentative event protects it from the
+      founder's side. If the calendar says the time has gone since it was
+      offered, the hold goes back and another slot is offered - that is a
+      normal outcome, not an error. If the calendar cannot be reached, checkout
+      goes ahead on the database hold alone and confirmation creates the event
+      later.
+    */
+    const calendar = await blockCalendarForHold({
+      holdId: outcome.hold.id,
+      slot: interval,
+      subject: session.title,
+      customerId: lead.customerId,
+    });
+    if (calendar === "unavailable") {
+      await releaseHeldSlotQuietly(outcome.hold.id);
+      heldId = null;
+      const remaining = await offeredSlots(session.durationMinutes, new Date());
+      return {
+        ok: false,
+        reason: "slot_taken",
+        message: SLOT_GONE_MESSAGE,
+        slotStarts: remaining.map((slot) => slot.start.toISOString()),
+      };
+    }
+
     return await createOrderAndCheckout({
       lead,
       session,
@@ -446,6 +475,58 @@ async function createOrderAndCheckout(args: {
 async function readAttributionCookie(): Promise<string | null> {
   const jar = await cookies();
   return jar.get("ats")?.value ?? null;
+}
+
+/**
+ * Block the real calendar behind a hold the database has taken, and attach
+ * the event to the hold. Never throws: every way this can go wrong is either
+ * a normal outcome (the time has gone) or a degraded one (the calendar is
+ * unreachable) that checkout survives.
+ */
+async function blockCalendarForHold(args: {
+  holdId: string;
+  slot: { start: Date; end: Date };
+  subject: string;
+  customerId: string;
+}): Promise<"blocked" | "unavailable" | "unblocked"> {
+  let provider;
+  try {
+    provider = getSchedulingProvider();
+  } catch (error) {
+    logger.error("the calendar is not configured; the hold is protected by the database only", {
+      holdId: args.holdId,
+      error: (error as Error).message,
+    });
+    return "unblocked";
+  }
+
+  const customer = await withTransaction((runner) => findCustomerById(runner, args.customerId));
+  const outcome = await blockCalendar({
+    provider,
+    holdId: args.holdId,
+    slot: args.slot,
+    subject: args.subject,
+    attendeeName: customer ? `${customer.firstName} ${customer.lastName}`.trim() : "Customer",
+    attendeeEmail: customer?.email ?? "",
+  });
+
+  if (outcome.kind === "blocked") {
+    const attached = await withTransaction((runner) =>
+      attachCalendarEvent(runner, args.holdId, outcome.calendarEventId),
+    );
+    if (!attached) {
+      // The hold died between the database taking it and the calendar
+      // answering. The event is already an orphan; remove it now rather than
+      // leave a blocked slot for the sweep to find.
+      await provider.releaseSlot(outcome.calendarEventId).catch((error: unknown) => {
+        logger.error("an orphaned tentative event could not be removed", {
+          calendarEventId: outcome.calendarEventId,
+          error: (error as Error).message,
+        });
+      });
+    }
+  }
+  return outcome.kind;
 }
 
 /**

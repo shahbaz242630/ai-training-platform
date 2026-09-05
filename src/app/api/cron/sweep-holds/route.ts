@@ -1,6 +1,13 @@
 import { NextResponse } from "next/server";
 import { withTransaction } from "@/data/db";
-import { claimExpiredHolds } from "@/data/slot-holds";
+import {
+  claimExpiredHolds,
+  claimHoldsAwaitingCalendarRelease,
+  markCalendarReleased,
+} from "@/data/slot-holds";
+import { confirmBookingOnCalendar, listBookingsAwaitingConfirmation } from "@/data/confirmation";
+import { getSchedulingProvider } from "@/domain/scheduling/factory";
+import type { SchedulingProvider } from "@/domain/scheduling/provider";
 import { countPaidButUnscheduled } from "@/data/audit-events";
 import { recordAudit } from "@/lib/audit";
 import { authoriseCronRequest } from "@/lib/cron-auth";
@@ -82,27 +89,31 @@ export async function POST(request: Request): Promise<NextResponse> {
     }
 
     /*
-      The tentative calendar events belong here: an expired hold whose event
-      survives leaves the slot blocked on the real calendar even though we
-      have released it. Every hold written so far carries a null event id (the
-      scheduling provider is still the in-memory mock), so there is nothing to
-      delete yet - and this counts them rather than pretending otherwise, so
-      the day Graph lands the gap is visible instead of silent.
+      The tentative calendar events. An expired or released hold whose event
+      survives leaves the slot blocked on the REAL calendar, which is what
+      availability now reads - so the time is off sale for everyone until the
+      event goes. Deleted here, every run, until each one is recorded as gone.
     */
-    const awaitingCalendarRelease = expired.filter((hold) => hold.calendarEventId !== null).length;
+    const calendar = await releaseCalendarEvents(now);
+
+    /*
+      Bookings that were paid for but whose calendar confirmation did not
+      finish - the calendar was unreachable in the seconds after settlement,
+      or the join link had not been issued yet. Tried again here.
+    */
+    const confirmations = await retryConfirmations(now);
 
     if (expired.length > 0) {
-      logger.info("expired slot holds swept", {
-        expired: expired.length,
-        awaitingCalendarRelease,
-      });
+      logger.info("expired slot holds swept", { expired: expired.length });
     }
 
     return NextResponse.json({
       ok: true,
       sweptAt: now.toISOString(),
       expired: expired.length,
-      awaitingCalendarRelease,
+      calendarEventsReleased: calendar.released,
+      calendarEventsStillBlocking: calendar.failed,
+      confirmations,
       // Reported on every run, so the number is visible to whatever calls this
       // rather than only in a log somebody has to go looking for.
       paidButUnscheduled,
@@ -117,4 +128,75 @@ export async function POST(request: Request): Promise<NextResponse> {
     logger.error("slot hold sweep failed", { error: (error as Error).message });
     return NextResponse.json({ error: "Sweep failed" }, { status: 500 });
   }
+}
+
+/** The calendar, or null with the reason logged. Unconfigured is not an outage of the sweep. */
+function calendarOrNull(purpose: string): SchedulingProvider | null {
+  try {
+    return getSchedulingProvider();
+  } catch (error) {
+    logger.error(`the calendar is not configured, so ${purpose} must wait`, {
+      error: (error as Error).message,
+    });
+    return null;
+  }
+}
+
+async function releaseCalendarEvents(now: Date): Promise<{ released: number; failed: number }> {
+  const pending = await withTransaction((runner) => claimHoldsAwaitingCalendarRelease(runner));
+  if (pending.length === 0) return { released: 0, failed: 0 };
+
+  const provider = calendarOrNull("tentative events cannot be deleted");
+  if (provider === null) return { released: 0, failed: pending.length };
+
+  let released = 0;
+  let failed = 0;
+  for (const hold of pending) {
+    try {
+      await provider.releaseSlot(hold.calendarEventId);
+      await withTransaction((runner) => markCalendarReleased(runner, hold.id, now));
+      released += 1;
+    } catch (error) {
+      failed += 1;
+      logger.error("a tentative calendar event could not be deleted and still blocks its slot", {
+        holdId: hold.id,
+        calendarEventId: hold.calendarEventId,
+        error: (error as Error).message,
+      });
+    }
+  }
+  return { released, failed };
+}
+
+async function retryConfirmations(
+  now: Date,
+): Promise<{ attempted: number; confirmed: number; slotLost: number; failed: number }> {
+  const bookingIds = await withTransaction((runner) =>
+    listBookingsAwaitingConfirmation(runner, 20),
+  );
+  const counts = { attempted: bookingIds.length, confirmed: 0, slotLost: 0, failed: 0 };
+  if (bookingIds.length === 0) return counts;
+
+  const provider = calendarOrNull("paid bookings cannot be confirmed");
+  if (provider === null) return { ...counts, failed: bookingIds.length };
+
+  for (const bookingId of bookingIds) {
+    try {
+      const result = await confirmBookingOnCalendar({
+        bookingId,
+        provider,
+        now,
+        transaction: withTransaction,
+      });
+      if (result === "confirmed") counts.confirmed += 1;
+      if (result === "slot_lost") counts.slotLost += 1;
+    } catch (error) {
+      counts.failed += 1;
+      logger.error("a paid booking could not be confirmed on the calendar; will retry", {
+        bookingId,
+        error: (error as Error).message,
+      });
+    }
+  }
+  return counts;
 }
