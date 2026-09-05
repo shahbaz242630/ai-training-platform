@@ -195,9 +195,10 @@ describe("confirmBookingOnCalendar", () => {
 
   it("returns the booking to waiting when the calendar has lost the slot, and alerts", async () => {
     const provider = calendar();
-    const { bookingId, start } = await scheduledBooking();
+    const { bookingId, orderId, start } = await scheduledBooking();
+    const end = new Date(start.getTime() + 90 * 60_000);
     const held = await provider.holdSlot({
-      slot: { start, end: new Date(start.getTime() + 90 * 60_000) },
+      slot: { start, end },
       subject: "x",
       attendeeName: "A",
       attendeeEmail: "a@example.com",
@@ -207,6 +208,22 @@ describe("confirmBookingOnCalendar", () => {
       bookingId,
       held.externalId,
     ]);
+    /*
+      The hold settlement converted for this time, plus a second converted hold
+      on the same order at another time - the shape a multi-session order will
+      have. Only the lost one may be given back.
+    */
+    const lostHold = await db.query<{ id: string }>(
+      `insert into slot_holds (slot_start, slot_end, order_id, calendar_event_id, expires_at, status)
+       values ($1, $2, $3, $4, $5, 'converted') returning id`,
+      [start, end, orderId, held.externalId, NOW],
+    );
+    const otherStart = new Date(start.getTime() + 24 * 60 * 60_000);
+    const otherHold = await db.query<{ id: string }>(
+      `insert into slot_holds (slot_start, slot_end, order_id, expires_at, status)
+       values ($1, $2, $3, $4, 'converted') returning id`,
+      [otherStart, new Date(otherStart.getTime() + 90 * 60_000), orderId, NOW],
+    );
 
     const outcome = await confirmBookingOnCalendar({ bookingId, provider, now: NOW, transaction });
 
@@ -220,6 +237,13 @@ describe("confirmBookingOnCalendar", () => {
     expect(
       logs.some((l) => l.level === "error" && l.message.includes("NO LONGER HAS THE SLOT")),
     ).toBe(true);
+
+    // The lost time is back on sale; the order's other session is untouched.
+    const holdStatus = async (id: string) =>
+      (await db.query<{ status: string }>("select status from slot_holds where id = $1", [id]))
+        .rows[0]?.status;
+    expect(await holdStatus(lostHold.rows[0]?.id ?? "")).toBe("released");
+    expect(await holdStatus(otherHold.rows[0]?.id ?? "")).toBe("converted");
   });
 
   it("refuses an order that is not paid, whatever the booking says", async () => {
