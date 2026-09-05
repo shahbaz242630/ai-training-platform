@@ -248,6 +248,13 @@ async function reportOutcome(
       });
       return;
 
+    /*
+      Correct and boring - and, until now, invisible. The audit row was the
+      only trace, so a processor redelivering the same event a hundred times
+      would spend a hundred database round trips without a line in the log
+      anybody reads first. Info, not warn: one duplicate is the retry working
+      as designed. It is the count that would mean something.
+    */
     case "duplicate":
       await recordAudit({
         action: "webhook.duplicate_ignored",
@@ -255,6 +262,7 @@ async function reportOutcome(
         subject: `order:${orderId}`,
         metadata: { eventId },
       });
+      logger.info("a duplicate delivery was ignored", { orderId, eventId, eventType });
       return;
 
     case "settled":

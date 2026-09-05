@@ -335,12 +335,19 @@ describe("a paid delivery", () => {
     const event = paidEvent(orderId, slotHoldId);
     await deliver(event);
     audits = [];
+    logs = [];
 
     const result = await deliver(event);
 
     expect(result).toEqual({ status: 200, body: { ok: true, outcome: "duplicate" } });
     expect(await claimsFor(event.id)).toHaveLength(1);
     expect(auditActions()).toEqual(["webhook.duplicate_ignored"]);
+    // Visible in the log as well as the trail: a redelivery storm should be
+    // readable where somebody looks first, and it is not an error.
+    expect(logs).toContainEqual(
+      expect.objectContaining({ level: "info", message: "a duplicate delivery was ignored" }),
+    );
+    expect(errorMessages()).toEqual([]);
     expect(await stateOf(orderId, slotHoldId)).toEqual({
       order: "paid",
       booking: "scheduled",
