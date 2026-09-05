@@ -347,20 +347,20 @@ export function describeMismatch(order: Order, input: SettleInput): string | nul
   const { checkoutSessionId, paidAmountFils, paidCurrency } = input;
 
   /*
-    Once WE know which session an order belongs to, a matching session id is
-    REQUIRED rather than merely compared when offered. Skipping on an absent
-    event field let a caller choose a shape that carries no session id and slip
-    every check at once - the attacker picks the event, so an optional check is
-    an optional check for them too.
+    A matching session id is REQUIRED, never merely compared when offered.
+    Skipping on an absent event field let a caller choose a shape that carries
+    no session id and slip every check at once - the attacker picks the event,
+    so an optional check is an optional check for them too.
 
-    It still skips while our own side is null, which is a real window: the
-    session id is attached in a separate transaction just after checkout
-    starts.
+    And it is required even while OUR side is still null. The session id is
+    attached in a second transaction after the Stripe round trip, and this
+    check used to stand down inside that window on the theory that a
+    legitimate event might arrive first. It cannot: the customer only receives
+    the checkout URL after the id is attached, so no event about this order
+    exists yet. An event landing in the window is therefore somebody else's,
+    and a null on our side never equals a real session id.
   */
-  if (
-    order.stripeCheckoutSessionId != null &&
-    checkoutSessionId !== order.stripeCheckoutSessionId
-  ) {
+  if ((checkoutSessionId ?? null) !== order.stripeCheckoutSessionId) {
     return "the event names a different checkout session";
   }
 
