@@ -1,5 +1,10 @@
 import { withTransaction, type QueryRunner } from "./db";
-import { sweepExpiredHolds, type SlotHold, type SlotHoldStatus } from "@/domain/booking/slot-hold";
+import {
+  releaseHold,
+  sweepExpiredHolds,
+  type SlotHold,
+  type SlotHoldStatus,
+} from "@/domain/booking/slot-hold";
 
 /**
  * Claiming a time slot, and losing that race gracefully.
@@ -269,6 +274,51 @@ export async function releaseHoldById(runner: QueryRunner, holdId: string): Prom
     [holdId],
   );
   return result.rows.length > 0;
+}
+
+export interface LostSlotInput {
+  readonly orderId: string;
+  readonly slotStart: Date;
+  readonly slotEnd: Date;
+}
+
+/**
+ * Give back the time behind a paid booking that the calendar has lost.
+ *
+ * The only path that may end a `converted` hold. Settlement converted it when
+ * the money arrived, and it then blocks its time with no countdown - correct
+ * for a session that will happen, and a permanent hole in the diary for one
+ * that will not. When the confirmation step finds the calendar no longer has
+ * the slot, the booking goes back to waiting; this releases the hold in the
+ * same transaction so the time can be sold again, and so the sweep collects
+ * the tentative event the way it does for every other released hold.
+ *
+ * Scoped by order AND times, never by order alone: an order that one day
+ * carries several sessions must give back only the one that was lost. Goes
+ * through the domain transition so the rule lives in one place.
+ */
+export async function releaseConvertedHoldForLostSlot(
+  runner: QueryRunner,
+  input: LostSlotInput,
+): Promise<readonly string[]> {
+  const found = await runner.query<SlotHoldRow>(
+    `select * from slot_holds
+      where order_id = $1 and status = 'converted' and slot_start = $2 and slot_end = $3
+      for update`,
+    [input.orderId, input.slotStart, input.slotEnd],
+  );
+
+  const released: string[] = [];
+  for (const row of found.rows) {
+    const moved = releaseHold(toSlotHold(row));
+    if (!moved.changed) continue;
+    await runner.query(
+      `update slot_holds set status = 'released' where id = $1 and status = 'converted'`,
+      [row.id],
+    );
+    released.push(row.id);
+  }
+  return released;
 }
 
 /**

@@ -57,14 +57,21 @@ export interface SlotHold {
 }
 
 /**
- * `held` is the only live state. The other three are all terminal and differ
- * only in why the hold ended, which matters when reading back what happened:
- * `converted` means it became a booking, `expired` means nobody paid in time,
- * `released` means something deliberately gave it up.
+ * `held` is the only live state. The other three differ in why the hold
+ * ended, which matters when reading back what happened: `converted` means it
+ * became a booking, `expired` means nobody paid in time, `released` means
+ * something deliberately gave it up.
+ *
+ * `converted` has exactly one way out: `released`, and only when the paid
+ * booking it backs has been returned to waiting because the calendar lost
+ * the slot. A converted hold blocks its time with no countdown, so leaving it
+ * behind on that path took the time off sale for good - nobody would get a
+ * session then, and nobody else could book it. The cleanup and sweep paths
+ * still never touch a converted hold; this transition is for that one case.
  */
 const HOLD_TRANSITIONS: TransitionTable<SlotHoldStatus> = {
   held: ["converted", "expired", "released"],
-  converted: [],
+  converted: ["released"],
   expired: [],
   released: [],
 };

@@ -139,6 +139,19 @@ describe("ending a hold", () => {
     expect(() => expireHold(aHold({ status: "converted" }))).toThrow(InvalidTransitionError);
     expect(() => convertHold(aHold({ status: "expired" }))).toThrow(InvalidTransitionError);
     expect(() => releaseHold(aHold({ status: "expired" }))).toThrow(InvalidTransitionError);
+    expect(() => convertHold(aHold({ status: "released" }))).toThrow(InvalidTransitionError);
+  });
+
+  /*
+    The one exception. A converted hold is a paid session and blocks its time
+    for good - which is right until the calendar loses that slot and the
+    booking is returned to waiting. Without this transition the time stayed
+    off sale forever with nobody getting a session then.
+  */
+  it("lets a converted hold be released once its booking has lost the slot", () => {
+    const result = releaseHold(aHold({ status: "converted" }));
+    expect(result.changed).toBe(true);
+    expect(result.entity.status).toBe("released");
   });
 
   it("never mutates the hold it was given", () => {

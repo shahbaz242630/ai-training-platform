@@ -1,5 +1,6 @@
 import type { QueryRunner } from "./db";
 import { queueForBooking } from "./communications";
+import { releaseConvertedHoldForLostSlot } from "./slot-holds";
 import { getSessionBySlug } from "@/config/sessions";
 import {
   confirmBooking,
@@ -264,15 +265,22 @@ export async function confirmBookingOnCalendar(
  * The calendar refused the time. The order stays paid; the booking goes back
  * to waiting with its times cleared, so nothing downstream can read a slot
  * the calendar no longer holds. The standing alarm picks it up from here.
+ *
+ * The slot hold that settlement converted for this time is released in the
+ * same transaction. It was left behind once: a converted hold blocks its time
+ * with no countdown, so the lost slot stayed off sale for good - nobody would
+ * get a session then, and nobody else could book it, and nothing said so.
+ * Released, it is sold again from the next availability read, and the sweep
+ * collects its tentative event like any other released hold.
  */
 async function returnToWaiting(
   transaction: TransactionRunner,
   booking: BookingForConfirmation,
   now: Date,
 ): Promise<void> {
-  await transaction(async (runner) => {
+  const releasedHoldIds = await transaction(async (runner) => {
     const domain = releaseBookingSlot(toBooking(booking), now);
-    if (!domain.changed) return;
+    if (!domain.changed) return [] as readonly string[];
     await runner.query(
       `update bookings
           set status = 'awaiting_schedule', scheduled_start = null, scheduled_end = null,
@@ -280,10 +288,17 @@ async function returnToWaiting(
         where id = $1 and status = 'scheduled'`,
       [booking.id, now],
     );
+    // Scoped to the times the booking held, read before they were cleared.
+    if (booking.scheduledStart === null || booking.scheduledEnd === null) return [];
+    return releaseConvertedHoldForLostSlot(runner, {
+      orderId: booking.orderId,
+      slotStart: booking.scheduledStart,
+      slotEnd: booking.scheduledEnd,
+    });
   });
   logger.error(
     "PAID BUT THE CALENDAR NO LONGER HAS THE SLOT - booking returned to waiting, needs rescheduling by hand, do not charge again",
-    { bookingId: booking.id, orderId: booking.orderId },
+    { bookingId: booking.id, orderId: booking.orderId, releasedHoldIds },
   );
 }
 
