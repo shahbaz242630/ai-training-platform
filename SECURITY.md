@@ -166,6 +166,19 @@ discovered:
 
 No CAPTCHA, proof of work or challenge is deployed today.
 
+**Email is not verified identity.** The booking form identifies a customer by
+email address, and nothing proves the person typing controls that address:
+there is no confirmation link and no login. The consequence is bounded on
+purpose. A submission may create a customer, but it may not change one: an
+existing customer's name, phone and marketing consent are never altered by a
+later form, and consent is never recorded from the form at all. What was typed
+is kept on that attempt's intake and promoted to the customer only when the
+order behind it is paid, which is the one proof of intent the system has.
+Before that rule, anybody who knew a customer's email could rewrite the name
+their reminders greet them by and switch their consent on. What remains
+possible is starting a checkout under somebody else's address, which is
+ordinary guest checkout and settles only if the person doing it pays.
+
 ## Handling a leaked secret
 
 Rotate first, investigate second. Removing a secret from git history does not

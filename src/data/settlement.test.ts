@@ -123,6 +123,45 @@ describe("settlePaidOrder", () => {
   });
 
   /*
+    Paid is the proof. What the form claimed - name, phone, the consent box -
+    was parked on the intake because a form matched on email alone proves
+    nothing about who sent it. Settlement is where those claims are honoured,
+    in the same transaction, so every message queued from here greets the
+    person who actually paid.
+  */
+  it("promotes the paid intake's details and consent onto the customer", async () => {
+    const { orderId, slotHoldId } = await pendingOrder("promote@example.com");
+    await db.query(
+      `update intakes
+          set first_name = 'Amina', last_name = 'Al Mansouri', phone = '+971 55 999 8888',
+              timezone = 'Europe/London', marketing_consent = true
+        where id = (select intake_id from orders where id = $1)`,
+      [orderId],
+    );
+
+    await settlePaidOrder(runner, { orderId, slotHoldId, now: NOW });
+
+    const customer = await db.query<{
+      last_name: string;
+      phone: string | null;
+      timezone: string;
+      marketing_consent: boolean;
+      marketing_consent_at: Date | null;
+    }>(
+      `select c.last_name, c.phone, c.timezone, c.marketing_consent, c.marketing_consent_at
+         from customers c join orders o on o.customer_id = c.id where o.id = $1`,
+      [orderId],
+    );
+    expect(customer.rows[0]).toEqual({
+      last_name: "Al Mansouri",
+      phone: "+971 55 999 8888",
+      timezone: "Europe/London",
+      marketing_consent: true,
+      marketing_consent_at: NOW,
+    });
+  });
+
+  /*
     The booking does NOT reach `confirmed` here. There is no calendar event and
     no joining link yet, and a booking that says confirmed without one is what
     produces a confirmation email with nowhere to click.

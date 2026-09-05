@@ -2,7 +2,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { PGlite } from "@electric-sql/pglite";
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { captureLead, recordIntake, upsertCustomer } from "./customers";
+import { captureLead, promoteIntakeToCustomer, recordIntake, upsertCustomer } from "./customers";
 import type { QueryRunner } from "./db";
 import type { PrePaymentIntake } from "@/domain/intake/pre-payment-intake";
 
@@ -94,37 +94,79 @@ describe("upsertCustomer", () => {
     expect(count.rows[0]!.n).toBe(1);
   });
 
-  it("refreshes details, because the most recent thing someone told us is the best one", async () => {
+  /*
+    CORRECTED 2026-09-05. This used to assert the opposite - that a later form
+    refreshes the row - and that was the defect written down as an expectation.
+    The form is matched on email and proves nothing about who sent it, so
+    anybody who knew a customer's address could rewrite the name every reminder
+    greets them by. A later submission may not change an existing person.
+  */
+  it("leaves an existing person exactly as they were: a later form is not proof of who sent it", async () => {
     const email = "changed@example.com";
-    await upsertCustomer(runner, intake({ email }), NOW);
+    await upsertCustomer(runner, intake({ email, phone: "+971 50 111 2222" }), NOW);
+    const before = await customerRow(email);
+
     await upsertCustomer(
       runner,
-      intake({ email, lastName: "Al Mansouri", phone: "+971 55 999 8888" }),
+      intake({
+        email,
+        firstName: "Somebody",
+        lastName: "Else",
+        phone: "+971 55 999 8888",
+        timezone: "Europe/London",
+        marketingConsent: true,
+      }),
       LATER,
     );
 
-    const row = await customerRow(email);
-    expect(row?.last_name).toBe("Al Mansouri");
-    expect(row?.phone).toBe("+971 55 999 8888");
+    const after = await customerRow(email);
+    expect(after).toEqual(before);
+    expect(after?.first_name).toBe("Amina");
+    expect(after?.phone).toBe("+971 50 111 2222");
+    expect(after?.timezone).toBe("Asia/Dubai");
+    expect(after?.marketing_consent).toBe(false);
   });
 
-  it("keeps a phone number already on file when a later booking leaves it blank", async () => {
-    const email = "keepsphone@example.com";
-    await upsertCustomer(runner, intake({ email, phone: "+971 50 111 2222" }), NOW);
-    await upsertCustomer(runner, intake({ email, phone: null }), LATER);
+  it("records no consent from the form itself, even for a new person", async () => {
+    const email = "ticked@example.com";
+    await upsertCustomer(runner, intake({ email, marketingConsent: true }), NOW);
 
-    expect((await customerRow(email))?.phone).toBe("+971 50 111 2222");
+    const row = await customerRow(email);
+    expect(row?.marketing_consent).toBe(false);
+    expect(row?.marketing_consent_at).toBeNull();
   });
 });
 
+/**
+ * A paid order for one intake, so the promotion has something to be proven by.
+ * Everything not named here takes the schema default.
+ */
+async function paidOrderFor(customerId: string, intakeId: string): Promise<string> {
+  const order = await db.query<{ id: string }>(
+    `insert into orders (customer_id, order_type, session_slug, gross_amount_fils, payment_status, intake_id)
+     values ($1, 'single', 'ai-foundations', 129900, 'paid', $2) returning id`,
+    [customerId, intakeId],
+  );
+  return order.rows[0]!.id;
+}
+
+/** Form in, paid order out: the whole path a real customer takes, minus the money. */
+async function paidAttempt(details: Partial<PrePaymentIntake>, at: Date): Promise<string> {
+  const lead = await captureLead(runner, intake(details), at);
+  return paidOrderFor(lead.customerId, lead.intakeId);
+}
+
 /*
   Consent is the part with a legal consequence, so it gets its own group.
-  Every one of these is a way the flag could be silently wrong.
+  Every one of these is a way the flag could be silently wrong. Since
+  2026-09-05 consent is recorded by promotion, when the attempt is paid for -
+  a ticked box on an unverified form is a request, not a fact.
 */
-describe("marketing consent", () => {
+describe("marketing consent, promoted on payment", () => {
   it("records the moment consent was given, not merely that it was", async () => {
     const email = "optedin@example.com";
-    await upsertCustomer(runner, intake({ email, marketingConsent: true }), NOW);
+    const orderId = await paidAttempt({ email, marketingConsent: true }, NOW);
+    expect(await promoteIntakeToCustomer(runner, orderId, NOW)).toBe(true);
 
     const row = await customerRow(email);
     expect(row?.marketing_consent).toBe(true);
@@ -133,17 +175,22 @@ describe("marketing consent", () => {
 
   it("leaves no timestamp when consent was not given", async () => {
     const email = "notoptedin@example.com";
-    await upsertCustomer(runner, intake({ email, marketingConsent: false }), NOW);
+    const orderId = await paidAttempt({ email, marketingConsent: false }, NOW);
+    await promoteIntakeToCustomer(runner, orderId, NOW);
 
     const row = await customerRow(email);
     expect(row?.marketing_consent).toBe(false);
     expect(row?.marketing_consent_at).toBeNull();
   });
 
-  it("upgrades from no to yes, keeping the moment it changed", async () => {
+  it("upgrades from no to yes on a later paid attempt, keeping the moment it changed", async () => {
     const email = "changedmind@example.com";
-    await upsertCustomer(runner, intake({ email, marketingConsent: false }), NOW);
-    await upsertCustomer(runner, intake({ email, marketingConsent: true }), LATER);
+    await promoteIntakeToCustomer(runner, await paidAttempt({ email }, NOW), NOW);
+    await promoteIntakeToCustomer(
+      runner,
+      await paidAttempt({ email, marketingConsent: true }, LATER),
+      LATER,
+    );
 
     const row = await customerRow(email);
     expect(row?.marketing_consent).toBe(true);
@@ -156,10 +203,18 @@ describe("marketing consent", () => {
     it. Treating an empty checkbox as a withdrawal would silently delete
     consent that was genuinely given.
   */
-  it("does not treat an unticked box as a withdrawal of consent already given", async () => {
+  it("does not treat an unticked box on a later paid attempt as a withdrawal", async () => {
     const email = "stillopted@example.com";
-    await upsertCustomer(runner, intake({ email, marketingConsent: true }), NOW);
-    await upsertCustomer(runner, intake({ email, marketingConsent: false }), LATER);
+    await promoteIntakeToCustomer(
+      runner,
+      await paidAttempt({ email, marketingConsent: true }, NOW),
+      NOW,
+    );
+    await promoteIntakeToCustomer(
+      runner,
+      await paidAttempt({ email, marketingConsent: false }, LATER),
+      LATER,
+    );
 
     const row = await customerRow(email);
     expect(row?.marketing_consent).toBe(true);
@@ -169,22 +224,104 @@ describe("marketing consent", () => {
 
   it("never invents a withdrawal", async () => {
     const email = "nounsub@example.com";
-    await upsertCustomer(runner, intake({ email, marketingConsent: true }), NOW);
+    await promoteIntakeToCustomer(
+      runner,
+      await paidAttempt({ email, marketingConsent: true }, NOW),
+      NOW,
+    );
     expect((await customerRow(email))?.unsubscribed_at).toBeNull();
+  });
+
+  // A ticked box that was never paid for stays a request. This is the whole
+  // point: the attacker's form never reaches the customer row.
+  it("records nothing from an attempt that was never paid for", async () => {
+    const email = "unpaid@example.com";
+    await captureLead(runner, intake({ email, marketingConsent: true }), NOW);
+
+    const row = await customerRow(email);
+    expect(row?.marketing_consent).toBe(false);
+    expect(row?.marketing_consent_at).toBeNull();
+  });
+});
+
+describe("promoteIntakeToCustomer, details", () => {
+  it("refreshes name, phone and timezone from the paid attempt", async () => {
+    const email = "renamed@example.com";
+    await paidAttempt({ email }, NOW);
+    const orderId = await paidAttempt(
+      { email, lastName: "Al Mansouri", phone: "+971 55 999 8888", timezone: "Europe/London" },
+      LATER,
+    );
+    await promoteIntakeToCustomer(runner, orderId, LATER);
+
+    const row = await customerRow(email);
+    expect(row?.last_name).toBe("Al Mansouri");
+    expect(row?.phone).toBe("+971 55 999 8888");
+    expect(row?.timezone).toBe("Europe/London");
+  });
+
+  it("keeps a phone number already on file when the paid attempt leaves it blank", async () => {
+    const email = "keepsphone@example.com";
+    await promoteIntakeToCustomer(
+      runner,
+      await paidAttempt({ email, phone: "+971 50 111 2222" }, NOW),
+      NOW,
+    );
+    await promoteIntakeToCustomer(runner, await paidAttempt({ email, phone: null }, LATER), LATER);
+
+    expect((await customerRow(email))?.phone).toBe("+971 50 111 2222");
+  });
+
+  // Intakes written before the details lived on them. Skipped, never blanked.
+  it("skips an intake that carries no details, and says so", async () => {
+    const email = "legacy@example.com";
+    const customer = await upsertCustomer(runner, intake({ email }), NOW);
+    const legacy = await db.query<{ id: string }>(
+      `insert into intakes (customer_id, primary_goal) values ($1, 'Ship') returning id`,
+      [customer.id],
+    );
+    const orderId = await paidOrderFor(customer.id, legacy.rows[0]!.id);
+
+    expect(await promoteIntakeToCustomer(runner, orderId, LATER)).toBe(false);
+    expect((await customerRow(email))?.first_name).toBe("Amina");
+  });
+
+  it("promotes nothing for an order that does not exist", async () => {
+    expect(await promoteIntakeToCustomer(runner, "00000000-0000-0000-0000-000000000000", NOW)).toBe(
+      false,
+    );
   });
 });
 
 describe("recordIntake", () => {
-  it("stores what somebody wants out of the session", async () => {
+  it("stores what somebody wants out of the session, and who they said they are", async () => {
     const customer = await upsertCustomer(runner, intake({ email: "goal@example.com" }), NOW);
-    const stored = await recordIntake(runner, customer.id, "Ship a production deployment.");
+    const stored = await recordIntake(
+      runner,
+      customer.id,
+      intake({ primaryGoal: "Ship a production deployment.", marketingConsent: true }),
+    );
 
-    const row = await db.query<{ primary_goal: string; customer_id: string }>(
-      "select primary_goal, customer_id from intakes where id = $1",
+    const row = await db.query<{
+      primary_goal: string;
+      customer_id: string;
+      first_name: string | null;
+      phone: string | null;
+      timezone: string | null;
+      marketing_consent: boolean;
+    }>(
+      `select primary_goal, customer_id, first_name, phone, timezone, marketing_consent
+         from intakes where id = $1`,
       [stored.id],
     );
-    expect(row.rows[0]!.primary_goal).toBe("Ship a production deployment.");
-    expect(row.rows[0]!.customer_id).toBe(customer.id);
+    expect(row.rows[0]).toEqual({
+      primary_goal: "Ship a production deployment.",
+      customer_id: customer.id,
+      first_name: "Amina",
+      phone: "+971 50 123 4567",
+      timezone: "Asia/Dubai",
+      marketing_consent: true,
+    });
   });
 
   // A second booking has a different reason behind it, and overwriting the
@@ -192,8 +329,8 @@ describe("recordIntake", () => {
   it("keeps one row per booking attempt rather than overwriting", async () => {
     const email = "twogoals@example.com";
     const customer = await upsertCustomer(runner, intake({ email }), NOW);
-    await recordIntake(runner, customer.id, "First goal.");
-    await recordIntake(runner, customer.id, "Second goal.");
+    await recordIntake(runner, customer.id, intake({ primaryGoal: "First goal." }));
+    await recordIntake(runner, customer.id, intake({ primaryGoal: "Second goal." }));
 
     const count = await db.query<{ n: number }>(
       "select count(*)::int as n from intakes where customer_id = $1",
@@ -265,8 +402,8 @@ describe("when the database returns nothing at all", () => {
   });
 
   it("refuses to carry on after storing an intake produced no id", async () => {
-    await expect(recordIntake(returnsNoRows, "some-customer-id", "A goal.")).rejects.toThrow(
-      /impossible/,
-    );
+    await expect(
+      recordIntake(returnsNoRows, "some-customer-id", intake({ primaryGoal: "A goal." })),
+    ).rejects.toThrow(/impossible/);
   });
 });
