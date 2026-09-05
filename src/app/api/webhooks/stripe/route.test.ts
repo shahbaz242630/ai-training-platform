@@ -295,7 +295,7 @@ describe("verified deliveries that carry nothing to act on", () => {
 describe("a paid delivery", () => {
   it("settles the order, converts the hold, schedules the booking, and marks the claim processed", async () => {
     const { orderId, slotHoldId } = await pendingOrder();
-    const event = paidEvent(orderId, slotHoldId);
+    const event = paidEvent(orderId, slotHoldId, { paymentIntentId: "pi_test_1" });
 
     const result = await deliver(event);
 
@@ -311,6 +311,14 @@ describe("a paid delivery", () => {
       expect.objectContaining({ action: "order.payment_succeeded", subject: `order:${orderId}` }),
     );
     expect(errorMessages()).toEqual([]);
+
+    // The handle a refund will need, taken from the event rather than left
+    // null - which is exactly how the first real payment was stored.
+    const stored = await db.query<{ stripe_payment_intent_id: string | null }>(
+      "select stripe_payment_intent_id from orders where id = $1",
+      [orderId],
+    );
+    expect(stored.rows[0]?.stripe_payment_intent_id).toBe("pi_test_1");
 
     // The first thing a paying customer will receive, promised in the same
     // transaction as the settlement.

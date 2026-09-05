@@ -205,6 +205,7 @@ export function toPaymentEvent(event: Stripe.Event): PaymentEvent {
     return {
       ...base,
       checkoutSessionId: null,
+      paymentIntentId: null,
       orderId: null,
       slotHoldId: null,
       outcome: "unpaid",
@@ -219,6 +220,7 @@ export function toPaymentEvent(event: Stripe.Event): PaymentEvent {
   return {
     ...base,
     checkoutSessionId: session.id,
+    paymentIntentId: paymentIntentIdOf(session.payment_intent),
     orderId: session.metadata?.[ORDER_ID] ?? session.client_reference_id ?? null,
     slotHoldId: session.metadata?.[SLOT_HOLD_ID] ?? null,
     outcome: outcomeFor(event.type, session.payment_status),
@@ -226,6 +228,21 @@ export function toPaymentEvent(event: Stripe.Event): PaymentEvent {
     currency: session.currency,
     ignorable: false,
   };
+}
+
+/**
+ * The payment behind a checkout session, by id.
+ *
+ * Stripe sends `payment_intent` as a bare id, as the whole object when the
+ * field was expanded, or as null while nothing has been paid. Only the id is
+ * kept: it is what a refund names, and the session id cannot do that job.
+ * This was left unread for the first real payment, and the column stayed null.
+ */
+function paymentIntentIdOf(
+  paymentIntent: Stripe.Checkout.Session["payment_intent"],
+): string | null {
+  if (!paymentIntent) return null;
+  return typeof paymentIntent === "string" ? paymentIntent : paymentIntent.id;
 }
 
 /**

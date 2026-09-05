@@ -292,6 +292,42 @@ describe("toPaymentEvent", () => {
     const reduced = toPaymentEvent(event("checkout.session.completed", { payment_status: "paid" }));
     expect(reduced.occurredAt.toISOString()).toBe("2027-01-15T08:00:00.000Z");
   });
+
+  /*
+    The payment behind the session is what a refund names; the session id
+    cannot do that. Stripe sends it as an id, as a whole object when expanded,
+    or as null before anybody has paid - all three must reduce to the same
+    thing. The first real payment went through with this field unread, and the
+    order was left with no way to refund it.
+  */
+  it("carries the payment intent id when Stripe sends it as an id", () => {
+    const reduced = toPaymentEvent(
+      event("checkout.session.completed", { payment_status: "paid", payment_intent: "pi_123" }),
+    );
+    expect(reduced.paymentIntentId).toBe("pi_123");
+  });
+
+  it("carries the payment intent id when Stripe sends the expanded object", () => {
+    const reduced = toPaymentEvent(
+      event("checkout.session.completed", {
+        payment_status: "paid",
+        payment_intent: { id: "pi_456", object: "payment_intent" },
+      }),
+    );
+    expect(reduced.paymentIntentId).toBe("pi_456");
+  });
+
+  it("reports no payment intent when nothing has been paid", () => {
+    const expired = toPaymentEvent(
+      event("checkout.session.expired", { payment_status: "unpaid", payment_intent: null }),
+    );
+    expect(expired.paymentIntentId).toBeNull();
+
+    const absent = toPaymentEvent(event("checkout.session.completed", { payment_status: "paid" }));
+    expect(absent.paymentIntentId).toBeNull();
+
+    expect(toPaymentEvent(event("customer.subscription.updated")).paymentIntentId).toBeNull();
+  });
 });
 
 /*
