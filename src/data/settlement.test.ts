@@ -505,11 +505,13 @@ describe("an event must match the order it names", () => {
   });
 
   /*
-    The genuine skip that remains: our OWN side is null. The session id is
-    attached in a separate transaction just after checkout starts, so an event
-    can legitimately arrive before we have recorded it.
+    CORRECTED 2026-09-05. This asserted that an event settles while our OWN
+    session id is still null, on the theory that a legitimate event could
+    arrive before we recorded it. It cannot: the customer only receives the
+    checkout URL after the id is attached, so no event about this order exists
+    yet. An event in that window is somebody else's, and it is refused.
   */
-  it("still settles when we have not yet recorded a session id of our own", () => {
+  it("refuses an event while we have not yet recorded a session id of our own", () => {
     const order = { ...orderFor("o6"), stripeCheckoutSessionId: null };
     expect(
       describeMismatch(order, {
@@ -519,7 +521,7 @@ describe("an event must match the order it names", () => {
         paidAmountFils: 129900,
         now: NOW,
       }),
-    ).toBeNull();
+    ).toContain("different checkout session");
   });
 
   /*
