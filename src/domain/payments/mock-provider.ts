@@ -98,6 +98,8 @@ export interface MockEventBody {
   readonly id: string;
   readonly type: string;
   readonly checkoutSessionId?: string;
+  /** The payment behind the session, once paid. What a refund would name. */
+  readonly paymentIntentId?: string;
   readonly orderId?: string;
   readonly slotHoldId?: string;
   /**
@@ -131,6 +133,7 @@ function parseMockEvent(rawBody: string): PaymentEvent {
     eventId: body.id,
     type: body.type,
     checkoutSessionId: ignorable ? null : (body.checkoutSessionId ?? null),
+    paymentIntentId: ignorable ? null : (body.paymentIntentId ?? null),
     orderId: ignorable ? null : (body.orderId ?? null),
     slotHoldId: ignorable ? null : (body.slotHoldId ?? null),
     outcome: ignorable ? "unpaid" : mockOutcome(body),

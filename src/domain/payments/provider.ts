@@ -68,6 +68,13 @@ export interface PaymentEvent {
   readonly eventId: string;
   readonly type: string;
   readonly checkoutSessionId: string | null;
+  /**
+   * The processor's handle on the payment itself, once one exists. A checkout
+   * session cannot be refunded; the payment behind it can, and this is how a
+   * refund names it. Null until money has actually moved, and on events that
+   * carry no payment at all.
+   */
+  readonly paymentIntentId: string | null;
   readonly orderId: string | null;
   readonly slotHoldId: string | null;
   readonly outcome: PaymentOutcome;

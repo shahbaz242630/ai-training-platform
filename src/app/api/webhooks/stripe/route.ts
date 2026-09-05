@@ -168,6 +168,9 @@ export async function POST(request: Request): Promise<NextResponse> {
           ? await settlePaidOrder(runner, {
               orderId: event.orderId ?? "",
               slotHoldId: event.slotHoldId,
+              // The handle a refund names. Stored now, while the event that
+              // carries it is in hand; absent, the write keeps what it had.
+              stripePaymentIntentId: event.paymentIntentId,
               // Checked against the order rather than trusted. A verified
               // signature proves the event is from the processor, not that it
               // is about this order or for the right amount.
