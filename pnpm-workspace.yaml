@@ -72,3 +72,29 @@ minimumReleaseAgeExclude:
 # where switching to npm would have discarded them.
 publicHoistPattern:
   - "@next/swc-wasm-nodejs"
+
+# ---------------------------------------------------------------------------
+# Layout: a flat node_modules, no symlinks.
+#
+# pnpm's default ("isolated") layout reaches every transitive dependency through
+# symlinks into node_modules/.pnpm. The host runs Next's standalone output and
+# loads Next's own files from the non-real path node_modules/next/..., from
+# which a symlinked sibling is unreachable. On the current deployment (#54,
+# 2026-09-05) every page answered 500, observed 2026-09-12 in hPanel ->
+# Runtime logs:
+#
+#   Error: Cannot find module '@swc/helpers/_/_interop_require_default'
+#   Require stack: .../nodejs/node_modules/next/dist/client/lib/console.js ...
+#
+# The build completed every time; only the running server failed, so no build
+# log showed it.
+#
+# "hoisted" is pnpm's documented flat layout: "a flat node_modules without
+# symlinks is created. Same as the node_modules created by npm". Every package
+# then sits at node_modules/<name>, reachable from any path. The supply-chain
+# settings above (install scripts off, the release-age wait, its exclusions)
+# are pnpm settings and stay in force; only the folder layout changes.
+#
+# The publicHoistPattern above is subsumed while this is set, and still correct
+# if the layout ever goes back to isolated.
+nodeLinker: hoisted
