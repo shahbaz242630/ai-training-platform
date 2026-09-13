@@ -92,10 +92,21 @@ export function isIndexable(siteEnv: SiteEnv, site: SitePlaceholders = SITE): bo
 
 export const TRAINING_BASE = "/training";
 
-export const NAV_LINKS = [
-  { href: "#sessions", label: "Sessions" },
-  { href: "#how-it-works", label: "How it works" },
-  { href: "#faq", label: "FAQ" },
+/**
+ * The way back to the rest of Zaaheen.
+ *
+ * This app runs on its own sub-address (coaching.zaaheen.com); the company site
+ * is a separate build at zaaheen.com. The header mirrors that site's top bar -
+ * same labels, same order - so moving between the two reads as one website.
+ * The URLs are absolute because they leave this host, and end in a slash
+ * because that is the company site's canonical form (no redirect hop).
+ */
+export const COMPANY_SITE_URL = "https://zaaheen.com";
+
+export const COMPANY_NAV_LINKS = [
+  { href: `${COMPANY_SITE_URL}/products/`, label: "Products" },
+  { href: `${COMPANY_SITE_URL}/docs/`, label: "Documents" },
+  { href: `${COMPANY_SITE_URL}/knowledge-centre/`, label: "Knowledge Centre" },
 ] as const;
 
 export const FOOTER_LINKS = [

@@ -1,7 +1,13 @@
 import { describe, it, expect } from "vitest";
 import { FAQS } from "./faqs";
 import { SESSIONS } from "./sessions";
-import { SITE, isPubliclyConfigured, placeholder } from "./site";
+import {
+  COMPANY_NAV_LINKS,
+  COMPANY_SITE_URL,
+  SITE,
+  isPubliclyConfigured,
+  placeholder,
+} from "./site";
 import { buildTrainingJsonLd } from "@/lib/structured-data";
 
 /**
@@ -70,6 +76,29 @@ describe("customer-facing copy", () => {
   it("states the Session 6 scope boundary so marketing cannot imply unlimited work", () => {
     const faq = FAQS.find((f) => f.id === "build-for-me")!;
     expect(faq.answer.toLowerCase()).toContain("not outsourced development");
+  });
+});
+
+/*
+  The header's way back to the company site. zaaheen.com is a separate build,
+  so nothing type-checks these links against it: a relative href here would
+  resolve to coaching.zaaheen.com and 404, and a missing trailing slash costs a
+  redirect on every click.
+*/
+describe("company top bar", () => {
+  it("mirrors the company site's tabs, in its order", () => {
+    expect(COMPANY_NAV_LINKS.map((l) => l.label)).toEqual([
+      "Products",
+      "Documents",
+      "Knowledge Centre",
+    ]);
+  });
+
+  it("links only to canonical pages on the company site", () => {
+    expect(COMPANY_SITE_URL).toBe("https://zaaheen.com");
+    for (const link of COMPANY_NAV_LINKS) {
+      expect(link.href, link.label).toMatch(/^https:\/\/zaaheen\.com\/[a-z-]+\/$/);
+    }
   });
 });
 
