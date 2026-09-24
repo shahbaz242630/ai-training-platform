@@ -99,7 +99,7 @@ describe("containsPlaceholder", () => {
     // carries them - which is exactly why the sweep refuses to send one.
     const email = await renderTemplate("payment_receipt", model);
     expect(containsPlaceholder(email)).toBe(true);
-    expect(email.text).toContain("[COMPANY_NAME]");
+    expect(email.text).toContain("[SUPPORT_EMAIL]");
   });
 
   it("passes an email with no placeholder", () => {
