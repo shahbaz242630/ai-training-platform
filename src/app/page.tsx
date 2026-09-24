@@ -22,10 +22,8 @@ export default function CompanyHome() {
       <main id="main">
         <section className="flex min-h-[70vh] items-center py-24">
           <Container>
-            <p className="text-ink-muted mb-6 text-xs font-semibold tracking-[0.18em] uppercase">
-              {SITE.serviceArea}
-            </p>
-            <h1 className="text-ink max-w-3xl text-[2.6rem] leading-[1.05] font-semibold tracking-[-0.035em] text-balance sm:text-[3.5rem]">
+            <p className="text-accent mb-6 font-mono text-[13px]">{SITE.serviceArea}</p>
+            <h1 className="text-ink max-w-3xl font-serif text-[clamp(42px,5.2vw,60px)] leading-[1.06] font-[450] tracking-[-0.02em] text-balance">
               {companyName()}
             </h1>
             <p className="text-ink-muted mt-7 max-w-xl text-lg leading-relaxed">

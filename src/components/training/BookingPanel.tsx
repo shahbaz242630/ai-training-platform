@@ -168,16 +168,16 @@ export function BookingPanel({
   */
   if (!paymentsAvailable) {
     return (
-      <div className="border-line bg-surface overflow-hidden rounded-xl border">
+      <div className="border-line-strong bg-surface overflow-hidden rounded-2xl border shadow-[0_24px_60px_rgba(38,34,28,.08)]">
         <div className="border-line bg-raised border-b px-6 py-5">
-          <h2 className="text-ink text-base font-semibold">Booking is not open yet</h2>
+          <h2 className="text-ink font-serif text-[21px] font-medium">Booking is not open yet</h2>
         </div>
         <div className="px-6 py-5">
-          <p className="text-ink-muted text-sm leading-relaxed">
+          <p className="text-ink-soft text-[14.5px] leading-relaxed">
             We cannot take payment online at the moment, so this session cannot be booked here yet.
             Please get in touch and we will arrange a time with you directly.
           </p>
-          <p className="text-ink-muted mt-3 text-xs leading-relaxed">
+          <p className="text-ink-faint mt-3 text-[13px] leading-relaxed">
             Nothing you enter here would be saved, so there is no form to fill in.
           </p>
         </div>
@@ -186,21 +186,26 @@ export function BookingPanel({
   }
 
   return (
-    <div className="border-line bg-surface overflow-hidden rounded-xl border">
-      <div className="border-line bg-raised border-b px-6 py-5">
-        <h2 className="text-ink text-base font-semibold">
-          {step === "details" ? "Your details" : "Choose a time"}
-        </h2>
-        <p className="text-ink-muted mt-1 text-sm">
-          {step === "details"
-            ? "So we know who the session is for."
-            : `One to one · ${durationMinutes} minutes`}
+    <div className="border-line-strong bg-surface overflow-hidden rounded-2xl border shadow-[0_24px_60px_rgba(38,34,28,.08)]">
+      <div className="border-line bg-raised flex items-start justify-between gap-3 border-b px-6 py-5">
+        <div>
+          <h2 className="text-ink font-serif text-[21px] font-medium">
+            {step === "details" ? "Your details" : "Choose a time"}
+          </h2>
+          <p className="text-ink-muted mt-1 text-sm">
+            {step === "details"
+              ? "So we know who the session is for."
+              : `One to one · ${durationMinutes} minutes`}
+          </p>
+        </div>
+        <p className="text-ink-faint shrink-0 pt-[5px] font-mono text-xs">
+          {step === "details" ? "1 of 2" : "2 of 2"}
         </p>
       </div>
 
       {step === "details" ? (
-        <div className="px-6 py-5">
-          <div className="grid grid-cols-2 gap-3">
+        <div className="px-6 pt-[22px] pb-6">
+          <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-3.5">
             <Field
               label="First name"
               value={draft.firstName}
@@ -223,7 +228,7 @@ export function BookingPanel({
             onChange={(value) => set("email", value)}
             error={errorFor("email")}
             autoComplete="email"
-            className="mt-3"
+            className="mt-3.5"
           />
           <Field
             label="Phone"
@@ -233,7 +238,7 @@ export function BookingPanel({
             onChange={(value) => set("phone", value)}
             error={errorFor("phone")}
             autoComplete="tel"
-            className="mt-3"
+            className="mt-3.5"
           />
           <Field
             label="What do you want to get out of this session?"
@@ -241,7 +246,7 @@ export function BookingPanel({
             onChange={(value) => set("primaryGoal", value)}
             error={errorFor("primaryGoal")}
             multiline
-            className="mt-3"
+            className="mt-3.5"
           />
 
           {/*
@@ -249,42 +254,42 @@ export function BookingPanel({
             somebody paid for are transactional; anything sent later is
             marketing, and that needs a recorded opt-in.
           */}
-          <label className="mt-4 flex cursor-pointer items-start gap-3">
+          <label className="mt-4 flex cursor-pointer items-start gap-2.5">
             <input
               type="checkbox"
               checked={draft.marketingConsent}
               onChange={(event) => set("marketingConsent", event.target.checked)}
-              className="accent-accent mt-0.5 h-4 w-4 shrink-0"
+              className="accent-accent-ring mt-0.5 h-4 w-4 shrink-0"
             />
-            <span className="text-ink-muted text-xs leading-relaxed">
+            <span className="text-ink-muted text-[13px] leading-[1.55]">
               Email me occasionally about new sessions and offers. You will get the emails about
               this booking either way.
             </span>
           </label>
 
           {formError !== null && (
-            <p className="mt-4 text-xs leading-relaxed text-red-700">{formError}</p>
+            <p className="text-error mt-4 text-[12.5px] leading-relaxed">{formError}</p>
           )}
 
           <button
             type="button"
             onClick={continueToSlots}
             disabled={saving}
-            className="bg-ink hover:bg-deep-soft mt-5 w-full rounded-lg px-6 py-3.5 text-sm font-semibold text-white transition-colors duration-150 disabled:cursor-not-allowed disabled:opacity-60"
+            className="bg-ink hover:bg-deep-soft text-on-deep mt-5 w-full rounded-full px-6 py-3.5 text-[15.5px] font-medium transition-colors duration-150 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {saving ? "Saving…" : "Continue to choose a time"}
           </button>
         </div>
       ) : (
         <>
-          <div className="border-line bg-canvas flex items-center justify-between border-b px-6 py-3">
-            <p className="text-ink-muted truncate text-xs">
+          <div className="border-line bg-canvas flex items-center justify-between gap-3 border-b px-6 py-2.5">
+            <p className="text-ink-muted truncate text-[13px]">
               {draft.firstName} {draft.lastName} · {draft.email}
             </p>
             <button
               type="button"
               onClick={() => setStep("details")}
-              className="text-accent hover:text-accent-hover ml-3 shrink-0 text-xs font-semibold underline underline-offset-2"
+              className="text-accent hover:text-accent-hover shrink-0 text-[13px] font-medium underline underline-offset-[3px]"
             >
               Edit
             </button>
@@ -295,14 +300,14 @@ export function BookingPanel({
             rather than a fixed height so it still fits on a short laptop
             screen, where a fixed height would push the button below the fold.
           */}
-          <div className="max-h-[min(26rem,45vh)] overflow-y-auto px-6 py-5">
+          <div className="max-h-[min(25rem,45vh)] overflow-y-auto px-6 py-5">
             {availabilityFailed ? (
               /*
                 Deliberately NOT "no times available". The server could not read
                 the calendar, and telling somebody the diary is empty when we
                 simply do not know would be a lie that costs a booking.
               */
-              <p className="text-ink-muted text-sm leading-relaxed">
+              <p className="text-ink-soft text-[14.5px] leading-relaxed">
                 We could not load available times just now. Please refresh the page in a moment, or
                 get in touch and we will arrange one directly.
               </p>
@@ -324,7 +329,7 @@ export function BookingPanel({
             {slotError !== null && (
               <p
                 role="status"
-                className="mb-4 rounded-lg bg-red-50 px-3 py-2.5 text-xs leading-relaxed text-red-800"
+                className="bg-error-soft border-error-soft-line text-error mb-4 rounded-[10px] border px-[13px] py-[11px] text-[13.5px] leading-normal"
               >
                 {slotError}
               </p>
@@ -333,30 +338,32 @@ export function BookingPanel({
             {selected === null ? (
               <p className="text-ink-muted text-sm">Select a time to continue.</p>
             ) : (
-              <div>
-                <p className="text-ink-faint text-xs tracking-[0.14em] uppercase">Your session</p>
-                <p className="text-ink mt-2 text-sm font-semibold">{selected.dayLabel}</p>
-                <p className="text-ink mt-0.5 text-sm tabular-nums">
+              <div className="animate-z-in">
+                <p className="text-ink-faint font-mono text-xs">Your session</p>
+                <p className="text-ink mt-2 text-[15px] font-medium">{selected.dayLabel}</p>
+                <p className="text-ink text-[15px] tabular-nums">
                   {selected.localTime}
                   {selected.gstReference !== null && (
                     <span className="text-ink-muted ml-2 text-xs">{selected.gstReference}</span>
                   )}
                 </p>
 
-                <div className="border-line mt-4 flex items-baseline justify-between border-t pt-4">
+                <div className="border-line-strong mt-3.5 flex items-baseline justify-between border-t pt-3.5">
                   <span className="text-ink-muted text-sm">Total</span>
-                  <span className="text-ink text-lg font-semibold tabular-nums">{priceLabel}</span>
+                  <span className="text-ink font-serif text-[22px] font-medium tabular-nums">
+                    {priceLabel}
+                  </span>
                 </div>
 
                 <button
                   type="button"
                   onClick={reserveAndContinue}
                   disabled={reserving}
-                  className="bg-ink hover:bg-deep-soft mt-4 w-full rounded-lg px-6 py-3.5 text-sm font-semibold text-white transition-colors duration-150 disabled:cursor-not-allowed disabled:opacity-60"
+                  className="bg-ink hover:bg-deep-soft text-on-deep mt-3.5 w-full rounded-full px-6 py-3.5 text-[15.5px] font-medium transition-colors duration-150 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {reserving ? "Taking you to payment…" : "Continue to payment"}
                 </button>
-                <p className="text-ink-muted mt-3 text-xs leading-relaxed">
+                <p className="text-ink-muted mt-3 text-[12.5px] leading-[1.55]">
                   Choosing a time reserves nothing on its own. Your slot is held while you pay, and
                   the booking is confirmed only once the payment is verified.
                 </p>
@@ -390,13 +397,13 @@ function Field({
   autoComplete?: string;
   className?: string;
 }) {
-  const shared = `mt-1.5 w-full rounded-lg border bg-surface px-3 py-2.5 text-sm text-ink outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent ${
-    error === null ? "border-line-strong" : "border-red-600"
+  const shared = `mt-1.5 box-border w-full min-w-0 rounded-[10px] border bg-surface px-[13px] py-[11px] text-[15px] text-ink outline-none transition-shadow focus:border-accent-ring focus:shadow-[0_0_0_3px_rgba(127,174,142,.2)] ${
+    error === null ? "border-line-strong" : "border-error-line"
   }`;
 
   return (
-    <label className={`block ${className}`}>
-      <span className="text-ink text-xs font-semibold">
+    <label className={`block min-w-0 ${className}`}>
+      <span className="text-ink text-[13.5px] font-medium">
         {label}
         {optional && <span className="text-ink-faint font-normal"> (optional)</span>}
       </span>
@@ -416,7 +423,7 @@ function Field({
           className={shared}
         />
       )}
-      {error !== null && <span className="mt-1.5 block text-xs text-red-700">{error}</span>}
+      {error !== null && <span className="text-error mt-1.5 block text-[12.5px]">{error}</span>}
     </label>
   );
 }

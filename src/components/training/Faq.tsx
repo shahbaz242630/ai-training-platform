@@ -6,26 +6,26 @@ export function Faq() {
   return (
     <section
       aria-labelledby="faq-heading"
-      className="border-line scroll-mt-24 border-b py-20 sm:py-24"
+      className="bg-surface border-line scroll-mt-24 border-y py-16 sm:py-[104px]"
       id="faq"
     >
       <Container>
-        <div className="grid gap-12 lg:grid-cols-[22rem_1fr] lg:gap-20">
+        <div className="grid items-start gap-12 lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)] lg:gap-20">
           <div>
             <SectionLabel>Questions</SectionLabel>
             <h2
               id="faq-heading"
-              className="text-ink text-3xl font-semibold tracking-[-0.025em] text-balance sm:text-4xl"
+              className="text-ink font-serif text-[clamp(32px,4vw,44px)] leading-[1.12] font-[450] tracking-[-0.015em] text-balance"
             >
               Before you book.
             </h2>
           </div>
 
-          <div>
+          <div className="border-line min-w-0 border-t">
             {FAQS.map((faq) => (
               <details key={faq.id} id={faq.id} className="group border-line border-b">
                 <summary className="flex items-start justify-between gap-6 py-5 text-left">
-                  <span className="text-ink group-hover:text-accent text-[15px] font-medium transition-colors">
+                  <span className="text-ink group-hover:text-accent text-base font-medium transition-colors">
                     {faq.question}
                   </span>
                   <svg
@@ -42,7 +42,7 @@ export function Faq() {
                     />
                   </svg>
                 </summary>
-                <p className="text-ink-muted max-w-2xl pb-6 text-sm leading-relaxed">
+                <p className="text-ink-muted animate-z-in max-w-[680px] pb-[22px] text-[15px] leading-[1.65]">
                   {faq.answer}
                 </p>
               </details>

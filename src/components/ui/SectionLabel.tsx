@@ -1,5 +1,8 @@
-export function SectionLabel({ children }: { children: string }) {
+/** The small label above a heading: mono, sentence case, sage (zaaheen.com's eyebrow). */
+export function SectionLabel({ children, onDeep = false }: { children: string; onDeep?: boolean }) {
   return (
-    <p className="text-accent mb-4 text-xs font-semibold tracking-[0.18em] uppercase">{children}</p>
+    <p className={`mb-3.5 font-mono text-[13px] ${onDeep ? "text-on-deep-accent" : "text-accent"}`}>
+      {children}
+    </p>
   );
 }

@@ -44,17 +44,21 @@ export default async function ConfirmingPage({
       <SiteHeader />
       <main id="main" className="py-16 sm:py-24">
         <Container>
-          <div className="mx-auto max-w-xl">
-            <p className="text-ink-muted mb-4 text-xs font-semibold tracking-[0.18em] uppercase">
-              Session {session.code.slice(1)}
+          <div className="mx-auto max-w-[600px]">
+            <p className="text-accent mb-[22px] flex items-center gap-2.5 font-mono text-[13px]">
+              <span
+                className="bg-accent-dot h-2 w-2 shrink-0 animate-[z-pulse_1.4s_ease-in-out_infinite] rounded-full"
+                aria-hidden="true"
+              />
+              Session {session.code.slice(1)} · verifying payment
             </p>
-            <h1 className="text-ink text-3xl font-semibold tracking-[-0.03em] text-balance sm:text-4xl">
+            <h1 className="text-ink mb-6 font-serif text-[clamp(34px,4.2vw,46px)] leading-[1.1] font-[450] tracking-[-0.02em] text-balance">
               Thank you - we are confirming your booking
             </h1>
 
-            <p className="text-ink-muted mt-6 text-base leading-relaxed">
+            <p className="text-ink-soft text-[17px] leading-[1.65]">
               Your payment is being verified for{" "}
-              <span className="text-ink font-semibold">{session.title}</span>. Once it is, your
+              <span className="text-ink font-medium">{session.title}</span>. Once it is, your
               session is booked and we will be in touch with the date, the time in your own time
               zone, and how to join.
             </p>
@@ -72,13 +76,17 @@ export default async function ConfirmingPage({
               arrive is worse than telling them nothing. When the send path
               exists this becomes a promise we can keep, and not before.
             */}
-            <p className="text-ink-muted mt-4 text-base leading-relaxed">
+            <p className="text-ink-muted mt-4 text-[17px] leading-[1.65]">
               If you have not heard from us within one working day, please get in touch and quote
               the email address you booked with - we will find your booking.
             </p>
 
             <div className="border-line mt-10 border-t pt-8">
-              <ButtonLink href="/training" variant="secondary">
+              <ButtonLink
+                href="/training"
+                variant="secondary"
+                className="!px-[22px] !py-3 !text-[15px]"
+              >
                 Back to all sessions
               </ButtonLink>
             </div>

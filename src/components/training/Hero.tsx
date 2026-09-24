@@ -1,5 +1,6 @@
 import { Container } from "@/components/ui/Container";
 import { ButtonLink } from "@/components/ui/Button";
+import { BookingDemo } from "@/components/training/BookingDemo";
 import { getActiveSessions } from "@/config/sessions";
 import { formatAed } from "@/lib/money";
 import { SITE, DELIVERY } from "@/config/site";
@@ -23,49 +24,74 @@ export function Hero() {
     "Evening sessions",
   ];
 
+  // The first four sessions, as the booking card shows them. Prices come
+  // from the catalogue, formatted, never built here.
+  const demo = sessions
+    .slice(0, 4)
+    .map((s) => ({ name: s.shortTitle, price: formatAed(s.priceFils) }));
+
   return (
-    <section className="border-line border-b pt-16 pb-20 sm:pt-24 sm:pb-28">
-      <Container>
-        <div className="max-w-3xl">
-          <p className="text-ink-muted mb-6 text-xs font-semibold tracking-[0.18em] uppercase">
-            Private 1-to-1 AI training
-            <span className="text-line-strong mx-2.5" aria-hidden="true">
-              /
-            </span>
-            {SITE.serviceArea}
-          </p>
+    <>
+      <section>
+        <Container className="grid grid-cols-1 items-center gap-14 pt-14 pb-16 sm:pt-[88px] sm:pb-24 lg:grid-cols-2">
+          <div className="flex flex-col">
+            <p className="text-accent mb-[22px] flex flex-wrap gap-2.5 font-mono text-[13px]">
+              <span>Private 1-to-1 AI training</span>
+              <span className="text-on-deep-muted" aria-hidden="true">
+                /
+              </span>
+              <span>{SITE.serviceArea}</span>
+            </p>
 
-          <h1 className="text-ink text-[2.6rem] leading-[1.05] font-semibold tracking-[-0.035em] text-balance sm:text-[3.5rem] lg:text-[4rem]">
-            Learn how to work with AI — not just talk to it.
-          </h1>
+            <h1 className="text-ink mb-6 font-serif text-[clamp(42px,5.2vw,60px)] leading-[1.06] font-[450] tracking-[-0.02em] text-balance">
+              Learn how to work with AI — not just talk to it.
+            </h1>
 
-          <p className="text-ink-muted mt-7 max-w-2xl text-lg leading-relaxed">
-            Practical sessions for professionals, founders and builders. Research and prompting,
-            ChatGPT and Codex, Claude and Claude Code, AI agents, the technology stack behind modern
-            AI applications, and real production deployment.
-          </p>
+            <p className="text-ink-soft mb-8 max-w-[520px] text-lg leading-relaxed text-pretty">
+              Practical sessions for professionals, founders and builders. Research and prompting,
+              ChatGPT and Codex, Claude and Claude Code, AI agents, the technology stack behind
+              modern AI applications, and real production deployment.
+            </p>
 
-          <div className="mt-10 flex flex-col gap-3 sm:flex-row sm:items-center">
-            <ButtonLink href="#sessions">Explore sessions</ButtonLink>
-            <ButtonLink href="#how-it-works" variant="secondary">
-              How it works
-            </ButtonLink>
+            <div className="flex flex-wrap items-center gap-3">
+              <ButtonLink href="#sessions">Explore sessions</ButtonLink>
+              <ButtonLink href="#how-it-works" variant="secondary">
+                How it works
+              </ButtonLink>
+            </div>
+
+            <p className="text-ink-muted mt-[22px] text-[14.5px]">
+              From <span className="text-ink font-medium tabular-nums">{formatAed(lowest)}</span>{" "}
+              per session. No package required.
+            </p>
           </div>
 
-          <p className="text-ink-faint mt-6 text-sm">
-            From <span className="text-ink font-semibold tabular-nums">{formatAed(lowest)}</span>{" "}
-            per session. No package required.
-          </p>
-        </div>
+          <BookingDemo
+            sessions={demo}
+            durationMinutes={DELIVERY.durationMinutes}
+            platform="Microsoft Teams"
+          />
+        </Container>
+      </section>
 
-        <ul className="border-line mt-16 grid grid-cols-2 gap-x-6 gap-y-5 border-t pt-8 lg:grid-cols-4">
-          {facts.map((fact) => (
-            <li key={fact} className="text-ink-muted text-sm font-medium">
+      <div className="border-line border-y">
+        <ul className="mx-auto grid max-w-[1180px] grid-cols-2 lg:grid-cols-4">
+          {facts.map((fact, i) => (
+            <li
+              key={fact}
+              className={`text-ink-muted border-line flex items-center gap-2 px-[22px] py-5 text-[14.5px] sm:px-8 ${
+                i % 2 === 1 ? "border-l" : ""
+              } ${i === 2 ? "lg:border-l" : ""} ${i >= 2 ? "max-lg:border-t" : ""}`}
+            >
+              <span
+                className="bg-accent-dot h-[7px] w-[7px] shrink-0 rounded-full"
+                aria-hidden="true"
+              />
               {fact}
             </li>
           ))}
         </ul>
-      </Container>
-    </section>
+      </div>
+    </>
   );
 }

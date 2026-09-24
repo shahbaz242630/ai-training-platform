@@ -1,36 +1,85 @@
 @import "tailwindcss";
 
 /*
-  Design tokens. One committed light theme - deliberate for v1.
-  Direction: premium, restrained, corporate technology.
-  No neon "AI" gradients, no clichéd robot imagery, strong whitespace,
-  high contrast. The UI has to feel credible at AED 1,299-2,499.
+  Design tokens: the Zaaheen palette, so this app reads as part of
+  zaaheen.com. Warm paper, ink, and one sage accent; no gradients.
+  Text colours are measured against WCAG AA (4.5:1) on every background they
+  are used on. The sage the design uses for dots and rings (#7fae8e, #5f9475)
+  is too light for text, so text uses --color-accent (#4a765b, 5.2:1 on white,
+  4.8:1 on accent-soft) and the lighter sages are kept for non-text marks.
 */
 @theme {
-  --color-canvas: #fbfaf9;
+  --color-canvas: #faf8f3;
   --color-surface: #ffffff;
-  --color-raised: #f5f3f1;
-  --color-deep: #121316;
-  --color-deep-soft: #1e2025;
+  --color-raised: #f5f2ea;
+  --color-panel: #f3efe6;
+  --color-deep: #26221c;
+  --color-deep-soft: #3a352c;
 
-  --color-ink: #16161a;
-  --color-ink-muted: #56555b;
-  --color-ink-faint: #8b8a90;
-  --color-on-deep: #f4f3f1;
-  --color-on-deep-muted: #a3a2a6;
+  --color-ink: #26221c;
+  --color-ink-soft: #3a352c;
+  --color-ink-muted: #6b655b;
+  --color-ink-faint: #756e63;
+  --color-on-deep: #faf8f3;
+  --color-on-deep-muted: #b9b1a3;
+  --color-on-deep-lede: #d9d3c7;
+  --color-on-deep-accent: #9cc4a8;
 
-  --color-line: #e7e4e0;
-  --color-line-strong: #d4d0ca;
+  --color-line: #ece6d9;
+  --color-line-strong: #e2dccf;
+  --color-chip: #f0ece2;
 
-  --color-accent: #0f5b54;
-  --color-accent-hover: #0b433e;
-  --color-accent-soft: #e9f2f0;
+  --color-accent: #4a765b;
+  --color-accent-hover: #3f6650;
+  --color-accent-soft: #f1f6f2;
+  --color-accent-line: #d6e3d9;
+  --color-accent-dot: #7fae8e;
+  --color-accent-ring: #5f9475;
 
-  --font-sans: var(--font-inter), ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --color-error: #a3402f;
+  --color-error-line: #c0634f;
+  --color-error-soft: #f8ece8;
+  --color-error-soft-line: #ecd3cb;
 
-  --text-display: 3.5rem;
-  --text-display--line-height: 1.04;
-  --text-display--letter-spacing: -0.035em;
+  --font-sans: var(--font-plex-sans), ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-serif: var(--font-newsreader), Georgia, serif;
+  --font-mono: var(--font-plex-mono), ui-monospace, monospace;
+
+  --shadow-float: 0 24px 60px rgba(38, 34, 28, 0.1);
+
+  --animate-z-in: z-in 0.4s ease-out both;
+  --animate-z-fade: z-fade 0.35s ease-out both;
+  --animate-z-pulse: z-pulse 1s ease-in-out infinite;
+
+  @keyframes z-in {
+    from {
+      opacity: 0;
+      transform: translateY(-8px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+  @keyframes z-fade {
+    from {
+      opacity: 0;
+      transform: translateX(6px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+  @keyframes z-pulse {
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.35;
+    }
+  }
 }
 
 @layer base {
@@ -49,7 +98,7 @@
 
   /* WCAG 2.2: focus must always be clearly visible. */
   :focus-visible {
-    outline: 2px solid var(--color-accent);
+    outline: 2px solid var(--color-accent-ring);
     outline-offset: 3px;
     border-radius: 2px;
   }

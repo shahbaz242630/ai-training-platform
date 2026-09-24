@@ -20,7 +20,8 @@ export interface SitePlaceholders {
 }
 
 export const SITE: SitePlaceholders = {
-  companyName: null,
+  // The trading name. The legal entity name below stays a placeholder until it is real.
+  companyName: "Zaaheen",
   legalEntityName: null,
   domain: null,
   supportEmail: null,

@@ -41,39 +41,41 @@ const STAGES: readonly Stage[] = [
 
 export function Progression() {
   return (
-    <section aria-labelledby="progression-heading" className="border-line border-b py-20 sm:py-24">
+    <section aria-labelledby="progression-heading" className="py-16 sm:py-[104px]">
       <Container>
-        <div className="max-w-2xl">
+        <div className="max-w-[640px]">
           <SectionLabel>Where you are now</SectionLabel>
           <h2
             id="progression-heading"
-            className="text-ink text-3xl font-semibold tracking-[-0.025em] text-balance sm:text-4xl"
+            className="text-ink font-serif text-[clamp(32px,4vw,44px)] leading-[1.12] font-[450] tracking-[-0.015em] text-balance"
           >
             Four stages, six sessions. Start wherever you actually are.
           </h2>
-          <p className="text-ink-muted mt-5 text-base leading-relaxed">
+          <p className="text-ink-muted mt-3.5 text-base leading-relaxed text-pretty">
             You do not have to begin at the beginning. Find the stage that describes you today and
             book the session that moves you to the next one.
           </p>
         </div>
 
-        <ol className="mt-14 grid gap-px sm:grid-cols-2 lg:grid-cols-4">
+        <ol className="mt-14 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
           {STAGES.map((stage, index) => (
-            <li key={stage.name} className="bg-surface border-line flex flex-col border p-6 sm:p-7">
-              <span
-                className="text-ink-faint text-xs font-semibold tabular-nums"
-                aria-hidden="true"
-              >
+            <li
+              key={stage.name}
+              className="bg-surface border-line flex flex-col gap-2.5 rounded-2xl border px-6 py-[26px]"
+            >
+              <span className="text-accent font-mono text-[12.5px]" aria-hidden="true">
                 0{index + 1}
               </span>
-              <h3 className="text-ink mt-3 text-lg font-semibold tracking-tight">{stage.name}</h3>
-              <p className="text-ink-muted mt-2.5 mb-6 text-sm leading-relaxed">
+              <h3 className="text-ink font-serif text-[22px] leading-[1.25] font-medium">
+                {stage.name}
+              </h3>
+              <p className="text-ink-muted mb-3.5 text-[14.5px] leading-relaxed">
                 {stage.description}
               </p>
 
               {/* mt-auto keeps the divider and chips on a shared baseline across
                   cards, even though the descriptions differ in length. */}
-              <div className="border-line mt-auto flex flex-wrap gap-2 border-t pt-4">
+              <div className="border-panel mt-auto flex flex-wrap gap-2 border-t pt-3.5">
                 {stage.codes.map((code) => {
                   const session = getSessionByCode(code);
                   if (!session) return null;
@@ -81,7 +83,7 @@ export function Progression() {
                     <a
                       key={code}
                       href={`#${session.slug}`}
-                      className="bg-accent-soft text-accent hover:bg-accent inline-flex rounded px-2.5 py-1 text-xs font-semibold transition-colors hover:text-white"
+                      className="bg-accent-soft text-accent hover:bg-accent inline-flex rounded-md px-2.5 py-[5px] text-[13px] font-medium transition-colors hover:text-white"
                     >
                       Session {code.slice(1)}
                     </a>

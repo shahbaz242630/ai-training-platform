@@ -15,11 +15,11 @@ export default function PrivacyPage() {
       <main id="main" className="py-20 sm:py-24">
         <Container>
           <div className="max-w-2xl">
-            <h1 className="text-ink text-3xl font-semibold tracking-[-0.03em] sm:text-4xl">
+            <h1 className="text-ink font-serif text-[clamp(32px,4vw,44px)] leading-[1.12] font-[450] tracking-[-0.015em]">
               Privacy Policy
             </h1>
-            <div className="bg-raised border-line mt-8 rounded-lg border p-6">
-              <p className="text-ink text-sm font-semibold">Awaiting approved copy</p>
+            <div className="bg-raised border-line mt-8 rounded-2xl border p-6">
+              <p className="text-ink text-sm font-medium">Awaiting approved copy</p>
               <p className="text-ink-muted mt-3 text-sm leading-relaxed">
                 This page will contain{" "}
                 <code className="text-ink">[PRIVACY_POLICY_APPROVED_COPY]</code>.
