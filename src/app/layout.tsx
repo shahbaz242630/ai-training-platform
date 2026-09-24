@@ -1,14 +1,31 @@
 import type { Metadata } from "next";
-import { Inter } from "next/font/google";
+import localFont from "next/font/local";
 import { clientEnv } from "@/lib/env";
 import { isIndexable } from "@/config/site";
 import "./globals.css";
 import { AttributionCapture } from "@/components/analytics/AttributionCapture";
 import { companyName } from "@/config/site";
 
-const inter = Inter({
-  subsets: ["latin"],
-  variable: "--font-inter",
+/*
+  The Zaaheen fonts, self-hosted (SIL Open Font License; the licences sit next
+  to the files). Local files, so no visitor request goes to a font service.
+*/
+const plexSans = localFont({
+  src: "./fonts/plex-sans-var.woff2",
+  variable: "--font-plex-sans",
+  weight: "100 700",
+  display: "swap",
+});
+const plexMono = localFont({
+  src: "./fonts/plex-mono-400.woff2",
+  variable: "--font-plex-mono",
+  weight: "400",
+  display: "swap",
+});
+const newsreader = localFont({
+  src: "./fonts/newsreader-var.woff2",
+  variable: "--font-newsreader",
+  weight: "200 800",
   display: "swap",
 });
 
@@ -32,7 +49,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="en" className={inter.variable}>
+    <html lang="en" className={`${plexSans.variable} ${plexMono.variable} ${newsreader.variable}`}>
       <body className="font-sans antialiased">
         {children}
         {/*

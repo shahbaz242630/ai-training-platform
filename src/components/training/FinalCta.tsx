@@ -11,20 +11,20 @@ export function FinalCta() {
   );
 
   return (
-    <section aria-labelledby="cta-heading" className="py-20 sm:py-28">
+    <section aria-labelledby="cta-heading" className="py-16 sm:py-[104px]">
       <Container>
-        <div className="max-w-2xl">
+        <div className="mx-auto flex max-w-[720px] flex-col items-center gap-[18px] text-center">
           <h2
             id="cta-heading"
-            className="text-ink text-3xl font-semibold tracking-[-0.025em] text-balance sm:text-4xl"
+            className="text-ink font-serif text-[clamp(32px,4vw,44px)] leading-[1.12] font-[450] tracking-[-0.015em] text-balance"
           >
             Pick the session that matches your next problem.
           </h2>
-          <p className="text-ink-muted mt-5 text-base leading-relaxed">
+          <p className="text-ink-muted max-w-[560px] text-[17px] leading-relaxed text-pretty">
             From {formatAed(lowest)}. One session at a time, no package to commit to, and no sales
             call before you can book.
           </p>
-          <div className="mt-9">
+          <div className="mt-3">
             <ButtonLink href="#sessions">Explore sessions</ButtonLink>
           </div>
         </div>

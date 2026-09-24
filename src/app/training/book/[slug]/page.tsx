@@ -63,7 +63,7 @@ export default async function BookSessionPage({ params }: PageProps<"/training/b
   return (
     <>
       <SiteHeader />
-      <main id="main" className="py-16 sm:py-24">
+      <main id="main" className="pt-12 pb-16 sm:pt-[72px] sm:pb-[88px]">
         <Container>
           {/*
             The session on the left, the booking box on the right. On a narrow
@@ -71,37 +71,47 @@ export default async function BookSessionPage({ params }: PageProps<"/training/b
             whether they want the session should not have to scroll past a
             calendar to read what it is.
           */}
-          <div className="grid gap-10 lg:grid-cols-[minmax(0,1fr)_400px] lg:gap-14">
-            <div>
-              <p className="text-ink-muted mb-4 text-xs font-semibold tracking-[0.18em] uppercase">
+          <div className="grid gap-10 lg:grid-cols-[minmax(0,1fr)_420px] lg:gap-16">
+            <div className="flex flex-col">
+              <p className="text-accent mb-[18px] font-mono text-[13px]">
                 Session {session.code.slice(1)}
               </p>
-              <h1 className="text-ink text-3xl font-semibold tracking-[-0.03em] text-balance sm:text-4xl">
+              <h1 className="text-ink mb-5 font-serif text-[clamp(36px,4.4vw,48px)] leading-[1.08] font-[450] tracking-[-0.02em] text-balance">
                 {session.title}
               </h1>
-              <p className="text-ink-muted mt-5 text-base leading-relaxed">{session.summary}</p>
+              <p className="text-ink-soft max-w-[560px] text-[17px] leading-relaxed">
+                {session.summary}
+              </p>
 
-              <dl className="border-line mt-8 grid grid-cols-2 gap-6 border-y py-6">
-                <div>
-                  <dt className="text-ink-faint text-xs tracking-[0.14em] uppercase">Price</dt>
-                  <dd className="text-ink mt-2 text-xl font-semibold tabular-nums">
+              <dl className="border-line mt-8 grid max-w-[560px] grid-cols-2 border-y">
+                <div className="flex flex-col gap-1.5 py-5">
+                  <dt className="text-ink-faint font-mono text-xs">Price</dt>
+                  <dd className="text-ink font-serif text-2xl font-medium tabular-nums">
                     {formatAed(session.priceFils)}
                   </dd>
                 </div>
-                <div>
-                  <dt className="text-ink-faint text-xs tracking-[0.14em] uppercase">Duration</dt>
-                  <dd className="text-ink mt-2 text-xl font-semibold tabular-nums">
+                <div className="border-line flex flex-col gap-1.5 border-l py-5 pl-6">
+                  <dt className="text-ink-faint font-mono text-xs">Duration</dt>
+                  <dd className="text-ink font-serif text-2xl font-medium tabular-nums">
                     {session.durationMinutes} min
                   </dd>
                 </div>
               </dl>
 
               <div className="mt-8">
-                <h2 className="text-ink text-sm font-semibold">What this session covers</h2>
-                <ul className="mt-4 space-y-2.5">
+                <h2 className="text-accent font-mono text-xs font-normal">
+                  What this session covers
+                </h2>
+                <ul className="mt-3.5 space-y-[9px]">
                   {session.topics.map((topic) => (
-                    <li key={topic} className="text-ink-muted flex gap-3 text-sm leading-relaxed">
-                      <span className="text-ink-faint mt-2 h-1 w-1 shrink-0 rounded-full bg-current" />
+                    <li
+                      key={topic}
+                      className="text-ink-soft flex gap-2.5 text-[15px] leading-normal"
+                    >
+                      <span
+                        className="bg-accent-dot mt-2 size-[5px] shrink-0 rounded-full"
+                        aria-hidden="true"
+                      />
                       {topic}
                     </li>
                   ))}
@@ -109,7 +119,11 @@ export default async function BookSessionPage({ params }: PageProps<"/training/b
               </div>
 
               <div className="mt-10">
-                <ButtonLink href={`/training#${session.slug}`} variant="secondary">
+                <ButtonLink
+                  href={`/training#${session.slug}`}
+                  variant="secondary"
+                  className="!px-[22px] !py-3 !text-[15px]"
+                >
                   Back to all sessions
                 </ButtonLink>
               </div>

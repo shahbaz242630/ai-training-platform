@@ -35,7 +35,7 @@ export default function TrainingPage() {
     <>
       <a
         href="#main"
-        className="bg-ink sr-only rounded-lg px-4 py-2 text-sm font-semibold text-white focus:not-sr-only focus:absolute focus:top-4 focus:left-4 focus:z-100"
+        className="bg-ink sr-only rounded-full px-4 py-2 text-sm font-medium text-white focus:not-sr-only focus:absolute focus:top-4 focus:left-4 focus:z-100"
       >
         Skip to content
       </a>

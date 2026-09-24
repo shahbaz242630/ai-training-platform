@@ -72,11 +72,11 @@ export function SlotPicker({
 
   return (
     <div>
-      <div className="space-y-6">
+      <div className="space-y-[22px]">
         {visible.map((day) => (
           <fieldset key={day.isoDate}>
-            <legend className="text-ink text-sm font-semibold">{day.label}</legend>
-            <div className="mt-3 grid grid-cols-2 gap-2">
+            <legend className="text-ink text-sm font-medium">{day.label}</legend>
+            <div className="mt-2.5 grid grid-cols-2 gap-2">
               {day.slots.map((slot) => (
                 <label
                   key={slot.isoStart}
@@ -91,7 +91,7 @@ export function SlotPicker({
                     onChange={() => onSelect?.({ ...slot, dayLabel: day.label })}
                     className="peer sr-only"
                   />
-                  <span className="border-line-strong text-ink hover:border-ink peer-checked:border-accent peer-checked:bg-accent-soft peer-checked:text-accent peer-focus-visible:outline-accent block cursor-pointer rounded-lg border px-3 py-2.5 text-center text-sm font-medium tabular-nums transition-colors duration-150 peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-disabled:cursor-not-allowed">
+                  <span className="border-line-strong bg-surface text-ink hover:border-ink peer-checked:border-accent-ring peer-checked:bg-accent-soft peer-checked:text-accent-hover peer-focus-visible:outline-accent-ring block cursor-pointer rounded-[10px] border px-3 py-[11px] text-center text-[14.5px] font-medium tabular-nums transition-colors duration-150 peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-disabled:cursor-not-allowed">
                     {slot.localTime}
                     {slot.gstReference !== null && (
                       <span className="text-ink-faint mt-0.5 block text-xs font-normal">
@@ -110,13 +110,13 @@ export function SlotPicker({
         <button
           type="button"
           onClick={() => setDaysShown((shown) => shown + DAYS_PER_REVEAL)}
-          className="border-line-strong text-ink hover:border-ink mt-6 w-full rounded-lg border py-2.5 text-sm font-medium"
+          className="border-line-strong bg-surface text-ink hover:border-ink mt-[22px] w-full rounded-[10px] border py-2.5 text-sm font-medium"
         >
           Show more dates
         </button>
       )}
 
-      <p className="text-ink-faint mt-6 text-xs leading-relaxed">
+      <p className="text-ink-faint mt-[22px] text-[12.5px] leading-[1.55]">
         Times are shown in your own time zone ({timeZone}). Sessions run from Dubai, so a Gulf
         Standard Time reference appears wherever it differs from yours.
       </p>

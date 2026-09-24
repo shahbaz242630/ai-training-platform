@@ -25,33 +25,35 @@ export function HowItWorks() {
   return (
     <section
       aria-labelledby="how-heading"
-      className="border-line scroll-mt-24 border-b py-20 sm:py-24"
+      className="scroll-mt-24 py-16 sm:py-[104px]"
       id="how-it-works"
     >
       <Container>
-        <div className="max-w-2xl">
+        <div className="max-w-[640px]">
           <SectionLabel>How it works</SectionLabel>
           <h2
             id="how-heading"
-            className="text-ink text-3xl font-semibold tracking-[-0.025em] text-balance sm:text-4xl"
+            className="text-ink font-serif text-[clamp(32px,4vw,44px)] leading-[1.12] font-[450] tracking-[-0.015em] text-balance"
           >
             Four steps from choosing a session to doing the work.
           </h2>
         </div>
 
-        <ol className="mt-14 grid gap-10 sm:grid-cols-2 lg:grid-cols-4">
+        <ol className="border-line mt-14 grid gap-10 border-t pt-7 sm:grid-cols-2 lg:grid-cols-4">
           {STEPS.map((step, index) => (
-            <li key={step.title}>
-              <div className="border-line-strong text-ink flex size-9 items-center justify-center rounded-full border text-sm font-semibold tabular-nums">
-                {index + 1}
-              </div>
-              <h3 className="text-ink mt-5 text-base font-semibold tracking-tight">{step.title}</h3>
-              <p className="text-ink-muted mt-2.5 text-sm leading-relaxed">{step.body}</p>
+            <li key={step.title} className="flex flex-col gap-2.5">
+              <span className="text-accent font-mono text-[12.5px]" aria-hidden="true">
+                {String(index + 1).padStart(2, "0")}
+              </span>
+              <h3 className="text-ink font-serif text-xl leading-[1.3] font-medium">
+                {step.title}
+              </h3>
+              <p className="text-ink-muted text-[15px] leading-relaxed">{step.body}</p>
             </li>
           ))}
         </ol>
 
-        <p className="text-ink-faint border-line mt-14 border-t pt-8 text-sm leading-relaxed">
+        <p className="text-ink-faint border-line mt-14 border-t pt-7 text-[14.5px] leading-relaxed">
           {DELIVERY.availability}. Times are shown in your own timezone alongside{" "}
           {DELIVERY.timezoneLabel}.
         </p>

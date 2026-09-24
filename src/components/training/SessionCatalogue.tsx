@@ -16,48 +16,43 @@ function SessionRow({ session }: { session: SessionType }) {
   const detailId = `${session.slug}-detail`;
 
   return (
-    <article
-      id={session.slug}
-      className="bg-surface border-line scroll-mt-28 border-t last:border-b"
-    >
-      <div className="flex flex-col gap-6 p-6 sm:p-8 lg:flex-row lg:items-start lg:gap-10">
+    <article id={session.slug} className="border-line scroll-mt-28 border-b">
+      <div className="grid grid-cols-1 items-start gap-x-8 gap-y-6 py-8 lg:grid-cols-[72px_minmax(0,1fr)_200px]">
         <span
-          className="text-line-strong hidden text-5xl leading-none font-semibold tabular-nums lg:block"
+          className="text-on-deep-lede hidden font-serif text-[44px] leading-none lg:block"
           aria-hidden="true"
         >
           {number}
         </span>
 
-        <div className="min-w-0 flex-1">
+        <div className="min-w-0">
           <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-2">
-            <span className="text-ink-faint text-xs font-semibold tracking-[0.14em] uppercase lg:hidden">
-              Session {number}
-            </span>
-            <span className="border-line text-ink-muted rounded border px-2 py-0.5 text-xs font-medium">
+            <span className="text-ink-faint font-mono text-xs lg:hidden">Session {number}</span>
+            <span className="border-line-strong text-ink-muted rounded-md border px-[9px] py-[3px] font-mono text-xs">
               {LEVEL_LABEL[session.level]}
             </span>
             {session.category === "implementation" && (
-              <span className="bg-accent-soft text-accent rounded px-2 py-0.5 text-xs font-semibold">
+              <span className="bg-accent-soft text-accent rounded-md px-[9px] py-[3px] text-[12.5px] font-medium">
                 Prerequisites apply
               </span>
             )}
           </div>
 
-          <h3 className="text-ink text-xl font-semibold tracking-tight text-balance sm:text-2xl">
+          <h3 className="text-ink font-serif text-[26px] leading-[1.2] font-medium text-balance">
             {session.title}
           </h3>
 
-          <p className="text-ink-muted mt-3 max-w-2xl text-[15px] leading-relaxed">
+          <p className="text-ink-soft mt-3 max-w-[640px] text-[15.5px] leading-relaxed">
             {session.summary}
           </p>
 
-          <p className="text-ink-muted mt-4 max-w-2xl text-sm leading-relaxed">
+          <p className="text-ink-muted mt-3 max-w-[640px] text-[14.5px] leading-relaxed">
             <span className="text-ink-faint">Who it’s for: </span>
             {session.audience}
           </p>
 
-          <details className="group mt-6" name="session-detail" id={detailId}>
-            <summary className="text-ink hover:text-accent inline-flex items-center gap-2 text-sm font-semibold transition-colors">
+          <details className="group mt-[18px]" name="session-detail" id={detailId}>
+            <summary className="text-ink hover:text-accent inline-flex items-center gap-2 text-[14.5px] font-medium transition-colors">
               <span className="group-open:hidden">View what we cover</span>
               <span className="hidden group-open:inline">Hide details</span>
               <svg
@@ -76,16 +71,17 @@ function SessionRow({ session }: { session: SessionType }) {
               </svg>
             </summary>
 
-            <div className="border-line mt-6 grid gap-8 border-t pt-6 sm:grid-cols-2">
+            <div className="border-panel animate-z-in mt-2 grid gap-7 border-t pt-[22px] sm:grid-cols-2">
               <div>
-                <h4 className="text-ink text-xs font-semibold tracking-[0.14em] uppercase">
-                  What we cover
-                </h4>
-                <ul className="mt-4 space-y-2">
+                <h4 className="text-accent font-mono text-xs font-normal">What we cover</h4>
+                <ul className="mt-3 space-y-2">
                   {session.topics.map((topic) => (
-                    <li key={topic} className="text-ink-muted flex gap-2.5 text-sm leading-relaxed">
+                    <li
+                      key={topic}
+                      className="text-ink-soft flex gap-2.5 text-[14.5px] leading-normal"
+                    >
                       <span
-                        className="bg-accent mt-2 size-1 shrink-0 rounded-full"
+                        className="bg-accent-dot mt-2 size-[5px] shrink-0 rounded-full"
                         aria-hidden="true"
                       />
                       {topic}
@@ -95,17 +91,15 @@ function SessionRow({ session }: { session: SessionType }) {
               </div>
 
               <div>
-                <h4 className="text-ink text-xs font-semibold tracking-[0.14em] uppercase">
-                  What you leave with
-                </h4>
-                <p className="text-ink-muted mt-4 text-sm leading-relaxed">{session.outcome}</p>
+                <h4 className="text-accent font-mono text-xs font-normal">What you leave with</h4>
+                <p className="text-ink-soft mt-3 text-[14.5px] leading-relaxed">
+                  {session.outcome}
+                </p>
 
                 {session.prerequisiteNote && (
-                  <div className="border-line-strong mt-6 border-l-2 pl-4">
-                    <h4 className="text-ink text-xs font-semibold tracking-[0.14em] uppercase">
-                      Before you book
-                    </h4>
-                    <p className="text-ink-muted mt-3 text-sm leading-relaxed">
+                  <div className="bg-canvas border-line mt-4 rounded-xl border px-[18px] py-4">
+                    <h4 className="text-accent font-mono text-xs font-normal">Before you book</h4>
+                    <p className="text-ink-muted mt-2 text-sm leading-relaxed">
                       {session.prerequisiteNote}
                     </p>
                   </div>
@@ -115,16 +109,18 @@ function SessionRow({ session }: { session: SessionType }) {
           </details>
         </div>
 
-        <div className="border-line flex shrink-0 flex-row items-center justify-between gap-4 border-t pt-6 lg:w-44 lg:flex-col lg:items-end lg:border-t-0 lg:pt-0">
+        <div className="border-panel flex flex-row items-center justify-between gap-4 border-t pt-6 lg:flex-col lg:items-end lg:gap-3.5 lg:border-t-0 lg:pt-0">
           <div className="lg:text-right">
-            <p className="text-ink text-2xl font-semibold tracking-tight tabular-nums">
+            <p className="text-ink font-serif text-[26px] font-medium tabular-nums">
               {formatAed(session.priceFils)}
             </p>
-            <p className="text-ink-faint mt-1 text-xs">{session.durationMinutes} minutes</p>
+            <p className="text-ink-faint mt-[3px] font-mono text-xs">
+              {session.durationMinutes} minutes
+            </p>
           </div>
           <ButtonLink
             href={`/training/book/${session.slug}`}
-            className="!px-5 !py-2.5 whitespace-nowrap lg:w-full"
+            className="!px-5 !py-[11px] !text-[14.5px]"
           >
             Book session {number}
           </ButtonLink>
@@ -140,26 +136,26 @@ export function SessionCatalogue() {
   return (
     <section
       aria-labelledby="sessions-heading"
-      className="scroll-mt-24 py-20 sm:py-24"
+      className="bg-surface border-line scroll-mt-24 border-y py-16 sm:py-[104px]"
       id="sessions"
     >
       <OpenSessionFromHash />
       <Container>
-        <div className="max-w-2xl">
+        <div className="max-w-[640px]">
           <SectionLabel>The sessions</SectionLabel>
           <h2
             id="sessions-heading"
-            className="text-ink text-3xl font-semibold tracking-[-0.025em] text-balance sm:text-4xl"
+            className="text-ink font-serif text-[clamp(32px,4vw,44px)] leading-[1.12] font-[450] tracking-[-0.015em] text-balance"
           >
             Six sessions, priced by depth. Buy only what you need.
           </h2>
-          <p className="text-ink-muted mt-5 text-base leading-relaxed">
+          <p className="text-ink-muted mt-3.5 text-base leading-relaxed text-pretty">
             Each session is {sessions[0]!.durationMinutes} minutes, delivered privately over
             Microsoft Teams, and built around your own work rather than a fixed curriculum.
           </p>
         </div>
 
-        <div className="mt-14">
+        <div className="border-line mt-12 border-t">
           {sessions.map((session) => (
             <SessionRow key={session.code} session={session} />
           ))}
