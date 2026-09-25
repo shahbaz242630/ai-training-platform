@@ -95,11 +95,19 @@ describe("renderTemplate", () => {
 
 describe("containsPlaceholder", () => {
   it("detects an identity placeholder in the text or the subject", async () => {
-    // Identity is still placeholders in this repository, so a rendered email
-    // carries them - which is exactly why the sweep refuses to send one.
+    // The real identity is filled in, so the placeholder is planted: the sweep
+    // must still refuse any email that would carry one.
     const email = await renderTemplate("payment_receipt", model);
-    expect(containsPlaceholder(email)).toBe(true);
-    expect(email.text).toContain("[SUPPORT_EMAIL]");
+    expect(containsPlaceholder({ ...email, text: `${email.text} [SUPPORT_EMAIL]` })).toBe(true);
+    expect(containsPlaceholder({ ...email, subject: `[COMPANY_NAME] ${email.subject}` })).toBe(
+      true,
+    );
+  });
+
+  it("renders with the real identity and no placeholder", async () => {
+    const email = await renderTemplate("payment_receipt", model);
+    expect(containsPlaceholder(email)).toBe(false);
+    expect(email.text).toContain("knowledgecentre@zaaheen.com");
   });
 
   it("passes an email with no placeholder", () => {

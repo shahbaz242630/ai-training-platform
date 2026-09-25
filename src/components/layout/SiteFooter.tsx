@@ -6,6 +6,7 @@ import {
   legalEntityName,
   supportEmail,
   FOOTER_LINKS,
+  LICENCE,
   SITE,
   DELIVERY,
 } from "@/config/site";
@@ -45,7 +46,7 @@ export function SiteFooter() {
             issued.
           </p>
           <p className="text-ink-faint mt-1.5 text-[13px]">
-            &copy; {new Date().getFullYear()} {legalEntityName()}. All rights reserved.
+            &copy; {new Date().getFullYear()} {legalEntityName()} · {LICENCE}. All rights reserved.
           </p>
         </div>
       </Container>

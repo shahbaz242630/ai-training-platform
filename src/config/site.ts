@@ -20,11 +20,14 @@ export interface SitePlaceholders {
 }
 
 export const SITE: SitePlaceholders = {
-  // The trading name. The legal entity name below stays a placeholder until it is real.
+  // The trading name, and the legal name exactly as the Dubai trade licence prints it
+  // (licence 1651252, read 2026-09-25). The licence is home-based with no business
+  // address; the founder's personal phone and email are never published.
   companyName: "Zaaheen",
-  legalEntityName: null,
-  domain: null,
-  supportEmail: null,
+  legalEntityName: "Zaaheen Artificial Intelligence Developing Services",
+  domain: "coaching.zaaheen.com",
+  // The Knowledge Centre mailbox receives every coaching booking (founder, 2026-09-25).
+  supportEmail: "knowledgecentre@zaaheen.com",
   phone: null,
   instructorName: null,
   instructorBio: null,
@@ -62,14 +65,13 @@ export function isPubliclyConfigured(site: SitePlaceholders = SITE): boolean {
     A field belongs in this list when it can appear on a page a search engine
     may crawl. Adding a new rendered placeholder means adding it here, and the
     indexing test fails if a token can reach an indexable page.
+
+    instructorName left the list on 2026-09-25: no page renders it, and the
+    founder chose not to publish a coach name or bio for now, so it held
+    indexing back for nothing. content.test.ts fails the moment anything
+    renders it, which is when it must come back here.
   */
-  return Boolean(
-    site.companyName &&
-    site.domain &&
-    site.legalEntityName &&
-    site.supportEmail &&
-    site.instructorName,
-  );
+  return Boolean(site.companyName && site.domain && site.legalEntityName && site.supportEmail);
 }
 
 export type SiteEnv = "development" | "staging" | "production";
@@ -90,6 +92,9 @@ export type SiteEnv = "development" | "staging" | "production";
 export function isIndexable(siteEnv: SiteEnv, site: SitePlaceholders = SITE): boolean {
   return siteEnv === "production" && isPubliclyConfigured(site);
 }
+
+/** The licence, as the company site's footer states it. */
+export const LICENCE = "Dubai trade licence 1651252";
 
 export const TRAINING_BASE = "/training";
 
