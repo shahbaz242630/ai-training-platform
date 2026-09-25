@@ -38,7 +38,7 @@ describe("isIndexable", () => {
   });
 
   it("refuses production while identity is still placeholder", () => {
-    expect(isIndexable("production", SITE)).toBe(false);
+    expect(isIndexable("production", { ...SITE, supportEmail: null })).toBe(false);
     expect(isIndexable("production", { ...CONFIGURED, companyName: null })).toBe(false);
     expect(isIndexable("production", { ...CONFIGURED, domain: null })).toBe(false);
     expect(isIndexable("production", { ...CONFIGURED, legalEntityName: null })).toBe(false);

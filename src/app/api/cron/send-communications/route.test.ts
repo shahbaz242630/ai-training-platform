@@ -40,8 +40,12 @@ vi.mock("@/config/site", async (importOriginal) => {
   const original = await importOriginal<typeof import("@/config/site")>();
   return {
     ...original,
-    companyName: () => (state.realIdentity ? "Example Training" : original.companyName()),
-    supportEmail: () => (state.realIdentity ? "help@example.com" : original.supportEmail()),
+    // An unfilled identity is built here, not borrowed from the real config: the
+    // real values are filled in now, and this refusal must stay proven after that.
+    companyName: () =>
+      state.realIdentity ? "Example Training" : original.placeholder(null, "COMPANY_NAME"),
+    supportEmail: () =>
+      state.realIdentity ? "help@example.com" : original.placeholder(null, "SUPPORT_EMAIL"),
   };
 });
 

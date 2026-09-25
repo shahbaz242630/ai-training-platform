@@ -54,8 +54,12 @@ describe("money formatting", () => {
 });
 
 describe("isPubliclyConfigured", () => {
-  it("is false while the real identity is unset", () => {
-    expect(isPubliclyConfigured(SITE)).toBe(false);
+  it("is false while any real identity field is unset", () => {
+    expect(isPubliclyConfigured({ ...SITE, legalEntityName: null })).toBe(false);
+  });
+
+  it("is true for the real identity from the licence (2026-09-25)", () => {
+    expect(isPubliclyConfigured(SITE)).toBe(true);
   });
 
   it("is true only when every publicly rendered field is present", () => {

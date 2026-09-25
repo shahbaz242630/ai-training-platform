@@ -175,17 +175,40 @@ describe("indexing cannot arm on partial identity", () => {
     null while indexing is on publishes a bracketed token.
   */
   it("refuses to arm while any rendered field is still a placeholder", () => {
-    const rendered = [
-      "companyName",
-      "legalEntityName",
-      "domain",
-      "supportEmail",
-      "instructorName",
-    ] as const;
+    const rendered = ["companyName", "legalEntityName", "domain", "supportEmail"] as const;
 
     for (const field of rendered) {
       expect(isPubliclyConfigured({ ...complete, [field]: null }), field).toBe(false);
     }
+  });
+
+  /*
+    The coach's name renders nowhere (founder, 2026-09-25: no name or bio for
+    now), so it must not hold indexing back. The moment a page or component
+    renders it, the second test fails: put it back in isPubliclyConfigured then.
+  */
+  it("does not hold indexing back on a coach name that renders nowhere", () => {
+    expect(isPubliclyConfigured({ ...complete, instructorName: null, instructorBio: null })).toBe(
+      true,
+    );
+  });
+
+  it("renders the coach's name and bio nowhere", async () => {
+    const { readFileSync, readdirSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const offenders: string[] = [];
+    const walk = (dir: string): void => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const path = join(dir, entry.name);
+        if (entry.isDirectory()) walk(path);
+        else if (/\.tsx?$/.test(entry.name) && !/\.test\.tsx?$/.test(entry.name)) {
+          if (path.replace(/\\/g, "/").endsWith("src/config/site.ts")) continue;
+          if (/instructorName|instructorBio/.test(readFileSync(path, "utf8"))) offenders.push(path);
+        }
+      }
+    };
+    walk(join(process.cwd(), "src"));
+    expect(offenders).toEqual([]);
   });
 
   // The exact shape that used to slip through: the obvious three filled in.
