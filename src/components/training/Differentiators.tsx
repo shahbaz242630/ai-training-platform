@@ -14,7 +14,7 @@ const POINTS = [
   },
   {
     title: "Choosing the right tool",
-    body: "Which model, which ecosystem, which approach — and just as importantly, when a given tool is the wrong choice.",
+    body: "Which model, which ecosystem, which approach, and just as importantly, when a given tool is the wrong choice.",
   },
   {
     title: "Agents that do real work",
@@ -46,7 +46,7 @@ export function Differentiators() {
             Not a generic AI course.
           </h2>
           <p className="text-on-deep-lede mt-3.5 text-base leading-relaxed text-pretty">
-            Most AI training explains features. These sessions are about doing the work — with your
+            Most AI training explains features. These sessions are about doing the work, with your
             projects, your constraints and your questions in the room.
           </p>
         </div>

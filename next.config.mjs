@@ -131,6 +131,18 @@ export const POLICY_REDIRECTS = [
   },
 ];
 
+/*
+  The booking desk only (founder, 2026-09-27). This host is where "Book your
+  session" lands; the page people find for coaching is the Knowledge Centre on
+  zaaheen.com. The root was an old company placeholder ("in development"), so it
+  now sends everyone there permanently. Exported so a test pins it.
+*/
+export const HOME_REDIRECT = {
+  source: "/",
+  destination: "https://zaaheen.com/knowledge-centre/",
+  permanent: true,
+};
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   // Required for the managed Node host: emits a self-contained server bundle
@@ -150,7 +162,7 @@ const nextConfig = {
   },
 
   async redirects() {
-    return POLICY_REDIRECTS;
+    return [...POLICY_REDIRECTS, HOME_REDIRECT];
   },
 };
 

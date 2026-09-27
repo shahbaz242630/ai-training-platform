@@ -1,23 +1,12 @@
 import type { MetadataRoute } from "next";
-import { clientEnv } from "@/lib/env";
-import { isIndexable } from "@/config/site";
 
 /**
- * SAFETY: the whole site is disallowed unless this is a production build AND a
- * real company identity exists.
- *
- * Staging runs on a throwaway host domain. Letting it be indexed would put
- * duplicate content in front of our own real domain, and de-indexing a domain
- * afterwards is slow and never complete. Placeholder identity must never be
- * cached either. Both switches flip automatically - neither is manual.
+ * The booking desk only (founder, 2026-09-27; see SEARCH in config/site.ts).
+ * Every page carries noindex, so crawlers are let in to read it: a page a
+ * crawler is refused never shows it the noindex, and its bare address can
+ * still be listed. The API is not for crawlers. No sitemap: no page here
+ * belongs in search. The same in every environment, so staging cannot differ.
  */
 export default function robots(): MetadataRoute.Robots {
-  if (!isIndexable(clientEnv.NEXT_PUBLIC_SITE_ENV)) {
-    return { rules: [{ userAgent: "*", disallow: "/" }] };
-  }
-
-  return {
-    rules: [{ userAgent: "*", allow: "/", disallow: ["/training/book/", "/api/"] }],
-    sitemap: `${clientEnv.NEXT_PUBLIC_SITE_URL}/sitemap.xml`,
-  };
+  return { rules: [{ userAgent: "*", allow: "/", disallow: "/api/" }] };
 }
