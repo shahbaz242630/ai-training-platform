@@ -32,6 +32,16 @@ export class DatabaseNotConfiguredError extends Error {
   }
 }
 
+export class DatabaseTlsNotConfiguredError extends Error {
+  constructor() {
+    super(
+      "DATABASE_CA_CERT is not set, so the database certificate cannot be verified. " +
+        "A production deployment refuses to connect unauthenticated.",
+    );
+    this.name = "DatabaseTlsNotConfiguredError";
+  }
+}
+
 /*
   Next reloads modules on every change in development, and a new pool per
   reload exhausts the connection limit within minutes. Caching on globalThis is
@@ -87,22 +97,30 @@ export function getPool(): Pool {
  * into the network path presents any certificate and both reads and rewrites
  * the traffic.
  *
- * Verification is therefore ON whenever a certificate is available. It is not
- * forced on when one is absent, because that would take the live deployment
- * offline the moment this shipped - but the absence is reported at error
- * level rather than passed over, so the gap is visible instead of being a
- * quiet default nobody revisits. Set DATABASE_CA_CERT before this application
- * holds a single real customer record.
+ * Verification is therefore ON whenever a certificate is available, and a
+ * production deployment without one REFUSES to connect (security audit,
+ * 2026-09-27: it used to connect unauthenticated and only log an error, which
+ * nobody reads in time). Outside production an unverified connection is still
+ * allowed, for local work against a database whose certificate is not to
+ * hand, and it is reported at error level so the gap stays visible.
  */
-function tlsOptions(): { ca?: string; rejectUnauthorized: boolean } {
-  const ca = serverEnv().DATABASE_CA_CERT;
+export function databaseTls(
+  ca: string | undefined,
+  isProduction: boolean,
+): { ca?: string; rejectUnauthorized: boolean } {
   if (ca) return { ca, rejectUnauthorized: true };
+  if (isProduction) throw new DatabaseTlsNotConfiguredError();
 
   logger.error(
     "DATABASE_CA_CERT is not set, so the database certificate chain is NOT verified - " +
-      "the connection is encrypted but not authenticated. This is a launch blocker.",
+      "the connection is encrypted but not authenticated. Production refuses this.",
   );
   return { rejectUnauthorized: false };
+}
+
+function tlsOptions(): { ca?: string; rejectUnauthorized: boolean } {
+  const env = serverEnv();
+  return databaseTls(env.DATABASE_CA_CERT, env.NODE_ENV === "production");
 }
 
 /** Run a set of statements so that either all of them apply, or none do. */

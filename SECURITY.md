@@ -77,14 +77,17 @@ reach our infrastructure at any point.
   notice. **Known limit:** the check must be run by a person or a deploy step;
   nothing runs it automatically yet.
 - **Zod validation** on every external input, server-side.
-- **Database TLS chain verification** when `DATABASE_CA_CERT` is configured.
+- **Database TLS chain verification**, required in production: without
+  `DATABASE_CA_CERT` a production deployment refuses to connect.
   TLS parameters are stripped from `DATABASE_URL` first, because the driver
   lets a parsed connection string overwrite the `ssl` option passed beside it —
   so `?sslmode=require` silently discarded the CA and `?sslmode=no-verify`
   disabled verification entirely while this code took its secure branch.
-  Without a certificate the connection is encrypted but *not authenticated*;
-  the absence is logged at error level rather than passed over, and it remains
-  a launch blocker.
+  Without a certificate the connection is encrypted but *not authenticated*.
+  Outside production that is allowed and logged at error level; in production
+  it used to be allowed too (found by the September 2026 audit) and is now
+  refused, so a deployment cannot quietly hold customer records over an
+  unauthenticated link.
 - **Payment events are checked against the order they name** — checkout
   session, amount and currency — because a verified signature proves an event
   came from the processor, not that it is about our order.
