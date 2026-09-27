@@ -7,7 +7,7 @@ import { ButtonLink } from "@/components/ui/Button";
 import { BookingPanel } from "@/components/training/BookingPanel";
 import { getSessionBySlug, getActiveSessions } from "@/config/sessions";
 import { formatAed } from "@/lib/money";
-import { offeredSlots } from "./availability";
+import { offeredSlotsForPage } from "./availability";
 import { paymentsAreConfigured } from "@/domain/payments/factory";
 import { logger } from "@/lib/logger";
 
@@ -54,7 +54,8 @@ export default async function BookSessionPage({ params }: PageProps<"/training/b
   let slots: readonly { start: Date }[] = [];
   let availabilityFailed = false;
   try {
-    slots = await offeredSlots(session.durationMinutes, now);
+    // Cached for a few seconds so a flood of views cannot throttle the calendar; see availability.ts.
+    slots = await offeredSlotsForPage(session.durationMinutes, now);
   } catch (error) {
     availabilityFailed = true;
     logger.error("availability could not be read", { error: (error as Error).message });
