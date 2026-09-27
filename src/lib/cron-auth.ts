@@ -16,6 +16,14 @@ import { timingSafeEqual } from "node:crypto";
 
 export type CronAuthResult = "authorised" | "unauthorised" | "not_configured";
 
+/*
+  The shortest secret treated as configured (security audit, 2026-09-27). The
+  routes are public, so a short or memorable secret could be guessed; one
+  below this is refused as not configured, failing closed like an unset one.
+  32 characters is what `openssl rand -hex 16` gives; use -hex 32 in practice.
+*/
+export const MIN_CRON_SECRET_LENGTH = 32;
+
 /**
  * Constant-time comparison, so the number of matching leading characters
  * cannot be read off the response time and used to guess the rest.
@@ -39,7 +47,9 @@ export function authoriseCronRequest(
   authorizationHeader: string | null,
   configuredSecret: string | undefined,
 ): CronAuthResult {
-  if (configuredSecret === undefined || configuredSecret === "") return "not_configured";
+  if (configuredSecret === undefined || configuredSecret.length < MIN_CRON_SECRET_LENGTH) {
+    return "not_configured";
+  }
   if (authorizationHeader === null) return "unauthorised";
 
   const prefix = "Bearer ";

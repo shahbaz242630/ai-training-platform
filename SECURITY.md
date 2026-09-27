@@ -49,6 +49,13 @@ reach our infrastructure at any point.
 - **Server-side price resolution.** A price submitted by a client is never
   trusted; the server maps a slug to an approved price record.
 - **Stripe webhook signature verification** is mandatory and enforced by test.
+  The body it is computed over is read with a 1 MiB cap, enforced while
+  streaming, so the public route cannot be made to read an unbounded body.
+- **Scheduled-job secret** of at least 32 characters; a shorter or unset one
+  is treated as not configured and every call is refused. Compared in
+  constant time.
+- **Graph pagination** follows a next link only on Graph's own origin, since it
+  carries our bearer token.
 - **Idempotent webhook handling** keyed on the Stripe event ID.
 - **Redacting logger** - tokens, keys, card fields, cookies and authorization
   headers are stripped before anything is written.

@@ -395,3 +395,39 @@ describe("graphCredentialsFromEnv", () => {
     expect(graphCredentialsFromEnv()).toEqual({ tenantId: "t", clientId: "c", clientSecret: "s" });
   });
 });
+
+/*
+  A next link is followed with our bearer token attached, so one pointing
+  anywhere but Graph would hand the token to that host (security audit,
+  2026-09-27). Only Graph's own origin is followed.
+*/
+describe("list, next links from somewhere else", () => {
+  it("refuses a next link to another host and never requests it", async () => {
+    const { graph, calls } = client([
+      token(),
+      {
+        status: 200,
+        body: { value: [{ id: 1 }], "@odata.nextLink": "https://attacker.example/steal?$skip=1" },
+      },
+    ]);
+
+    await expect(graph.list({ path: "/users/x/events" })).rejects.toThrow(/next link/i);
+    expect(calls.map((c) => c.url)).not.toContain("https://attacker.example/steal?$skip=1");
+    expect(calls).toHaveLength(2);
+  });
+
+  it("refuses a look-alike host that only starts with Graph's name", async () => {
+    const { graph } = client([
+      token(),
+      {
+        status: 200,
+        body: {
+          value: [],
+          "@odata.nextLink": "https://graph.microsoft.com.attacker.example/v1.0/x",
+        },
+      },
+    ]);
+
+    await expect(graph.list({ path: "/users/x/events" })).rejects.toThrow(/next link/i);
+  });
+});

@@ -25,6 +25,15 @@ import { logger } from "@/lib/logger";
  */
 
 export const GRAPH_BASE_URL = "https://graph.microsoft.com/v1.0";
+
+/** Whether an absolute URL is on Graph's own origin (https, exact host, default port). */
+function isGraphUrl(url: string): boolean {
+  try {
+    return new URL(url).origin === new URL(GRAPH_BASE_URL).origin;
+  } catch {
+    return false;
+  }
+}
 const TOKEN_SCOPE = "https://graph.microsoft.com/.default";
 /** Refresh this long before the token actually expires, so a request never starts with a token about to die. */
 const TOKEN_REFRESH_MARGIN_MS = 60_000;
@@ -187,7 +196,16 @@ export class GraphClient {
         await this.request(next);
       items.push(...(response.body?.value ?? []));
       const link = response.body?.["@odata.nextLink"];
-      // The next link is absolute and already carries the query.
+      /*
+        The next link is absolute and already carries the query. It is sent
+        with our bearer token attached, so it is followed only when it points
+        at Graph itself: a link to any other host would hand that host the
+        token (security audit, 2026-09-27). Compared as a parsed origin, so a
+        look-alike such as graph.microsoft.com.example cannot pass.
+      */
+      if (link && !isGraphUrl(link)) {
+        throw new Error("Graph returned a next link to another host; refusing to follow it");
+      }
       next = link ? { method: "GET", path: link, headers: input.headers } : null;
     }
 

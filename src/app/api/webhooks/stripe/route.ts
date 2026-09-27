@@ -12,6 +12,15 @@ import { recordAudit } from "@/lib/audit";
 import { clientAddressFrom } from "@/lib/client-address";
 import { createEvidenceBudget } from "@/lib/evidence-budget";
 import { logger } from "@/lib/logger";
+import { readTextWithin } from "@/lib/read-body";
+
+/*
+  Stripe's events are a few kilobytes. The body has to be read before the
+  signature can be checked, so without a cap anybody could make this public
+  route read an arbitrarily large body into memory (security audit,
+  2026-09-27). One mebibyte is far above any real event.
+*/
+const MAX_WEBHOOK_BODY_BYTES = 1024 * 1024;
 
 /**
  * The only thing in this application that may confirm a payment.
@@ -64,9 +73,15 @@ export async function POST(request: Request): Promise<NextResponse> {
   /*
     The RAW body. A signature is computed over exact bytes, so anything that
     has been parsed and re-serialised is no longer the thing that was signed.
-    request.json() here would silently make verification meaningless.
+    request.json() here would silently make verification meaningless. Read
+    with a cap, and refused unread when over it.
   */
-  const rawBody = await request.text();
+  const body = await readTextWithin(request, MAX_WEBHOOK_BODY_BYTES);
+  if (!body.ok) {
+    logger.warn("a stripe webhook body over the size cap was refused unread");
+    return NextResponse.json({ error: "Too large" }, { status: 413 });
+  }
+  const rawBody = body.text;
   const signature = request.headers.get("stripe-signature");
 
   let event;
