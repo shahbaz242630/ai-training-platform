@@ -167,6 +167,14 @@ discovered:
   addresses can keep those ten held and so delay real bookings for as long as
   they keep going. Closing that needs bot protection at the edge, tracked for
   launch.
+- The booking page shows availability read from the calendar (Microsoft
+  Graph, which allows four concurrent requests per mailbox) and the database.
+  It once read both on every view, so a small flood of page loads could get the
+  mailbox throttled and hide every time from real customers. The page now
+  serves one shared answer per session length for 30 seconds, loaded once
+  however many views arrive together; checkout still reads both fresh before
+  anything is held. What remains: a flood still costs page rendering, which
+  only the edge can absorb.
 
 No CAPTCHA, proof of work or challenge is deployed today.
 
