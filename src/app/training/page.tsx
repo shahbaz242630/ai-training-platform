@@ -10,12 +10,12 @@ import { Faq } from "@/components/training/Faq";
 import { FinalCta } from "@/components/training/FinalCta";
 
 export const metadata: Metadata = {
-  title: "Private 1-to-1 AI Training — Dubai",
+  title: "Private 1-to-1 AI coaching in Dubai",
   description:
     "Practical private AI sessions in Dubai for professionals, founders and builders. Research and prompting, ChatGPT and Codex, Claude Code, AI agents, technology stacks and production deployment. Evening appointments available.",
   alternates: { canonical: "/training" },
   openGraph: {
-    title: "Learn how to work with AI — not just talk to it",
+    title: "Learn how to work with AI, not just talk to it",
     description:
       "Private 1-to-1 practical AI training and implementation coaching in Dubai. Evening sessions, 90 minutes, online.",
     type: "website",

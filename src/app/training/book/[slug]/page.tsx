@@ -28,7 +28,7 @@ export async function generateMetadata({
   const { slug } = await params;
   const session = getSessionBySlug(slug);
   return {
-    title: session ? `Book — ${session.title}` : "Book a session",
+    title: session ? `Book: ${session.title}` : "Book a session",
     robots: { index: false, follow: false },
   };
 }

@@ -1,9 +1,7 @@
 import type { Metadata } from "next";
 import localFont from "next/font/local";
-import { clientEnv } from "@/lib/env";
-import { isIndexable } from "@/config/site";
 import "./globals.css";
-import { companyName } from "@/config/site";
+import { companyName, SEARCH } from "@/config/site";
 
 /*
   The Zaaheen fonts, self-hosted (SIL Open Font License; the licences sit next
@@ -28,22 +26,18 @@ const newsreader = localFont({
   display: "swap",
 });
 
-const INDEXABLE = isIndexable(clientEnv.NEXT_PUBLIC_SITE_ENV);
-
 export const metadata: Metadata = {
   title: {
-    default: "Private 1-to-1 AI Training — Dubai",
-    template: `%s — ${companyName()}`,
+    default: `Book private 1-to-1 AI coaching · ${companyName()}`,
+    template: `%s · ${companyName()}`,
   },
   description:
     "Private 1-to-1 practical AI training and implementation coaching in Dubai. Research, prompting, coding agents, AI agents, technology stacks and production deployment.",
   /*
-    Site-wide no-index unless this is a production build carrying a real
-    identity. Belt and braces with robots.ts: robots.txt is a request that
-    crawlers may ignore, whereas a meta robots tag is honoured per page. Both
-    flip from the same condition, so they cannot disagree.
+    Every page: noindex, follow (SEARCH in config/site.ts, the booking desk
+    only). robots.ts lets crawlers in so they can read it.
   */
-  robots: INDEXABLE ? { index: true, follow: true } : { index: false, follow: false },
+  robots: SEARCH,
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

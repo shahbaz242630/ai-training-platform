@@ -264,6 +264,42 @@ describe("indexing cannot arm on partial identity", () => {
   });
 });
 
+/*
+  The company-wide copy rule (zaaheen.com SEO-HANDOFF §3a rule 6): no em dash,
+  and no spaced en dash standing in for one, in anything a visitor reads. Readers
+  take it as "AI wrote this". Comments are stripped first, so explanations in
+  code may still use them; an en dash inside a number range is fine.
+*/
+describe("no long dashes in customer-facing text", () => {
+  it("has none in pages, components or config", async () => {
+    const { readFileSync } = await import("node:fs");
+    const { execFileSync } = await import("node:child_process");
+
+    const paths = execFileSync("git", ["ls-files", "--cached", "--others", "--exclude-standard"], {
+      encoding: "utf8",
+    })
+      .split("\n")
+      .filter(
+        (p) =>
+          /^src\/(app|components|config|emails)\/.*\.(ts|tsx)$/.test(p) && !p.includes(".test."),
+      );
+
+    const offenders: string[] = [];
+    for (const path of paths) {
+      const code = readFileSync(path, "utf8")
+        .replace(/\/\*[\s\S]*?\*\//g, "")
+        .replace(/(^|[^:"'`])\/\/.*$/gm, "$1");
+      for (const m of code.matchAll(/—|\s–\s/g)) {
+        const at = m.index ?? 0;
+        offenders.push(
+          `${path}: "${code.slice(Math.max(0, at - 25), at + 25).replace(/\s+/g, " ")}"`,
+        );
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+});
+
 describe("policy links", () => {
   it("links the footer to the three coaching policies on the company site", () => {
     expect(FOOTER_LINKS.map((l) => l.href)).toEqual([

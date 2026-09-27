@@ -61,7 +61,24 @@ describe("POLICY_REDIRECTS", () => {
   });
 
   it("is what the config actually serves", async () => {
-    const { default: config, POLICY_REDIRECTS } = await import("../next.config.mjs");
-    expect(await config.redirects()).toEqual(POLICY_REDIRECTS);
+    const { default: config, POLICY_REDIRECTS, HOME_REDIRECT } = await import("../next.config.mjs");
+    expect(await config.redirects()).toEqual([...POLICY_REDIRECTS, HOME_REDIRECT]);
+  });
+});
+
+/*
+  The booking desk only (founder, 2026-09-27): coaching.zaaheen.com is where a
+  "Book your session" click lands, never a page of its own in search. The page
+  people find is the Knowledge Centre on zaaheen.com, so this host's root, the
+  old company placeholder, sends everyone there permanently.
+*/
+describe("HOME_REDIRECT", () => {
+  it("sends the root to the Knowledge Centre on zaaheen.com, permanently", async () => {
+    const { HOME_REDIRECT } = await import("../next.config.mjs");
+    expect(HOME_REDIRECT).toEqual({
+      source: "/",
+      destination: "https://zaaheen.com/knowledge-centre/",
+      permanent: true,
+    });
   });
 });

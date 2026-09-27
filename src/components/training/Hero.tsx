@@ -44,7 +44,7 @@ export function Hero() {
             </p>
 
             <h1 className="text-ink mb-6 font-serif text-[clamp(42px,5.2vw,60px)] leading-[1.06] font-[450] tracking-[-0.02em] text-balance">
-              Learn how to work with AI — not just talk to it.
+              Learn how to work with AI, not just talk to it.
             </h1>
 
             <p className="text-ink-soft mb-8 max-w-[520px] text-lg leading-relaxed text-pretty">

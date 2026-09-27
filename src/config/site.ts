@@ -74,24 +74,19 @@ export function isPubliclyConfigured(site: SitePlaceholders = SITE): boolean {
   return Boolean(site.companyName && site.domain && site.legalEntityName && site.supportEmail);
 }
 
-export type SiteEnv = "development" | "staging" | "production";
-
 /**
- * Whether this deployment may be indexed by search and answer engines.
+ * What every page tells search and answer engines: never index, but follow
+ * the links (they lead back to zaaheen.com).
  *
- * BOTH conditions must hold, and for different reasons:
- *
- *  - **Production only.** Staging runs on a throwaway host domain. If it were
- *    indexed we would be competing against our own real domain with duplicate
- *    content, and removing a domain from an index is slow and imperfect.
- *  - **Real identity.** Placeholder content such as "[COMPANY_NAME]" must never
- *    be cached by a search or answer engine as though it were fact.
- *
- * Fails safe: anything other than an explicit production build is not indexable.
+ * The booking desk only (founder, 2026-09-27). The page people find for
+ * coaching is the Knowledge Centre on zaaheen.com, which lists the same
+ * sessions and prices; this app is where its "Book your session" buttons land.
+ * Indexing both would put two copies of the same offer in competition, each
+ * weaker than one. The same in every environment, so staging (a throwaway host
+ * domain) and placeholder identity are covered too. Replaces isIndexable,
+ * which armed indexing in production once the identity was real.
  */
-export function isIndexable(siteEnv: SiteEnv, site: SitePlaceholders = SITE): boolean {
-  return siteEnv === "production" && isPubliclyConfigured(site);
-}
+export const SEARCH = { index: false, follow: true } as const;
 
 /** The licence, as the company site's footer states it. */
 export const LICENCE = "Dubai trade licence 1651252";
