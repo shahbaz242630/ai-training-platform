@@ -27,7 +27,7 @@
   },
   "dependencies": {
     "@react-email/render": "2.1.0",
-    "next": "16.3.3",
+    "next": "16.3.6",
     "pg": "^8.23.0",
     "react": "19.2.8",
     "react-dom": "19.2.8",
@@ -36,7 +36,7 @@
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.5.7",
-    "@next/swc-wasm-nodejs": "16.3.3",
+    "@next/swc-wasm-nodejs": "16.3.6",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/pg": "^8.23.1",
@@ -45,7 +45,7 @@
     "@vitejs/plugin-react": "^6.1.0",
     "@vitest/coverage-v8": "^4.1.11",
     "eslint": "^9",
-    "eslint-config-next": "16.3.3",
+    "eslint-config-next": "16.3.6",
     "husky": "^9.1.7",
     "lint-staged": "^17.3.0",
     "prettier": "^3.9.6",
