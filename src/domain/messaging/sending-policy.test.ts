@@ -8,11 +8,27 @@ import {
   type TemplateKey,
 } from "./sending-policy";
 
-const declined: ConsentState = { marketingConsent: false, unsubscribedAt: null };
-const optedIn: ConsentState = { marketingConsent: true, unsubscribedAt: null };
+const CONFIRMED_AT = new Date("2026-08-01T10:00:00.000Z");
+const declined: ConsentState = {
+  marketingConsent: false,
+  marketingConsentConfirmedAt: null,
+  unsubscribedAt: null,
+};
+const optedIn: ConsentState = {
+  marketingConsent: true,
+  marketingConsentConfirmedAt: CONFIRMED_AT,
+  unsubscribedAt: null,
+};
 const unsubscribed: ConsentState = {
   marketingConsent: true,
+  marketingConsentConfirmedAt: CONFIRMED_AT,
   unsubscribedAt: new Date("2026-09-01T10:00:00.000Z"),
+};
+/** A ticked box on a paid booking, never confirmed by the address's owner. */
+const claimedOnly: ConsentState = {
+  marketingConsent: true,
+  marketingConsentConfirmedAt: null,
+  unsubscribedAt: null,
 };
 
 /*
@@ -69,6 +85,31 @@ describe("a customer who opted in", () => {
   it("receives marketing and everything else", () => {
     expect(decideSendTemplate("session_offers", optedIn).allowed).toBe(true);
     expect(decideSendTemplate("booking_confirmation", optedIn).allowed).toBe(true);
+  });
+});
+
+/*
+  Email is not verified identity (security audit, 2026-09-27). Whoever paid
+  for a booking with the marketing box ticked need not own the address, so a
+  consent claim alone must never send marketing: the owner has to confirm it.
+*/
+describe("consent claimed on a booking but never confirmed by the address's owner", () => {
+  it("receives no marketing", () => {
+    const decision = decideSendTemplate("session_offers", claimedOnly);
+    expect(decision.allowed).toBe(false);
+    expect(decision.reason).toContain("not confirmed");
+    expect(decideSendTemplate("newsletter", claimedOnly).allowed).toBe(false);
+  });
+
+  it("still receives everything about the session they booked", () => {
+    expect(decideSendTemplate("booking_confirmation", claimedOnly).allowed).toBe(true);
+    expect(decideSendTemplate("reminder_24h", claimedOnly).allowed).toBe(true);
+  });
+
+  it("is still refused once unsubscribed, confirmation or not", () => {
+    expect(
+      decideSendTemplate("newsletter", { ...claimedOnly, unsubscribedAt: CONFIRMED_AT }).reason,
+    ).toContain("unsubscribed");
   });
 });
 

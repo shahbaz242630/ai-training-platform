@@ -194,6 +194,16 @@ their reminders greet them by and switch their consent on. What remains
 possible is starting a checkout under somebody else's address, which is
 ordinary guest checkout and settles only if the person doing it pays.
 
+Paying is proof of intent, not proof of owning the address, so the September
+2026 audit found one path left: somebody who knew a customer's email could pay
+for a session in their name and, on payment, rename them and switch their
+marketing consent on. Name, phone and timezone still follow the latest paid
+booking (people move and change their names, and the confirmation goes to the
+real address, so its owner sees it). Marketing no longer acts on a claim at
+all: it needs `marketing_consent_confirmed_at`, set only when the owner
+confirms by a link sent to that address. That flow is not built, so no
+marketing message can be sent until it is.
+
 ## Handling a leaked secret
 
 Rotate first, investigate second. Removing a secret from git history does not
