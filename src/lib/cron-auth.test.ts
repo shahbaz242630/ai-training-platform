@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { authoriseCronRequest } from "./cron-auth";
+import { MIN_CRON_SECRET_LENGTH, authoriseCronRequest } from "./cron-auth";
 
 /**
  * The only thing between a stranger and our job runner.
@@ -9,7 +9,7 @@ import { authoriseCronRequest } from "./cron-auth";
  * everything rather than waving everything through.
  */
 
-const SECRET = "a-long-enough-cron-secret-value";
+const SECRET = "a-long-enough-cron-secret-value-for-tests";
 
 describe("authoriseCronRequest", () => {
   it("admits the configured secret", () => {
@@ -69,6 +69,27 @@ describe("authoriseCronRequest", () => {
     not throw on that - it must simply refuse.
   */
   it("refuses a multi-byte value of the same character length without throwing", () => {
-    expect(authoriseCronRequest("Bearer \u00e9\u00e9\u00e9", "abc")).toBe("unauthorised");
+    const configured = "a".repeat(MIN_CRON_SECRET_LENGTH);
+    const sameLengthInCharacters = "\u00e9".repeat(MIN_CRON_SECRET_LENGTH);
+    expect(authoriseCronRequest(`Bearer ${sameLengthInCharacters}`, configured)).toBe(
+      "unauthorised",
+    );
+  });
+});
+
+/*
+  A short secret is guessable, and these routes are public (security audit,
+  2026-09-27). One shorter than the minimum is treated as not configured, so
+  the jobs fail closed rather than run behind something weak.
+*/
+describe("a weak configured secret", () => {
+  it("is treated as not configured, even when the caller presents it", () => {
+    const weak = "x".repeat(MIN_CRON_SECRET_LENGTH - 1);
+    expect(authoriseCronRequest(`Bearer ${weak}`, weak)).toBe("not_configured");
+  });
+
+  it("is accepted once it reaches the minimum length", () => {
+    const enough = "x".repeat(MIN_CRON_SECRET_LENGTH);
+    expect(authoriseCronRequest(`Bearer ${enough}`, enough)).toBe("authorised");
   });
 });

@@ -661,3 +661,23 @@ describe("evidence of forged deliveries is bounded", () => {
     expect(auditActions()).toEqual(["webhook.signature_rejected"]);
   });
 });
+
+/*
+  The route is public and reads the body before it can check a signature, so
+  an unbounded body was a way to exhaust memory (security audit, 2026-09-27).
+  Stripe's events are a few kilobytes; anything over the cap is refused unread.
+*/
+describe("an oversized delivery", () => {
+  it("is refused with 413 before any verification", async () => {
+    const huge = "x".repeat(1024 * 1024 + 1);
+    const response = await POST(
+      new Request("https://example.test/api/webhooks/stripe", {
+        method: "POST",
+        headers: { "stripe-signature": provider.sign(huge) },
+        body: huge,
+      }),
+    );
+
+    expect(response.status).toBe(413);
+  });
+});

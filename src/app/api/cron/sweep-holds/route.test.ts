@@ -17,7 +17,7 @@ import { at } from "@/lib/time";
  */
 
 const state = vi.hoisted(() => ({
-  cronSecret: "sweep-secret" as string | undefined,
+  cronSecret: "sweep-secret-long-enough-for-the-minimum-length" as string | undefined,
   calendarDown: false,
   databaseDown: false,
 }));
@@ -81,7 +81,7 @@ afterAll(async () => {
 });
 
 beforeEach(() => {
-  state.cronSecret = "sweep-secret";
+  state.cronSecret = "sweep-secret-long-enough-for-the-minimum-length";
   state.calendarDown = false;
   state.databaseDown = false;
   provider = new MockSchedulingProvider({ rules: EVERY_DAY });
@@ -97,7 +97,7 @@ afterEach(() => {
   resetAuditSink();
 });
 
-async function run(secret: string | null = "sweep-secret") {
+async function run(secret: string | null = "sweep-secret-long-enough-for-the-minimum-length") {
   const headers = new Headers();
   if (secret !== null) headers.set("authorization", `Bearer ${secret}`);
   const response = await POST(
@@ -168,7 +168,7 @@ describe("authentication", () => {
   it("answers 500 without a configured secret and 401 to a wrong one", async () => {
     state.cronSecret = undefined;
     expect((await run()).status).toBe(500);
-    state.cronSecret = "sweep-secret";
+    state.cronSecret = "sweep-secret-long-enough-for-the-minimum-length";
     expect((await run("wrong")).status).toBe(401);
     expect((await run(null)).status).toBe(401);
   });

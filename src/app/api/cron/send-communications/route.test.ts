@@ -15,7 +15,7 @@ import { resetLogSink, setLogSink, type LogRecord } from "@/lib/logger";
  */
 
 const state = vi.hoisted(() => ({
-  cronSecret: "test-cron-secret" as string | undefined,
+  cronSecret: "test-cron-secret-long-enough-for-the-minimum" as string | undefined,
   emailConfigured: true,
   realIdentity: true,
 }));
@@ -77,7 +77,7 @@ afterAll(async () => {
 });
 
 beforeEach(() => {
-  state.cronSecret = "test-cron-secret";
+  state.cronSecret = "test-cron-secret-long-enough-for-the-minimum";
   state.emailConfigured = true;
   state.realIdentity = true;
   provider = new MockEmailProvider();
@@ -128,7 +128,7 @@ async function scheduledBooking(
 const PAST = new Date(Date.now() - 60_000);
 const FUTURE = new Date(Date.now() + 60 * 60_000);
 
-async function run(secret: string | null = "test-cron-secret") {
+async function run(secret: string | null = "test-cron-secret-long-enough-for-the-minimum") {
   const headers = new Headers();
   if (secret !== null) headers.set("authorization", `Bearer ${secret}`);
   const response = await POST(
