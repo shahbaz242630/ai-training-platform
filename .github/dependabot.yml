@@ -18,6 +18,12 @@ updates:
     groups:
       minor-and-patch:
         update-types: [minor, patch]
+    ignore:
+      # The runtime is Node 24 (.nvmrc). Types for a newer major let code call
+      # APIs that do not exist on 24, so @types/node moves with the runtime,
+      # by hand, never ahead of it.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: github-actions
     directory: /
@@ -27,3 +33,7 @@ updates:
     open-pull-requests-limit: 5
     cooldown:
       default-days: 7
+    groups:
+      # init and analyze must move together, or CodeQL fails (#72, #74).
+      codeql:
+        patterns: ["github/codeql-action/*"]
