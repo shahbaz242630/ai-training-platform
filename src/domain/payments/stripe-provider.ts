@@ -1,5 +1,7 @@
 import Stripe from "stripe";
 import { serverEnv } from "@/lib/env";
+import { POLICY_LINKS } from "@/config/site";
+import { STRIPE_SUBMIT_MESSAGE, stripeTermsMessage } from "@/config/booking-terms";
 import {
   InvalidSignatureError,
   PaymentNotConfiguredError,
@@ -146,6 +148,23 @@ export class StripePaymentProvider implements PaymentProvider {
           session that releases cleanly, instead of a charge with no session.
         */
         expires_at: Math.floor(Date.now() / 1000) + CHECKOUT_SESSION_TTL_MINUTES * 60,
+        /*
+          Stripe's own required tick, beside our terms, as a second record
+          independent of ours: card disputes over a no-refund service are
+          decided on proof the terms were shown and accepted before payment.
+          Stripe refuses to create the session unless a terms-of-service URL
+          is set in the account's public details, so that must be set first.
+        */
+        consent_collection: { terms_of_service: "required" },
+        custom_text: {
+          terms_of_service_acceptance: {
+            message: stripeTermsMessage({
+              terms: POLICY_LINKS.terms,
+              policy: POLICY_LINKS.bookingAndRefunds,
+            }),
+          },
+          submit: { message: STRIPE_SUBMIT_MESSAGE },
+        },
         success_url: input.successUrl,
         cancel_url: input.cancelUrl,
       },
