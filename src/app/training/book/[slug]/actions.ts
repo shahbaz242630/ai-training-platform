@@ -11,17 +11,27 @@ import { logger } from "@/lib/logger";
 import { recordAudit } from "@/lib/audit";
 import { clientEnv, serverEnv } from "@/lib/env";
 import { writeLeadSession, readLeadSession } from "@/lib/lead-session";
-import { attachCalendarEvent, holdSlot, releaseHoldById } from "@/data/slot-holds";
+import {
+  attachCalendarEvent,
+  holdSlot,
+  releaseHoldById,
+  type ReleasedHold,
+} from "@/data/slot-holds";
 import {
   attachCheckoutSession,
   leadBelongsTogether,
+  pendingCheckoutSessionsFor,
   persistPendingOrder,
   SlotHoldNoLongerLiveError,
 } from "@/data/orders";
 import { getSessionBySlug } from "@/config/sessions";
 import { resolvePrice } from "@/domain/pricing/resolve-price";
 import { createOrder } from "@/domain/booking/order";
-import { DEFAULT_HOLD_TTL_MINUTES } from "@/domain/booking/slot-hold";
+import {
+  DEFAULT_HOLD_TTL_MINUTES,
+  MAX_LIVE_HOLDS,
+  MAX_LIVE_HOLDS_PER_ADDRESS,
+} from "@/domain/booking/slot-hold";
 import { blockCalendar } from "@/domain/booking/calendar-hold";
 import { getSchedulingProvider } from "@/domain/scheduling/factory";
 import { getPaymentProvider } from "@/domain/payments/factory";
@@ -158,7 +168,14 @@ export interface StartCheckoutResult {
   /** Present only on success. Where the browser must go next. */
   readonly redirectUrl?: string;
   readonly reason?:
-    ReserveSlotRefusal | ConsentRefusal | "rate_limited" | "no_lead" | "unavailable" | "failed";
+    | ReserveSlotRefusal
+    | ConsentRefusal
+    | "rate_limited"
+    | "address_limit"
+    | "diary_busy"
+    | "no_lead"
+    | "unavailable"
+    | "failed";
   readonly message?: string;
   /**
    * Availability as it stands AFTER a refusal, so somebody who lost a race is
@@ -303,14 +320,37 @@ export async function startCheckoutAction(input: unknown): Promise<StartCheckout
     }
 
     const interval = holdInterval(requested, session.durationMinutes);
+    /*
+      With an owner and limits: this person's earlier unpaid hold is given
+      back, and a connection or the whole diary already at its cap is refused.
+      Without these, one script could hold every offered time for free.
+    */
     const outcome = await holdSlot({
       slotStart: interval.start,
       slotEnd: interval.end,
       expiresAt: addMinutes(now, DEFAULT_HOLD_TTL_MINUTES),
       orderId: null,
       calendarEventId: null,
+      owner: { customerId: lead.customerId, clientAddress: consent.ipAddress },
+      limits: { maxPerAddress: MAX_LIVE_HOLDS_PER_ADDRESS, maxLive: MAX_LIVE_HOLDS, now },
     });
 
+    if (!outcome.ok && outcome.reason === "address_limit") {
+      return {
+        ok: false,
+        reason: "address_limit",
+        message:
+          "Several times are already reserved from this connection. Please try again in half an hour, or get in touch and we will book you in.",
+      };
+    }
+    if (!outcome.ok && outcome.reason === "diary_busy") {
+      return {
+        ok: false,
+        reason: "diary_busy",
+        message:
+          "A lot of people are booking right now. Please try again in a few minutes, or get in touch and we will book you in.",
+      };
+    }
     if (!outcome.ok) {
       const remaining = await offeredSlots(session.durationMinutes, new Date());
       return {
@@ -321,6 +361,9 @@ export async function startCheckoutAction(input: unknown): Promise<StartCheckout
       };
     }
     heldId = outcome.hold.id;
+
+    // Their earlier checkout has no slot behind it now, so it must not stay payable.
+    await endReleasedCheckouts(outcome.released, payments);
 
     /*
       A sellable time has just come off the calendar. Until now nothing
@@ -587,5 +630,48 @@ async function releaseHeldSlotQuietly(holdId: string): Promise<void> {
       holdId,
       error: (error as Error).message,
     });
+  }
+}
+
+/**
+ * End the checkouts behind holds this customer has just given up by starting
+ * another. Best effort: a failure is logged and never stops the new checkout,
+ * because the old session still ends at its own expiry, and a payment that
+ * lands on it anyway is the recoverable "paid, awaiting a time" state.
+ */
+async function endReleasedCheckouts(
+  released: readonly ReleasedHold[],
+  payments: ReturnType<typeof getPaymentProvider>,
+): Promise<void> {
+  if (released.length === 0) return;
+
+  for (const hold of released) {
+    await recordAudit({
+      action: "booking.hold_released",
+      actor: { kind: "system", process: "checkout" },
+      subject: `slot_hold:${hold.id}`,
+      metadata: { reason: "the customer started another checkout" },
+    });
+  }
+
+  const orderIds = released.flatMap((hold) => (hold.orderId === null ? [] : [hold.orderId]));
+  let sessions: readonly string[];
+  try {
+    sessions = await withTransaction((runner) => pendingCheckoutSessionsFor(runner, orderIds));
+  } catch (error) {
+    logger.error("could not look up the checkouts behind released holds", {
+      error: (error as Error).message,
+    });
+    return;
+  }
+
+  for (const session of sessions) {
+    try {
+      await payments.expireCheckout(session);
+    } catch (error) {
+      logger.error("an earlier checkout could not be ended; it expires by itself", {
+        error: (error as Error).message,
+      });
+    }
   }
 }

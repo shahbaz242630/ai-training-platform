@@ -6,6 +6,7 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import {
   attachCheckoutSession,
   leadBelongsTogether,
+  pendingCheckoutSessionsFor,
   persistPendingOrder,
   SlotHoldNoLongerLiveError,
 } from "./orders";
@@ -282,5 +283,64 @@ describe("attachCheckoutSession", () => {
 
     await attachCheckoutSession(runner, first.orderId, "cs_shared");
     await expect(attachCheckoutSession(runner, second.orderId, "cs_shared")).rejects.toThrow();
+  });
+});
+
+/*
+  The checkouts to end when a customer's earlier hold is released. Only a
+  PENDING order's session: a paid one is a session somebody bought, and its
+  checkout is finished anyway.
+*/
+describe("pendingCheckoutSessionsFor", () => {
+  const pendingWithSession = async (email: string, slotIso: string, sessionId: string) => {
+    const { customerId, intakeId } = await makeCustomerAndIntake(email);
+    const result = await persistPendingOrder(runner, {
+      order: order(customerId, intakeId),
+      sessionSlug: "ai-foundations",
+      slotStart: SLOT_START,
+      slotEnd: SLOT_END,
+      customerTimezone: "Asia/Dubai",
+      slotHoldId: await liveHold(slotIso),
+    });
+    await attachCheckoutSession(runner, result.orderId, sessionId);
+    return result.orderId;
+  };
+
+  it("returns the Stripe session of each pending order", async () => {
+    const a = await pendingWithSession("end-a@example.com", "2027-10-01T14:00:00Z", "cs_end_a");
+    const b = await pendingWithSession("end-b@example.com", "2027-10-02T14:00:00Z", "cs_end_b");
+
+    const sessions = await pendingCheckoutSessionsFor(runner, [a, b]);
+
+    expect([...sessions].toSorted()).toEqual(["cs_end_a", "cs_end_b"]);
+  });
+
+  it("never returns a paid order's session", async () => {
+    const paid = await pendingWithSession(
+      "end-paid@example.com",
+      "2027-10-03T14:00:00Z",
+      "cs_paid",
+    );
+    await db.query(`update orders set payment_status = 'paid' where id = $1`, [paid]);
+
+    expect(await pendingCheckoutSessionsFor(runner, [paid])).toEqual([]);
+  });
+
+  it("skips an order that never reached checkout", async () => {
+    const { customerId, intakeId } = await makeCustomerAndIntake("end-none@example.com");
+    const result = await persistPendingOrder(runner, {
+      order: order(customerId, intakeId),
+      sessionSlug: "ai-foundations",
+      slotStart: SLOT_START,
+      slotEnd: SLOT_END,
+      customerTimezone: "Asia/Dubai",
+      slotHoldId: await liveHold("2027-10-04T14:00:00Z"),
+    });
+
+    expect(await pendingCheckoutSessionsFor(runner, [result.orderId])).toEqual([]);
+  });
+
+  it("asks nothing of the database for no orders", async () => {
+    expect(await pendingCheckoutSessionsFor(runner, [])).toEqual([]);
   });
 });

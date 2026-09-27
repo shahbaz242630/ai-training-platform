@@ -179,3 +179,24 @@ export async function attachCheckoutSession(
     [orderId, checkoutSessionId],
   );
 }
+
+/**
+ * The Stripe sessions still open behind these orders: the ones to end when
+ * their holds have been released. Pending orders only; a paid order is a
+ * session somebody bought.
+ */
+export async function pendingCheckoutSessionsFor(
+  runner: QueryRunner,
+  orderIds: readonly string[],
+): Promise<readonly string[]> {
+  if (orderIds.length === 0) return [];
+  const result = await runner.query<{ stripe_checkout_session_id: string }>(
+    `select stripe_checkout_session_id
+       from orders
+      where id = any($1::uuid[])
+        and payment_status = 'pending'
+        and stripe_checkout_session_id is not null`,
+    [orderIds],
+  );
+  return result.rows.map((row) => row.stripe_checkout_session_id);
+}

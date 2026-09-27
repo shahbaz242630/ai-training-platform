@@ -173,3 +173,14 @@ describe("MockPaymentProvider.verifyEvent", () => {
     expect(event.orderId).toBeNull();
   });
 });
+
+describe("MockPaymentProvider.expireCheckout", () => {
+  it("records each session it was asked to end", async () => {
+    const provider = new MockPaymentProvider();
+
+    await provider.expireCheckout("cs_mock_1");
+    await provider.expireCheckout("cs_mock_2");
+
+    expect(provider.expired).toEqual(["cs_mock_1", "cs_mock_2"]);
+  });
+});

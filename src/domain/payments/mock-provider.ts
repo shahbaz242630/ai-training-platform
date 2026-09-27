@@ -44,8 +44,16 @@ export class MockPaymentProvider implements PaymentProvider {
   */
   private readonly byIdempotencyKey = new Map<string, StartedCheckout>();
 
+  /** Every session it was asked to end, in order. */
+  readonly expired: string[] = [];
+
   constructor(secret: string = DEFAULT_SECRET) {
     this.secret = secret;
+  }
+
+  expireCheckout(checkoutSessionId: string): Promise<void> {
+    this.expired.push(checkoutSessionId);
+    return Promise.resolve();
   }
 
   startCheckout(input: StartCheckoutInput): Promise<StartedCheckout> {

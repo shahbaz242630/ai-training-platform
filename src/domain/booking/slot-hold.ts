@@ -42,6 +42,17 @@ export type SlotHoldStatus = "held" | "converted" | "expired" | "released";
  */
 export const DEFAULT_HOLD_TTL_MINUTES = 35;
 
+/*
+  How many unpaid holds may be live at once (security audit, 2026-09-27).
+  Each person holds one time at a time: starting another checkout releases
+  their earlier hold. On top of that, one connection may hold this many (a
+  household or office booking together), and the whole diary this many, so
+  however an attack is spread the calendar cannot fill with unpaid holds.
+  Real demand is a few checkouts an hour; raise these with it.
+*/
+export const MAX_LIVE_HOLDS_PER_ADDRESS = 3;
+export const MAX_LIVE_HOLDS = 10;
+
 export interface SlotHold {
   readonly id: string;
   /** UTC, both. */

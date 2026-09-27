@@ -413,3 +413,40 @@ describe("checkout session expiry", () => {
     expect(DEFAULT_HOLD_TTL_MINUTES).toBeGreaterThan(30);
   });
 });
+
+/*
+  Ending a checkout that no longer has a slot behind it. When a customer
+  starts a second checkout, their first hold is released; its session must be
+  ended too, or it could still be paid for a time that is no longer theirs.
+*/
+describe("StripePaymentProvider.expireCheckout", () => {
+  it("asks Stripe to expire exactly that session", async () => {
+    const expired: string[] = [];
+    const stub = {
+      checkout: {
+        sessions: {
+          expire: (id: string) => {
+            expired.push(id);
+            return Promise.resolve({ id, status: "expired" });
+          },
+        },
+      },
+    } as unknown as Stripe;
+
+    await new StripePaymentProvider(stub, SIGNING_SECRET).expireCheckout("cs_test_123");
+
+    expect(expired).toEqual(["cs_test_123"]);
+  });
+
+  it("lets a failure through, so the caller can log it", async () => {
+    const stub = {
+      checkout: {
+        sessions: { expire: () => Promise.reject(new Error("Stripe is unreachable")) },
+      },
+    } as unknown as Stripe;
+
+    await expect(
+      new StripePaymentProvider(stub, SIGNING_SECRET).expireCheckout("cs_test_456"),
+    ).rejects.toThrow(/unreachable/);
+  });
+});
