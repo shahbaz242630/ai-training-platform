@@ -31,3 +31,37 @@ describe("scriptSrcFor", () => {
     expect(scriptSrcFor("development")).toBe("script-src 'self' 'unsafe-inline' 'unsafe-eval'");
   });
 });
+
+/*
+  The coaching policies live on the company site, one copy each, next to the
+  Knowledge Centre that sells the sessions. The old addresses here must keep
+  working - they may be in emails, bookmarks or Stripe's settings - so each one
+  is a permanent redirect to its page there, never a copy that can drift.
+*/
+describe("POLICY_REDIRECTS", () => {
+  it("sends each old policy address to its page on zaaheen.com, permanently", async () => {
+    const { POLICY_REDIRECTS } = await import("../next.config.mjs");
+    expect(POLICY_REDIRECTS).toEqual([
+      {
+        source: "/training/terms",
+        destination: "https://zaaheen.com/knowledge-centre/terms/",
+        permanent: true,
+      },
+      {
+        source: "/training/refunds-cancellations",
+        destination: "https://zaaheen.com/knowledge-centre/booking-and-refunds/",
+        permanent: true,
+      },
+      {
+        source: "/training/privacy",
+        destination: "https://zaaheen.com/knowledge-centre/privacy/",
+        permanent: true,
+      },
+    ]);
+  });
+
+  it("is what the config actually serves", async () => {
+    const { default: config, POLICY_REDIRECTS } = await import("../next.config.mjs");
+    expect(await config.redirects()).toEqual(POLICY_REDIRECTS);
+  });
+});

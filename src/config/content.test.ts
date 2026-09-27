@@ -2,7 +2,10 @@ import { describe, it, expect } from "vitest";
 import { FAQS } from "./faqs";
 import { SESSIONS } from "./sessions";
 import {
+  BOOKING_POLICY,
   COMPANY_NAV_LINKS,
+  FOOTER_LINKS,
+  POLICY_LINKS,
   COMPANY_SITE_URL,
   SITE,
   isPubliclyConfigured,
@@ -60,12 +63,25 @@ describe("customer-facing copy", () => {
     for (const id of required) expect(ids).toContain(id);
   });
 
-  it("does not invent cancellation terms", () => {
+  it("states only the approved cancellation terms", () => {
     const faq = FAQS.find((f) => f.id === "cancellation")!;
-    // Must defer to the policy page rather than stating invented specifics such
-    // as a concrete notice period or a refund percentage.
-    expect(faq.answer).not.toMatch(/\b\d+\s*(hours?|days?)\b/i);
+    // Every period it names is one of the approved policy numbers, so the FAQ
+    // cannot promise a notice period or window the policy does not give.
+    const periods = [...faq.answer.matchAll(/\b(\d+)\s*(hours?|days?|minutes?)\b/gi)].map(
+      (m) => `${m[1]} ${(m[2] ?? "").toLowerCase().replace(/s$/, "")}`,
+    );
+    const approved = [
+      `${BOOKING_POLICY.moveNoticeHours} hour`,
+      `${BOOKING_POLICY.moveWindowDays} day`,
+      `${BOOKING_POLICY.noShowMinutes} minute`,
+      `${BOOKING_POLICY.cancellationDays} day`,
+    ];
+    expect(periods.length).toBeGreaterThan(0);
+    for (const p of periods) expect(approved).toContain(p);
+    // Never a percentage refund, and never a bare "no refunds" (the policy
+    // always refunds when we cancel).
     expect(faq.answer).not.toMatch(/\b\d+\s*%/);
+    expect(faq.answer).toMatch(/if we cancel, you choose a full refund or a new time/i);
   });
 
   it("does not imply pathways are purchasable while they are disabled", () => {
@@ -239,15 +255,25 @@ describe("indexing cannot arm on partial identity", () => {
     const offenders: string[] = [];
     for (const path of paths) {
       const content = readFileSync(path, "utf8");
-      // Legal pages hold approved-copy placeholders deliberately and are
-      // noindex in their own right, so they are not part of this rule.
-      if (path.includes("/privacy/") || path.includes("/terms/")) continue;
-      if (path.includes("/refunds-cancellations/")) continue;
       if (/\[(COMPANY_NAME|LEGAL_ENTITY_NAME|SUPPORT_EMAIL|INSTRUCTOR_NAME)\]/.test(content)) {
         offenders.push(path);
       }
     }
 
     expect(offenders).toEqual([]);
+  });
+});
+
+describe("policy links", () => {
+  it("links the footer to the three coaching policies on the company site", () => {
+    expect(FOOTER_LINKS.map((l) => l.href)).toEqual([
+      POLICY_LINKS.terms,
+      POLICY_LINKS.bookingAndRefunds,
+      POLICY_LINKS.privacy,
+    ]);
+    for (const href of Object.values(POLICY_LINKS)) {
+      expect(href.startsWith(`${COMPANY_SITE_URL}/knowledge-centre/`)).toBe(true);
+      expect(href.endsWith("/")).toBe(true);
+    }
   });
 });
