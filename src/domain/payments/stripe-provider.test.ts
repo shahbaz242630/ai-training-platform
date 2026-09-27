@@ -169,6 +169,29 @@ describe("StripePaymentProvider.startCheckout", () => {
     expect(captured.params?.automatic_tax?.enabled).toBe(false);
   });
 
+  /*
+    Stripe's own tick is our second, independent record that the no-refund
+    terms were accepted before payment - what a card dispute is decided on.
+  */
+  it("requires Stripe's terms tick, beside our no-refund wording", async () => {
+    const captured: Captured = {};
+    await providerWithStub(captured).startCheckout(input);
+
+    expect(captured.params?.consent_collection?.terms_of_service).toBe("required");
+    const tos = captured.params?.custom_text?.terms_of_service_acceptance;
+    const message = tos && "message" in tos ? tos.message : "";
+    expect(message).toContain("https://zaaheen.com/knowledge-centre/terms/");
+    expect(message).toContain("https://zaaheen.com/knowledge-centre/booking-and-refunds/");
+    expect(message).toMatch(/no-refund/);
+    // Stripe's limit for custom text.
+    expect(message.length).toBeLessThanOrEqual(1200);
+
+    const submit = captured.params?.custom_text?.submit;
+    const submitMessage = submit && "message" in submit ? submit.message : "";
+    expect(submitMessage).toMatch(/If we cancel, you choose a refund or a new time/);
+    expect(submitMessage.length).toBeLessThanOrEqual(1200);
+  });
+
   // Without this, a retry creates a second checkout and a second charge.
   it("passes an idempotency key derived from the order", async () => {
     const captured: Captured = {};

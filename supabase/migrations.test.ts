@@ -90,6 +90,7 @@ describe("applying the migrations", () => {
     expect(result.rows.map((row) => row.table_name)).toEqual([
       "attributions",
       "audit_events",
+      "booking_consents",
       "bookings",
       "communication_log",
       "customers",
@@ -562,6 +563,79 @@ describe("idempotency", () => {
     // customer gets the same reminder twice and trusts the next one less.
     expect(await refused(() => send("reminder_24h"))).toContain("unique");
     await expect(send("reminder_3h")).resolves.toBeDefined();
+  });
+});
+
+describe("booking_consents - what the customer agreed to", () => {
+  const SHA = "a".repeat(64);
+
+  async function consent(
+    orderId: string,
+    overrides: { within?: boolean; express?: boolean; expressText?: string | null } = {},
+  ) {
+    const within = overrides.within ?? false;
+    return db.query(
+      `insert into booking_consents
+         (order_id, terms_version, key_terms, agreement_text, express_request_text,
+          within_cancellation_period, express_request, text_sha256, accepted_at)
+       values ($1, '2026-09-27', 'key terms', 'I agree', $2, $3, $4, $5, now())`,
+      [
+        orderId,
+        overrides.expressText === undefined ? (within ? "I ask you" : null) : overrides.expressText,
+        within,
+        overrides.express ?? within,
+        SHA,
+      ],
+    );
+  }
+
+  it("records one agreement per order", async () => {
+    const orderId = await newOrder(await newCustomer());
+    await expect(consent(orderId)).resolves.toBeDefined();
+    expect(await refused(() => consent(orderId))).toContain("unique");
+  });
+
+  /*
+    Inside the 14-day cancellation period the express request is what lets a
+    delivered session stay paid for. A row saying the session was inside the
+    period without it would be a booking taken without the one tick that
+    protects it.
+  */
+  it("refuses a session inside the 14 days without the express request", async () => {
+    const orderId = await newOrder(await newCustomer());
+    expect(await refused(() => consent(orderId, { within: true, express: false }))).toContain(
+      "booking_consents_express_when_needed",
+    );
+    expect(
+      await refused(() => consent(orderId, { within: true, express: true, expressText: null })),
+    ).toContain("booking_consents_express_when_needed");
+  });
+
+  it("can never be edited after the fact", async () => {
+    const orderId = await newOrder(await newCustomer());
+    await consent(orderId);
+    expect(
+      await refused(() =>
+        db.query(`update booking_consents set agreement_text = 'changed' where order_id = $1`, [
+          orderId,
+        ]),
+      ),
+    ).toContain("cannot be edited");
+  });
+
+  it("refuses a hash that is not a SHA-256", async () => {
+    const orderId = await newOrder(await newCustomer());
+    expect(
+      await refused(() =>
+        db.query(
+          `insert into booking_consents
+             (order_id, terms_version, key_terms, agreement_text, within_cancellation_period,
+              express_request, text_sha256, accepted_at)
+           values ($1, 'v', 'k', 'a', false, false, 'not-a-hash', now())`,
+          [orderId],
+        ),
+      ),
+    ).toContain("text_sha256");
   });
 });
 

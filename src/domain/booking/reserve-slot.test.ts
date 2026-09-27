@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { holdInterval, isOfferedSlot, reserveSlotRequestSchema } from "./reserve-slot";
+import {
+  consentRefusal,
+  holdInterval,
+  isOfferedSlot,
+  reserveSlotRequestSchema,
+} from "./reserve-slot";
 
 /**
  * The rule that stops a browser choosing its own booking time.
@@ -67,7 +72,11 @@ describe("holdInterval", () => {
 });
 
 describe("reserveSlotRequestSchema", () => {
-  const valid = { slug: "ai-foundations", slotStart: "2027-05-10T14:00:00.000Z" };
+  const valid = {
+    slug: "ai-foundations",
+    slotStart: "2027-05-10T14:00:00.000Z",
+    consent: { agreedToTerms: true, expressRequest: false, termsVersion: "2026-09-27" },
+  };
 
   it("accepts a well formed request", () => {
     expect(reserveSlotRequestSchema.safeParse(valid).success).toBe(true);
@@ -98,5 +107,56 @@ describe("reserveSlotRequestSchema", () => {
   it("refuses something that is not an object at all", () => {
     expect(reserveSlotRequestSchema.safeParse("ai-foundations").success).toBe(false);
     expect(reserveSlotRequestSchema.safeParse(null).success).toBe(false);
+  });
+});
+
+describe("the consent a booking carries", () => {
+  const valid = {
+    slug: "ai-foundations",
+    slotStart: "2027-05-10T14:00:00.000Z",
+    consent: { agreedToTerms: true, expressRequest: false, termsVersion: "2026-09-27" },
+  };
+
+  it("refuses a request with no consent at all", () => {
+    const { consent: _omit, ...withoutConsent } = valid;
+    void _omit;
+    expect(reserveSlotRequestSchema.safeParse(withoutConsent).success).toBe(false);
+  });
+
+  // Only ticks travel. A browser sending the words it claims were shown is refused.
+  it("refuses consent carrying anything but the ticks and the version", () => {
+    const result = reserveSlotRequestSchema.safeParse({
+      ...valid,
+      consent: { ...valid.consent, agreementText: "I agree to nothing" },
+    });
+    expect(result.success).toBe(false);
+  });
+});
+
+describe("consentRefusal", () => {
+  const v = "2026-09-27";
+  const ticks = (agreedToTerms: boolean, expressRequest: boolean, termsVersion = v) => ({
+    agreedToTerms,
+    expressRequest,
+    termsVersion,
+  });
+
+  it("accepts the agreement alone for a session outside the 14 days", () => {
+    expect(consentRefusal(ticks(true, false), false, v)).toBeNull();
+  });
+
+  it("always requires the agreement", () => {
+    expect(consentRefusal(ticks(false, true), false, v)).toBe("consent_required");
+    expect(consentRefusal(ticks(false, true), true, v)).toBe("consent_required");
+  });
+
+  // Without it, a UK or EU consumer who cancels after the session may owe nothing.
+  it("requires the express request for a session inside the 14 days", () => {
+    expect(consentRefusal(ticks(true, false), true, v)).toBe("consent_required");
+    expect(consentRefusal(ticks(true, true), true, v)).toBeNull();
+  });
+
+  it("refuses a page built with older terms", () => {
+    expect(consentRefusal(ticks(true, true, "2026-01-01"), true, v)).toBe("terms_changed");
   });
 });
