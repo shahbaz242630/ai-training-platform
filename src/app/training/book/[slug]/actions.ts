@@ -1,7 +1,7 @@
 "use server";
 
 import { randomUUID } from "node:crypto";
-import { cookies, headers } from "next/headers";
+import { headers } from "next/headers";
 import { captureLead, findCustomerById } from "@/data/customers";
 import { withTransaction } from "@/data/db";
 import { parsePrePaymentIntake, type IntakeFieldError } from "@/domain/intake/pre-payment-intake";
@@ -13,7 +13,6 @@ import { clientEnv, serverEnv } from "@/lib/env";
 import { writeLeadSession, readLeadSession } from "@/lib/lead-session";
 import { attachCalendarEvent, holdSlot, releaseHoldById } from "@/data/slot-holds";
 import {
-  attributionIdForSession,
   attachCheckoutSession,
   leadBelongsTogether,
   persistPendingOrder,
@@ -387,7 +386,7 @@ async function createOrderAndCheckout(args: {
     now: args.now,
   });
 
-  const { email, attributionId } = await withTransaction(async (runner) => {
+  const { email } = await withTransaction(async (runner) => {
     /*
       The intake must belong to the customer. A forged cookie has to get both
       ids right AND their relationship, and a mismatch means the browser sent
@@ -410,12 +409,13 @@ async function createOrderAndCheckout(args: {
     const customer = found.rows[0];
     if (!customer) throw new Error("The lead session named a customer that does not exist");
 
-    // Best effort. A missing attribution row costs us a report line; it must
-    // never cost somebody their booking.
-    const attribution = await attributionIdForSession(runner, await readAttributionCookie());
-
+    /*
+      No attribution: the site sets no tracking cookie. Advertising
+      measurement needs the visitor's consent first (UK PECR, the EU ePrivacy
+      rules), and the privacy notice promises there is none.
+    */
     await persistPendingOrder(runner, {
-      order: { ...order, attributionId: attribution },
+      order: { ...order, attributionId: null },
       sessionSlug: args.session.slug,
       slotStart: args.interval.start,
       slotEnd: args.interval.end,
@@ -423,7 +423,7 @@ async function createOrderAndCheckout(args: {
       slotHoldId: args.holdId,
     });
 
-    return { email: customer.email, attributionId: attribution };
+    return { email: customer.email };
   });
 
   const started = await args.payments.startCheckout({
@@ -465,16 +465,9 @@ async function createOrderAndCheckout(args: {
   logger.info("checkout started", {
     orderId,
     sessionSlug: args.session.slug,
-    hasAttribution: attributionId !== null,
   });
 
   return { ok: true, redirectUrl: started.redirectUrl };
-}
-
-/** The attribution key for this browser, if the cookie is there. */
-async function readAttributionCookie(): Promise<string | null> {
-  const jar = await cookies();
-  return jar.get("ats")?.value ?? null;
 }
 
 /**

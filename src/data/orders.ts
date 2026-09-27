@@ -35,19 +35,6 @@ export async function leadBelongsTogether(
   return result.rows[0]?.ok === true;
 }
 
-/** The attribution row for this browser, if it has one. Never fails a checkout. */
-export async function attributionIdForSession(
-  runner: QueryRunner,
-  anonymousSessionId: string | null,
-): Promise<string | null> {
-  if (anonymousSessionId === null) return null;
-  const result = await runner.query<{ id: string }>(
-    `select id from attributions where anonymous_session_id = $1`,
-    [anonymousSessionId],
-  );
-  return result.rows[0]?.id ?? null;
-}
-
 export interface PersistOrderInput {
   readonly order: Order;
   /** The session being booked, and when. Both UTC. */

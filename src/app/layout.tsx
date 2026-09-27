@@ -3,7 +3,6 @@ import localFont from "next/font/local";
 import { clientEnv } from "@/lib/env";
 import { isIndexable } from "@/config/site";
 import "./globals.css";
-import { AttributionCapture } from "@/components/analytics/AttributionCapture";
 import { companyName } from "@/config/site";
 
 /*
@@ -50,14 +49,7 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html lang="en" className={`${plexSans.variable} ${plexMono.variable} ${newsreader.variable}`}>
-      <body className="font-sans antialiased">
-        {children}
-        {/*
-          Records where the visit came from. Renders nothing and is placed last
-          so it can never delay what somebody is here to read.
-        */}
-        <AttributionCapture />
-      </body>
+      <body className="font-sans antialiased">{children}</body>
     </html>
   );
 }

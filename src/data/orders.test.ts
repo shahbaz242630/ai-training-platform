@@ -5,7 +5,6 @@ import { PGlite } from "@electric-sql/pglite";
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import {
   attachCheckoutSession,
-  attributionIdForSession,
   leadBelongsTogether,
   persistPendingOrder,
   SlotHoldNoLongerLiveError,
@@ -232,30 +231,6 @@ describe("persistPendingOrder", () => {
     expect(booking.rows[0]?.scheduled_end).toBeNull();
     // Built by createBooking, which is where the sequence rule lives.
     expect(booking.rows[0]?.sequence).toBe(1);
-  });
-});
-
-describe("attributionIdForSession", () => {
-  it("finds the attribution for a browser that has one", async () => {
-    await db.query(
-      "insert into attributions (landing_page, anonymous_session_id) values ('/training', $1)",
-      ["ats-known"],
-    );
-
-    expect(await attributionIdForSession(runner, "ats-known")).not.toBeNull();
-  });
-
-  /*
-    Attribution is a reporting nicety. A missing row costs us a line in a
-    report; it must never cost somebody their booking, so both of these return
-    null rather than throwing.
-  */
-  it("returns null rather than failing when there is no cookie", async () => {
-    expect(await attributionIdForSession(runner, null)).toBeNull();
-  });
-
-  it("returns null for a browser we have never seen", async () => {
-    expect(await attributionIdForSession(runner, "ats-never-seen")).toBeNull();
   });
 });
 
