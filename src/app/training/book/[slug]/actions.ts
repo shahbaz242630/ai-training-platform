@@ -27,10 +27,15 @@ import { getSchedulingProvider } from "@/domain/scheduling/factory";
 import { getPaymentProvider } from "@/domain/payments/factory";
 import {
   holdInterval,
+  consentRefusal,
   isOfferedSlot,
   reserveSlotRequestSchema,
+  type ConsentRefusal,
   type ReserveSlotRefusal,
 } from "@/domain/booking/reserve-slot";
+import { startsWithinCancellationPeriod } from "@/domain/booking/cancellation-period";
+import { TERMS_VERSION } from "@/config/booking-terms";
+import { recordBookingConsent } from "@/data/booking-consents";
 import { addMinutes } from "@/lib/time";
 import { offeredSlots } from "./availability";
 
@@ -152,7 +157,8 @@ export interface StartCheckoutResult {
   readonly ok: boolean;
   /** Present only on success. Where the browser must go next. */
   readonly redirectUrl?: string;
-  readonly reason?: ReserveSlotRefusal | "rate_limited" | "no_lead" | "unavailable" | "failed";
+  readonly reason?:
+    ReserveSlotRefusal | ConsentRefusal | "rate_limited" | "no_lead" | "unavailable" | "failed";
   readonly message?: string;
   /**
    * Availability as it stands AFTER a refusal, so somebody who lost a race is
@@ -248,6 +254,34 @@ export async function startCheckoutAction(input: unknown): Promise<StartCheckout
 
   const now = new Date();
   const requested = new Date(parsed.data.slotStart);
+
+  /*
+    The ticks, checked before anything is held. Whether the session starts
+    inside the 14-day cancellation period is decided here from the slot, never
+    taken from the browser: that is what makes the express request required.
+  */
+  const withinCancellationPeriod = startsWithinCancellationPeriod(requested, now);
+  const refusal = consentRefusal(parsed.data.consent, withinCancellationPeriod, TERMS_VERSION);
+  if (refusal !== null) {
+    return {
+      ok: false,
+      reason: refusal,
+      message:
+        refusal === "terms_changed"
+          ? "Our terms have just been updated. Please refresh the page to read them before booking."
+          : "Please tick the boxes to agree to the terms before paying.",
+    };
+  }
+
+  const headerList = await headers();
+  const consent = {
+    withinCancellationPeriod,
+    expressRequest: parsed.data.consent.expressRequest,
+    acceptedAt: now,
+    ipAddress: clientAddressFrom(headerList.get("x-forwarded-for")),
+    userAgent: headerList.get("user-agent"),
+  };
+
   let heldId: string | null = null;
 
   try {
@@ -338,6 +372,7 @@ export async function startCheckoutAction(input: unknown): Promise<StartCheckout
       holdId: outcome.hold.id,
       payments,
       now,
+      consent,
     });
   } catch (error) {
     // The slot goes back. A failure here must not cost a sellable time.
@@ -370,6 +405,13 @@ async function createOrderAndCheckout(args: {
   holdId: string;
   payments: ReturnType<typeof getPaymentProvider>;
   now: Date;
+  consent: {
+    withinCancellationPeriod: boolean;
+    expressRequest: boolean;
+    acceptedAt: Date;
+    ipAddress: string | null;
+    userAgent: string | null;
+  };
 }): Promise<StartCheckoutResult> {
   const price = resolvePrice("session", args.session.slug);
 
@@ -422,6 +464,9 @@ async function createOrderAndCheckout(args: {
       customerTimezone: customer.timezone,
       slotHoldId: args.holdId,
     });
+
+    // In the same transaction: an order never exists without what it was agreed under.
+    await recordBookingConsent(runner, { orderId, ...args.consent });
 
     return { email: customer.email };
   });

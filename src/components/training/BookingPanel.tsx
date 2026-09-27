@@ -5,6 +5,14 @@ import { SlotPicker, type SelectedSlot } from "./SlotPicker";
 import { useCustomerTimeZone } from "./useCustomerTimeZone";
 import { captureLeadAction, startCheckoutAction } from "@/app/training/book/[slug]/actions";
 import { parsePrePaymentIntake, type IntakeFieldError } from "@/domain/intake/pre-payment-intake";
+import { startsWithinCancellationPeriod } from "@/domain/booking/cancellation-period";
+import {
+  AGREEMENT_TEXT,
+  EXPRESS_REQUEST_TEXT,
+  KEY_TERMS,
+  TERMS_VERSION,
+} from "@/config/booking-terms";
+import { POLICY_LINKS } from "@/config/site";
 
 /**
  * The booking box: who you are, then when, then payment.
@@ -72,6 +80,9 @@ export function BookingPanel({
   const [saving, startSaving] = useTransition();
   const [reserving, startReserving] = useTransition();
   const [slotError, setSlotError] = useState<string | null>(null);
+  // Never pre-ticked. What they say is stored word for word by the server.
+  const [agreed, setAgreed] = useState(false);
+  const [expressRequest, setExpressRequest] = useState(false);
 
   /*
     The times on offer start as what the server rendered, but a lost race
@@ -130,11 +141,15 @@ export function BookingPanel({
    * success state to render here - only the ways it can fail.
    */
   function reserveAndContinue() {
-    if (selected === null) return;
+    if (selected === null || !ticksComplete) return;
     const wanted = selected.isoStart;
 
     startReserving(async () => {
-      const result = await startCheckoutAction({ slug, slotStart: wanted });
+      const result = await startCheckoutAction({
+        slug,
+        slotStart: wanted,
+        consent: { agreedToTerms: agreed, expressRequest, termsVersion: TERMS_VERSION },
+      });
 
       if (!result.ok) {
         setSlotError(result.message ?? "That time is no longer available.");
@@ -160,6 +175,15 @@ export function BookingPanel({
       window.location.assign(result.redirectUrl);
     });
   }
+
+  /*
+    Whether this slot needs the 14-day express request. Shown here so the box
+    appears with the time that needs it; the server decides again from the
+    slot and refuses a booking without it.
+  */
+  const needsExpressRequest =
+    selected !== null && startsWithinCancellationPeriod(new Date(selected.isoStart), new Date());
+  const ticksComplete = agreed && (!needsExpressRequest || expressRequest);
 
   /*
     Said once, at the top, before anybody types anything. Letting somebody
@@ -355,10 +379,59 @@ export function BookingPanel({
                   </span>
                 </div>
 
+                <KeyTerms />
+
+                <label className="mt-3.5 flex cursor-pointer items-start gap-2.5">
+                  <input
+                    type="checkbox"
+                    checked={agreed}
+                    onChange={(event) => setAgreed(event.target.checked)}
+                    className="accent-accent-ring mt-0.5 h-4 w-4 shrink-0"
+                  />
+                  <span className="text-ink-soft text-[13px] leading-[1.55]">
+                    {AGREEMENT_TEXT}{" "}
+                    <span className="text-ink-muted">
+                      Read the{" "}
+                      <a
+                        href={POLICY_LINKS.terms}
+                        target="_blank"
+                        rel="noopener"
+                        className="text-accent underline underline-offset-[3px]"
+                      >
+                        Coaching Terms
+                      </a>{" "}
+                      and the{" "}
+                      <a
+                        href={POLICY_LINKS.bookingAndRefunds}
+                        target="_blank"
+                        rel="noopener"
+                        className="text-accent underline underline-offset-[3px]"
+                      >
+                        Booking and Refund Policy
+                      </a>
+                      .
+                    </span>
+                  </span>
+                </label>
+
+                {needsExpressRequest && (
+                  <label className="mt-3 flex cursor-pointer items-start gap-2.5">
+                    <input
+                      type="checkbox"
+                      checked={expressRequest}
+                      onChange={(event) => setExpressRequest(event.target.checked)}
+                      className="accent-accent-ring mt-0.5 h-4 w-4 shrink-0"
+                    />
+                    <span className="text-ink-soft text-[13px] leading-[1.55]">
+                      {EXPRESS_REQUEST_TEXT}
+                    </span>
+                  </label>
+                )}
+
                 <button
                   type="button"
                   onClick={reserveAndContinue}
-                  disabled={reserving}
+                  disabled={reserving || !ticksComplete}
                   className="bg-ink hover:bg-deep-soft text-on-deep mt-3.5 w-full rounded-full px-6 py-3.5 text-[15.5px] font-medium transition-colors duration-150 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {reserving ? "Taking you to payment…" : "Continue to payment"}
@@ -372,6 +445,26 @@ export function BookingPanel({
           </div>
         </>
       )}
+    </div>
+  );
+}
+
+/**
+ * The key terms, in bold, directly above the boxes and the payment button.
+ * The same lines are stored with the booking, so this must render KEY_TERMS
+ * exactly and add nothing of its own.
+ */
+function KeyTerms() {
+  return (
+    <div className="border-line-strong bg-surface mt-4 rounded-[12px] border px-4 py-3.5">
+      <p className="text-ink text-[13.5px] font-semibold">Before you pay: the key terms</p>
+      <ul className="mt-2 list-disc space-y-1.5 pl-4">
+        {KEY_TERMS.map((line) => (
+          <li key={line} className="text-ink text-[13px] leading-[1.5] font-semibold">
+            {line}
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
