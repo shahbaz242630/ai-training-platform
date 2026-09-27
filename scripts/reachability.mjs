@@ -47,6 +47,10 @@ export const REACHABILITY_ALLOWLIST = {
     "Deliberately unreachable from production and must stay so: there is no fallback to a mock when email is unconfigured, because a sweep that marks messages sent into memory would record a customer as told when they were told nothing.",
   "src/domain/payments/mock-provider.ts":
     "Deliberately unreachable from production and must stay so: there is no fallback to a mock when Stripe is unconfigured, because a checkout that appears to work and charges nothing is worse than an outage.",
+  "src/domain/attribution/attribution.ts":
+    "Parked. Recording where visits came from needs a 90-day browser cookie holding ad click ids, which UK and EU law allow only after the visitor consents. There is no consent banner, and the privacy notice promises no tracking cookie, so nothing calls this until one exists.",
+  "src/data/attributions.ts":
+    "Parked with domain/attribution: it stores what that module records, and nothing may record it without the visitor's consent.",
   "src/lib/structured-data.ts":
     "C9. Blocked on real company identity and on a safe serialisation approach; emitting placeholder JSON-LD would be cached by answer engines.",
 };
