@@ -106,6 +106,31 @@ const SECURITY_HEADERS = [
   { key: "Cross-Origin-Embedder-Policy", value: "credentialless" },
 ];
 
+/*
+  The coaching policies are published once, on the company site next to the
+  Knowledge Centre that sells the sessions. These old addresses may already be
+  in emails, bookmarks or Stripe's settings, so each is a permanent redirect to
+  its page there rather than a second copy that could drift from it.
+  Exported so a test pins the exact list.
+*/
+export const POLICY_REDIRECTS = [
+  {
+    source: "/training/terms",
+    destination: "https://zaaheen.com/knowledge-centre/terms/",
+    permanent: true,
+  },
+  {
+    source: "/training/refunds-cancellations",
+    destination: "https://zaaheen.com/knowledge-centre/booking-and-refunds/",
+    permanent: true,
+  },
+  {
+    source: "/training/privacy",
+    destination: "https://zaaheen.com/knowledge-centre/privacy/",
+    permanent: true,
+  },
+];
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   // Required for the managed Node host: emits a self-contained server bundle
@@ -122,6 +147,10 @@ const nextConfig = {
 
   async headers() {
     return [{ source: "/:path*", headers: SECURITY_HEADERS }];
+  },
+
+  async redirects() {
+    return POLICY_REDIRECTS;
   },
 };
 

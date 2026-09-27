@@ -1,10 +1,13 @@
 /**
  * FAQ content.
  *
- * Every answer must be factually true today. Where a policy has not been
- * approved yet, the answer says so and points at the policy page rather than
- * inventing terms - see the cancellation entry.
+ * Every answer must be factually true today. Policy numbers come from
+ * BOOKING_POLICY, never typed into an answer - see the cancellation entry.
  */
+import { BOOKING_POLICY } from "./site";
+
+const { moveNoticeHours, moveWindowDays } = BOOKING_POLICY;
+
 export interface Faq {
   readonly id: string;
   readonly question: string;
@@ -69,7 +72,6 @@ export const FAQS: readonly Faq[] = [
   {
     id: "cancellation",
     question: "What is the cancellation and rescheduling policy?",
-    answer:
-      "The full policy is published on the refunds and cancellations page and is shown before any payment is taken. Final terms are being confirmed and this page will be updated before booking opens.",
+    answer: `To move your session, email us at least ${moveNoticeHours} hours before it starts and we move it free to another open time within ${moveWindowDays} days. There is no refund if you change your mind, cannot attend or miss your session; less than ${moveNoticeHours} hours before, a session cannot be moved. If we cancel, you choose a full refund or a new time. The Booking and Refund Policy has the full details, including your legal rights.`,
   },
 ];

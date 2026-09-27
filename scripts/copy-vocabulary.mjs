@@ -32,16 +32,6 @@ export const VOCABULARY_ALLOWLIST = {
       "The D15 disclaimer states that no qualification or award is issued. It must name the thing it denies.",
     allow: ["qualification"],
   },
-  "src/app/training/privacy/page.tsx": {
-    reason:
-      "Refers to a qualified external legal adviser, not to the business or to anything it issues.",
-    allow: ["qualified"],
-  },
-  "src/app/training/terms/page.tsx": {
-    reason:
-      "Refers to a qualified external legal adviser, not to the business or to anything it issues.",
-    allow: ["qualified"],
-  },
 };
 
 const GOVERNED = /^src\/(config|components|app)\/.*\.(ts|tsx)$/;

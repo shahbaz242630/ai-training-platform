@@ -115,10 +115,37 @@ export const COMPANY_NAV_LINKS = [
   { href: `${COMPANY_SITE_URL}/knowledge-centre/`, label: "Knowledge Centre" },
 ] as const;
 
+/**
+ * The coaching policies, published once on the company site beside the
+ * Knowledge Centre (the old /training/* addresses redirect there; see
+ * next.config.mjs). Linked straight to their final address, so no hop.
+ */
+export const POLICY_LINKS = {
+  terms: `${COMPANY_SITE_URL}/knowledge-centre/terms/`,
+  bookingAndRefunds: `${COMPANY_SITE_URL}/knowledge-centre/booking-and-refunds/`,
+  privacy: `${COMPANY_SITE_URL}/knowledge-centre/privacy/`,
+} as const;
+
+/**
+ * The approved booking rules (Booking and Refund Policy). Every screen, email
+ * and FAQ that states one of these numbers reads it from here, so the copy a
+ * customer agrees to can never drift from the published policy.
+ */
+export const BOOKING_POLICY = {
+  /** A session can be moved only if asked at least this long before it starts. */
+  moveNoticeHours: 24,
+  /** A moved session goes to an open time within this many days of the original. */
+  moveWindowDays: 90,
+  /** Not joined this long after the start: the session counts as used. */
+  noShowMinutes: 15,
+  /** UK and EU consumers' statutory cancellation period. */
+  cancellationDays: 14,
+} as const;
+
 export const FOOTER_LINKS = [
-  { href: "/training/privacy", label: "Privacy" },
-  { href: "/training/terms", label: "Terms" },
-  { href: "/training/refunds-cancellations", label: "Refunds & cancellations" },
+  { href: POLICY_LINKS.terms, label: "Coaching Terms" },
+  { href: POLICY_LINKS.bookingAndRefunds, label: "Booking and Refund Policy" },
+  { href: POLICY_LINKS.privacy, label: "Privacy Notice" },
 ] as const;
 
 /**
