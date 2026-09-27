@@ -58,6 +58,13 @@ export const TEMPLATE_KINDS: Readonly<Record<TemplateKey, MessageKind>> = {
 export interface ConsentState {
   readonly marketingConsent: boolean;
   /**
+   * When the owner of the email address confirmed it, by a link sent to that
+   * address. The consent flag alone is a claim made on a booking form, and
+   * email is not verified identity: whoever paid need not own the address.
+   * Marketing waits for this. Null until confirmed.
+   */
+  readonly marketingConsentConfirmedAt: Date | null;
+  /**
    * Set when somebody deliberately withdrew. Outranks the consent flag: a
    * withdrawal is permanent until they opt in again, and must survive a later
    * booking form that happens to arrive with the box ticked.
@@ -89,7 +96,17 @@ export function decideSend(kind: MessageKind, consent: ConsentState): SendDecisi
   if (!consent.marketingConsent) {
     return { allowed: false, reason: "marketing: no recorded consent" };
   }
-  return { allowed: true, reason: "marketing: consent on record" };
+  /*
+    Security audit, 2026-09-27: someone who knew a customer's email could pay
+    for a session in their name with the box ticked, and the business would
+    then have mailed offers on a consent the owner never gave. So a claim is
+    never enough: the owner must have confirmed it. Nothing sets the
+    confirmation yet, so no marketing can be sent until that flow exists.
+  */
+  if (consent.marketingConsentConfirmedAt === null) {
+    return { allowed: false, reason: "marketing: consent not confirmed by the address's owner" };
+  }
+  return { allowed: true, reason: "marketing: confirmed consent on record" };
 }
 
 /**

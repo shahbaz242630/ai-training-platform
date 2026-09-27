@@ -127,6 +127,7 @@ async function deliver(
   */
   const decision = decideSendTemplate(row.templateKey, {
     marketingConsent: context.marketingConsent,
+    marketingConsentConfirmedAt: context.marketingConsentConfirmedAt,
     unsubscribedAt: context.unsubscribedAt,
   });
   if (!decision.allowed) {

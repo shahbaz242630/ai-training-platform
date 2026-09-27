@@ -119,6 +119,7 @@ export interface CommunicationContext {
   readonly email: string;
   readonly firstName: string;
   readonly marketingConsent: boolean;
+  readonly marketingConsentConfirmedAt: Date | null;
   readonly unsubscribedAt: Date | null;
 }
 
@@ -137,11 +138,13 @@ export async function loadCommunicationContext(
     email: string;
     first_name: string;
     marketing_consent: boolean;
+    marketing_consent_confirmed_at: Date | null;
     unsubscribed_at: Date | null;
   }>(
     `select b.id as booking_id, b.status, b.session_slug, b.scheduled_start, b.scheduled_end,
             b.meeting_url, b.customer_timezone,
-            c.email, c.first_name, c.marketing_consent, c.unsubscribed_at
+            c.email, c.first_name, c.marketing_consent, c.marketing_consent_confirmed_at,
+            c.unsubscribed_at
        from bookings b
        join orders o on o.id = b.order_id
        join customers c on c.id = o.customer_id
@@ -161,6 +164,7 @@ export async function loadCommunicationContext(
     email: row.email,
     firstName: row.first_name,
     marketingConsent: row.marketing_consent,
+    marketingConsentConfirmedAt: row.marketing_consent_confirmed_at,
     unsubscribedAt: row.unsubscribed_at,
   };
 }
