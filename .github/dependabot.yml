@@ -1,0 +1,27 @@
+# Update pull requests, weekly (security audit, 2026-09-27: only security
+# updates ran, so nothing kept the packages and the pinned actions current
+# between advisories). Every pull request still passes the full CI and the
+# required checks before it can merge.
+version: 2
+updates:
+  - package-ecosystem: npm # reads pnpm-lock.yaml
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    # pnpm refuses versions younger than a day (minimumReleaseAge in
+    # pnpm-workspace.yaml); waiting two days keeps these pull requests
+    # installable and outside the window in which bad releases are yanked.
+    cooldown:
+      default-days: 2
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5

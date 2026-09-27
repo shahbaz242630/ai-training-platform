@@ -63,6 +63,15 @@ jobs:
       - name: Audit all dependencies (report only)
         run: pnpm audit --audit-level low || true
 
+      # The audit above reads GitHub's reviewed advisory database, which lagged
+      # Next.js's own advisories by days in September 2026 (GHSA-vcvr-r3jv-pc5j,
+      # critical). Next.js is read directly from vercel/next.js. A failure to
+      # read fails the step too: "could not look" is never "nothing found".
+      - name: Next.js advisories (read from vercel/next.js)
+        run: node scripts/next-advisories.mjs
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
   codeql:
     name: CodeQL
     runs-on: ubuntu-latest

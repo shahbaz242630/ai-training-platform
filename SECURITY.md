@@ -37,6 +37,13 @@ reach our infrastructure at any point.
 - **CodeQL** with `security-extended` queries.
 - **Dependency audit** - high and critical advisories in *production*
   dependencies fail the build; dev-only advisories report without blocking.
+- **Next.js advisories read at the source** - GitHub's reviewed database lagged
+  a critical Next.js advisory by days in September 2026, so the same job also
+  reads vercel/next.js's own advisories and fails if the installed version is
+  affected (`scripts/next-advisories.mjs`). A failed read or an unreadable
+  range fails too.
+- **Dependabot** version updates weekly for packages and pinned actions, two
+  days after release so pnpm's release-age check still passes.
 - **OWASP ZAP baseline** DAST against a real running build, because a missing
   security header is invisible to static analysis.
 - **Weekly scheduled re-scan** - code that never changes still becomes
