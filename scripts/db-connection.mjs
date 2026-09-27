@@ -37,19 +37,39 @@ export function sanitiseConnectionString(connectionString) {
   return { connectionString: url.toString(), stripped };
 }
 
+/** A database on this machine, where there is no network path to intercept. */
+const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
+
 /**
- * Verified whenever a certificate is available; encrypted but unauthenticated
- * when it is not, and loudly so. The same choice the application makes, for
- * the same reason - refusing outright would stop the tool working on the
- * one database that most needs migrating.
+ * Verified whenever a certificate is available. Without one, the tool refuses
+ * any database that is not on this machine (security scan, 2026-09-28): it runs
+ * from a laptop, over whatever network the laptop is on, against the live
+ * database, and an unauthenticated connection there is the easiest one to
+ * intercept. The application refuses the same in production. A database on
+ * this machine may still be reached unverified, loudly.
  */
-export function tlsOptions(caCert, warn) {
+export function tlsOptions(caCert, warn, host) {
   if (caCert) return { ca: caCert, rejectUnauthorized: true };
+  if (!LOCAL_HOSTS.has(host ?? "")) {
+    throw new Error(
+      "DATABASE_CA_CERT is not set, so the database certificate cannot be verified; refusing an " +
+        "unauthenticated connection to a database that is not on this machine. Supabase publishes " +
+        "the certificate under Project Settings -> Database -> SSL Configuration.",
+    );
+  }
   warn(
     "DATABASE_CA_CERT is not set, so the database certificate chain is NOT verified. " +
       "The connection is encrypted but not authenticated. Set it before any real customer data exists.",
   );
   return { rejectUnauthorized: false };
+}
+
+function hostOf(connectionString) {
+  try {
+    return new URL(connectionString).hostname;
+  } catch {
+    return undefined;
+  }
 }
 
 export function connectionOptions(env, warn) {
@@ -69,7 +89,7 @@ export function connectionOptions(env, warn) {
 
   return {
     connectionString: sanitised.connectionString,
-    ssl: tlsOptions(env.DATABASE_CA_CERT, warn),
+    ssl: tlsOptions(env.DATABASE_CA_CERT, warn, hostOf(sanitised.connectionString)),
     connectionTimeoutMillis: 15_000,
   };
 }

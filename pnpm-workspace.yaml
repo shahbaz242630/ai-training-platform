@@ -98,3 +98,13 @@ publicHoistPattern:
 # The publicHoistPattern above is subsumed while this is set, and still correct
 # if the layout ever goes back to isolated.
 nodeLinker: hoisted
+
+# ---------------------------------------------------------------------------
+# Overrides.
+#
+# js-yaml below 4.3.2 (GHSA-2883-xcg3-v3hh, high: unbounded CPU on crafted
+# merge keys) reaches us only through ESLint, which parses our own config on a
+# developer machine, so no visitor input can reach it. Forced to the fixed
+# version anyway (security scan, 2026-09-28). Remove once eslint pulls it.
+overrides:
+  "js-yaml@>=4.0.0 <4.3.2": "4.3.2"

@@ -48,15 +48,29 @@ describe("tlsOptions", () => {
     expect(warn).not.toHaveBeenCalled();
   });
 
-  it("falls back to unauthenticated TLS without one, and warns loudly", () => {
+  it("falls back to unauthenticated TLS without one only for a database on this machine", () => {
     const warn = vi.fn();
-    expect(tlsOptions(undefined, warn)).toEqual({ rejectUnauthorized: false });
+    expect(tlsOptions(undefined, warn, "localhost")).toEqual({ rejectUnauthorized: false });
+    expect(tlsOptions(undefined, warn, "127.0.0.1")).toEqual({ rejectUnauthorized: false });
     expect(warn).toHaveBeenCalledWith(expect.stringMatching(/NOT verified/));
   });
 
+  /*
+    Security scan, 2026-09-28: this tool runs from a laptop, over whatever
+    network the laptop is on, against the live database. Without the CA it
+    connected unauthenticated. Now it refuses, as production does.
+  */
+  it("refuses an unauthenticated connection to any other host", () => {
+    expect(() => tlsOptions(undefined, vi.fn(), "db.example.supabase.co")).toThrow(
+      /DATABASE_CA_CERT is not set/,
+    );
+    expect(() => tlsOptions(undefined, vi.fn(), undefined)).toThrow(/DATABASE_CA_CERT/);
+  });
+
   it("treats a blank certificate as absent", () => {
+    expect(() => tlsOptions("", vi.fn(), "db.example.supabase.co")).toThrow(/DATABASE_CA_CERT/);
     const warn = vi.fn();
-    expect(tlsOptions("", warn)).toEqual({ rejectUnauthorized: false });
+    expect(tlsOptions("", warn, "localhost")).toEqual({ rejectUnauthorized: false });
     expect(warn).toHaveBeenCalledOnce();
   });
 });
@@ -79,7 +93,13 @@ describe("connectionOptions", () => {
 
   it("never puts the URL itself into a warning", () => {
     const warn = vi.fn();
-    connectionOptions({ DATABASE_URL: "postgresql://u:secret@h/db?sslmode=require" }, warn);
+    connectionOptions({ DATABASE_URL: "postgresql://u:secret@localhost/db?sslmode=require" }, warn);
     for (const [message] of warn.mock.calls) expect(message).not.toContain("secret");
+  });
+
+  it("refuses a remote database without the certificate", () => {
+    expect(() =>
+      connectionOptions({ DATABASE_URL: "postgresql://u:p@db.example.supabase.co/db" }, vi.fn()),
+    ).toThrow(/DATABASE_CA_CERT is not set/);
   });
 });

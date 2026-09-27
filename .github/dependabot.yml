@@ -10,11 +10,11 @@ updates:
       interval: weekly
       day: monday
     open-pull-requests-limit: 5
-    # pnpm refuses versions younger than a day (minimumReleaseAge in
-    # pnpm-workspace.yaml); waiting two days keeps these pull requests
-    # installable and outside the window in which bad releases are yanked.
+    # Seven days after a release (GitHub's guidance; a security scan flagged
+    # the shorter wait): outside the window in which a compromised version is
+    # typically published and pulled. pnpm's own one-day wait is well inside it.
     cooldown:
-      default-days: 2
+      default-days: 7
     groups:
       minor-and-patch:
         update-types: [minor, patch]
@@ -25,3 +25,5 @@ updates:
       interval: weekly
       day: monday
     open-pull-requests-limit: 5
+    cooldown:
+      default-days: 7
