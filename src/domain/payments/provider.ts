@@ -124,6 +124,14 @@ export interface PaymentProvider {
   startCheckout(input: StartCheckoutInput): Promise<StartedCheckout>;
 
   /**
+   * End a checkout that has no slot behind it any more, so it can no longer be
+   * paid. Used when a customer starts another checkout and their first hold is
+   * released. Throws on failure; the caller logs it, and the session still
+   * ends by itself at its own expiry.
+   */
+  expireCheckout(checkoutSessionId: string): Promise<void>;
+
+  /**
    * Verify a webhook delivery and reduce it to a PaymentEvent.
    *
    * Takes the RAW body, not a parsed object. A signature is computed over

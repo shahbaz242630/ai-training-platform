@@ -181,6 +181,11 @@ export class StripePaymentProvider implements PaymentProvider {
     return { checkoutSessionId: session.id, redirectUrl: session.url };
   }
 
+  async expireCheckout(checkoutSessionId: string): Promise<void> {
+    // Stripe then sends checkout.session.expired, which fails the order the ordinary way.
+    await this.stripe.checkout.sessions.expire(checkoutSessionId);
+  }
+
   async verifyEvent(rawBody: string, signatureHeader: string | null): Promise<PaymentEvent> {
     if (signatureHeader === null) throw new InvalidSignatureError("No signature header was sent");
 

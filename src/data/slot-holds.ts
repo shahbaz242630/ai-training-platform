@@ -101,6 +101,35 @@ export interface HoldSlotInput {
   readonly expiresAt: Date;
   readonly orderId?: string | null;
   readonly calendarEventId?: string | null;
+  /**
+   * Whose hold this is. With an owner, taking a hold first releases that
+   * person's earlier live holds, so one person holds one time at a time.
+   */
+  readonly owner?: HoldOwner;
+  /** How many live holds a connection, and the whole diary, may have. Needs an owner. */
+  readonly limits?: HoldLimits;
+}
+
+export interface HoldOwner {
+  readonly customerId: string;
+  /** The caller's address as the rate limits read it; null when it could not be read. */
+  readonly clientAddress: string | null;
+}
+
+/**
+ * The diary-holding limits (security audit, 2026-09-27).
+ *
+ * A hold costs its holder nothing, so without these one script could hold
+ * every offered time. One live hold per person stops a single visitor; a cap
+ * per connection stops one machine posing as many people; the diary-wide cap
+ * is the backstop against many machines, so the calendar can never fill with
+ * unpaid holds (and their tentative events) however the attack is spread.
+ */
+export interface HoldLimits {
+  readonly maxPerAddress: number;
+  readonly maxLive: number;
+  /** What "live" is measured against: a hold whose countdown has run out counts for nothing. */
+  readonly now: Date;
 }
 
 export interface HeldSlot {
@@ -108,15 +137,89 @@ export interface HeldSlot {
   readonly expiresAt: Date;
 }
 
-export type HoldOutcome =
-  | { readonly ok: true; readonly hold: HeldSlot }
-  /** Somebody else got there first. Not an error - a race one customer loses. */
-  | { readonly ok: false; readonly reason: "slot_taken" };
+/** A hold given back because its owner took another. Its checkout must be ended too. */
+export interface ReleasedHold {
+  readonly id: string;
+  readonly orderId: string | null;
+}
 
-async function insertHold(runner: QueryRunner, input: HoldSlotInput): Promise<HeldSlot> {
+export type HoldOutcome =
+  | { readonly ok: true; readonly hold: HeldSlot; readonly released: readonly ReleasedHold[] }
+  /** Somebody else got there first. Not an error - a race one customer loses. */
+  | { readonly ok: false; readonly reason: "slot_taken" }
+  /** This connection already has as many live holds as it may. */
+  | { readonly ok: false; readonly reason: "address_limit" }
+  /** The diary already has as many unpaid live holds as it may. */
+  | { readonly ok: false; readonly reason: "diary_busy" };
+
+/*
+  One key for every limited hold, so the count and the insert below are one
+  step: two checkouts arriving together are taken one after the other, and
+  neither can count before the other has inserted. Holds are rare (a handful
+  an hour), so queueing them costs nothing a customer would notice.
+*/
+const HOLD_LIMITS_LOCK = 7_246_311;
+
+/** Thrown inside the transaction so the owner's released holds roll back with it. */
+class HoldLimitReached extends Error {
+  constructor(readonly reason: "address_limit" | "diary_busy") {
+    super(`hold refused: ${reason}`);
+  }
+}
+
+async function countLive(runner: QueryRunner, now: Date, clientAddress?: string): Promise<number> {
+  const result = await runner.query<{ n: number }>(
+    clientAddress === undefined
+      ? `select count(*)::int as n from slot_holds where status = 'held' and expires_at > $1`
+      : `select count(*)::int as n from slot_holds
+          where status = 'held' and expires_at > $1 and client_address = $2`,
+    clientAddress === undefined ? [now] : [now, clientAddress],
+  );
+  return result.rows[0]?.n ?? 0;
+}
+
+async function insertHold(
+  runner: QueryRunner,
+  input: HoldSlotInput,
+): Promise<{ hold: HeldSlot; released: readonly ReleasedHold[] }> {
+  let released: readonly ReleasedHold[] = [];
+
+  if (input.owner !== undefined) {
+    await runner.query(`select pg_advisory_xact_lock($1)`, [HOLD_LIMITS_LOCK]);
+
+    /*
+      Their earlier holds go first, so a person who changes their mind (even
+      back to the same time) is never blocked by their own hold. Only `held`:
+      a converted hold is a session somebody paid for. If the insert below
+      then loses its race, this rolls back with it and they keep their time.
+    */
+    const freed = await runner.query<{ id: string; order_id: string | null }>(
+      `update slot_holds set status = 'released'
+        where customer_id = $1 and status = 'held'
+        returning id, order_id`,
+      [input.owner.customerId],
+    );
+    released = freed.rows.map((row) => ({ id: row.id, orderId: row.order_id }));
+
+    const limits = input.limits;
+    if (limits !== undefined) {
+      const address = input.owner.clientAddress;
+      if (
+        address !== null &&
+        (await countLive(runner, limits.now, address)) >= limits.maxPerAddress
+      ) {
+        throw new HoldLimitReached("address_limit");
+      }
+      if ((await countLive(runner, limits.now)) >= limits.maxLive) {
+        throw new HoldLimitReached("diary_busy");
+      }
+    }
+  }
+
   const result = await runner.query<{ id: string; expires_at: Date }>(
-    `insert into slot_holds (slot_start, slot_end, expires_at, order_id, calendar_event_id)
-     values ($1, $2, $3, $4, $5)
+    `insert into slot_holds
+       (slot_start, slot_end, expires_at, order_id, calendar_event_id, customer_id, client_address)
+     values ($1, $2, $3, $4, $5, $6, $7)
      returning id, expires_at`,
     [
       input.slotStart,
@@ -124,11 +227,13 @@ async function insertHold(runner: QueryRunner, input: HoldSlotInput): Promise<He
       input.expiresAt,
       input.orderId ?? null,
       input.calendarEventId ?? null,
+      input.owner?.customerId ?? null,
+      input.owner?.clientAddress ?? null,
     ],
   );
   const row = result.rows[0];
   if (!row) throw new Error("insertHold stored nothing, which should be impossible");
-  return { id: row.id, expiresAt: row.expires_at };
+  return { hold: { id: row.id, expiresAt: row.expires_at }, released };
 }
 
 /**
@@ -151,9 +256,10 @@ export async function holdSlot(
 ): Promise<HoldOutcome> {
   for (let attempt = 1; attempt <= 2; attempt++) {
     try {
-      const hold = await runTransaction((runner) => insertHold(runner, input));
-      return { ok: true, hold };
+      const { hold, released } = await runTransaction((runner) => insertHold(runner, input));
+      return { ok: true, hold, released };
     } catch (error) {
+      if (error instanceof HoldLimitReached) return { ok: false, reason: error.reason };
       if (isSlotTaken(error)) return { ok: false, reason: "slot_taken" };
 
       /*

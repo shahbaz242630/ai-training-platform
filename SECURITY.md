@@ -157,12 +157,16 @@ discovered:
   bucket. Verify with a request carrying a forged header before relying on
   these limits.
 - Reserving a slot takes a real, sellable time off the calendar for the length
-  of a hold without any payment. Rate limiting raises the cost of occupying
-  the diary that way; it does not make it impossible. The bounded hold
-  lifetime, the expiry applied at read time, and the sweep together limit the
-  damage to well under an hour rather than days. A determined actor rotating addresses could still
-  degrade availability, and closing that properly needs bot protection at the
-  edge, which is tracked for launch.
+  of a hold without any payment. Rate limiting alone once let one visitor hold
+  every offered time (found by the September 2026 audit). Holds are now also
+  capped where they are taken, in one database transaction with the insert:
+  one live hold per person (starting another checkout releases their earlier
+  hold and ends its Stripe session), three per caller address, and ten across
+  the whole diary. So one visitor holds one time, and however an attack is
+  spread, at most ten times are held unpaid. What remains: an actor rotating
+  addresses can keep those ten held and so delay real bookings for as long as
+  they keep going. Closing that needs bot protection at the edge, tracked for
+  launch.
 
 No CAPTCHA, proof of work or challenge is deployed today.
 
