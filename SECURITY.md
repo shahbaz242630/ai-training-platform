@@ -136,10 +136,13 @@ throwaway host domain, marked `noindex` and with no payment credentials.
 
 Known weaknesses are tracked internally and reviewed before launch, rather than
 enumerated here. One is worth stating publicly because it is observable from any
-response header anyway: the Content Security Policy currently permits
-`'unsafe-inline'` for scripts, because the Next.js App Router injects inline
-hydration scripts into statically prerendered pages. Moving to a nonce-based
-policy is planned alongside the dynamic checkout routes.
+response header anyway: on the statically prerendered pages the Content
+Security Policy permits `'unsafe-inline'` for scripts, because the Next.js App
+Router injects inline hydration scripts into them and a nonce needs
+per-request rendering. Those pages take no input. The booking pages under
+`/training/book/`, which take personal details and hand off to Stripe, get a
+per-request nonce with `'strict-dynamic'` instead (`src/proxy.ts`), so an
+injected inline script does not run there.
 
 A second is worth stating for the same reason - anyone can observe it with a
 single request. **The staging CDN replaces our Content Security Policy header.**
