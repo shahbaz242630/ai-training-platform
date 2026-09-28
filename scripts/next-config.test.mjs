@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { scriptSrcFor } from "../next.config.mjs";
+import { headerRules, scriptSrcFor } from "../next.config.mjs";
 
 /*
   React's development build uses eval() for debugging features, and our policy
@@ -80,5 +80,43 @@ describe("HOME_REDIRECT", () => {
       destination: "https://zaaheen.com/knowledge-centre/",
       permanent: true,
     });
+  });
+});
+
+/*
+  The booking pages get their Content-Security-Policy, with a per-request
+  nonce, from src/proxy.ts. Two policies on one response are both enforced, so
+  this config must send them every OTHER security header and no policy, and
+  send every other path the full set.
+*/
+describe("headerRules", () => {
+  const keysFor = (path) => {
+    const rules = headerRules();
+    // Mirror Next's matching for the two sources this config uses.
+    const matches = (source) =>
+      source.startsWith("/:path((?!")
+        ? !path.slice(1).startsWith(source.slice("/:path((?!".length, source.indexOf(").*)")))
+        : path.startsWith(source.replace(":path*", ""));
+    return rules.filter((r) => matches(r.source)).flatMap((r) => r.headers.map((h) => h.key));
+  };
+
+  it("sends the booking pages every security header except the policy", () => {
+    const keys = keysFor("/training/book/ai-foundations");
+    expect(keys).not.toContain("Content-Security-Policy");
+    for (const key of ["Strict-Transport-Security", "X-Frame-Options", "X-Content-Type-Options"]) {
+      expect(keys).toContain(key);
+    }
+  });
+
+  it("sends every other page the policy, once", () => {
+    for (const path of ["/training", "/robots.txt", "/api/webhooks/stripe"]) {
+      expect(keysFor(path).filter((k) => k === "Content-Security-Policy")).toHaveLength(1);
+    }
+  });
+
+  it("no longer sends the retired FLoC opt-out, and refuses cross-domain policies", () => {
+    const all = headerRules()[0].headers;
+    expect(all.find((h) => h.key === "Permissions-Policy").value).not.toContain("interest-cohort");
+    expect(all.find((h) => h.key === "X-Permitted-Cross-Domain-Policies").value).toBe("none");
   });
 });
