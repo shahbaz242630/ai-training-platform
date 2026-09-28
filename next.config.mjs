@@ -20,52 +20,20 @@
  */
 
 /**
- * Content Security Policy.
+ * Content Security Policy: built in src/config/content-security-policy.mjs.
  *
- * KNOWN GAP - `'unsafe-inline'` in script-src. The App Router injects inline
- * hydration scripts into statically prerendered pages, so a strict policy
- * without it breaks every page. Removing it requires nonce-based CSP, which
- * forces dynamic rendering and would cost the static delivery this landing page
- * depends on for speed on UAE mobile networks.
- *
- * Everything else is locked down, and this is revisited when checkout
- * introduces dynamic routes anyway. Documented in SECURITY.md rather than left
- * as a silent weakness.
+ * The statically prerendered pages keep `'unsafe-inline'` in script-src: the
+ * App Router injects inline hydration scripts into them, and a nonce needs
+ * per-request rendering. They take no input. The booking pages, which take
+ * personal details and hand off to Stripe, are rendered per request anyway and
+ * get a per-request nonce from src/proxy.ts instead (security audit and scans,
+ * 2026-09-27/28), so this file sends them no policy of its own.
  */
-/*
-  React's DEVELOPMENT build uses eval() for debugging features - reconstructing
-  call stacks across environments, mainly. Our policy refuses it, which is the
-  policy working, but it fills the console with an error and costs the dev
-  tooling it powers.
+import { cspFor, NONCE_PATH_PREFIX, scriptSrcFor } from "./src/config/content-security-policy.mjs";
 
-  So 'unsafe-eval' is added in development ONLY. React never uses eval in a
-  production build, so production loses nothing - and this must never leak
-  there, because allowing eval is most of the point of having a script-src at
-  all. scriptSrcFor is exported so a test can assert exactly that, rather
-  than the rule living only in this comment.
-*/
-export function scriptSrcFor(nodeEnv) {
-  const base = "script-src 'self' 'unsafe-inline'";
-  return nodeEnv === "development" ? `${base} 'unsafe-eval'` : base;
-}
+export { scriptSrcFor };
 
-const CSP = [
-  "default-src 'self'",
-  scriptSrcFor(process.env.NODE_ENV),
-  // Tailwind and next/font emit inline styles.
-  "style-src 'self' 'unsafe-inline'",
-  // next/font self-hosts, so no external font origin is needed.
-  "font-src 'self'",
-  "img-src 'self' data: blob:",
-  // Stripe Checkout is hosted (a full redirect), so no frame or connect
-  // allowance is required for it here. Revisit only if we ever embed Elements.
-  "connect-src 'self'",
-  "form-action 'self'",
-  "frame-ancestors 'none'",
-  "object-src 'none'",
-  "base-uri 'self'",
-  "upgrade-insecure-requests",
-].join("; ");
+const CSP = cspFor(process.env.NODE_ENV);
 
 const SECURITY_HEADERS = [
   { key: "Content-Security-Policy", value: CSP },
@@ -83,8 +51,11 @@ const SECURITY_HEADERS = [
   // We need none of these. Denying them shrinks the attack surface.
   {
     key: "Permissions-Policy",
-    value: "camera=(), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()",
+    // interest-cohort (FLoC) dropped in 2026-09: browsers no longer implement it.
+    value: "camera=(), microphone=(), geolocation=(), payment=(), usb=()",
   },
+  // No Flash or PDF cross-domain policy may apply to this site (scan, 2026-09-28).
+  { key: "X-Permitted-Cross-Domain-Policies", value: "none" },
   { key: "X-DNS-Prefetch-Control", value: "on" },
 
   /*
@@ -105,6 +76,24 @@ const SECURITY_HEADERS = [
   { key: "Cross-Origin-Resource-Policy", value: "same-origin" },
   { key: "Cross-Origin-Embedder-Policy", value: "credentialless" },
 ];
+
+/*
+  Which headers go where. Every path gets every security header, except that
+  the booking pages get no Content-Security-Policy from here: src/proxy.ts
+  sends theirs, with a fresh nonce. Two policies on one response would both be
+  enforced, so the page must carry only the nonce one. Exported so a test pins
+  exactly which paths get which.
+*/
+const nonceSegment = NONCE_PATH_PREFIX.replace(/^\//, "");
+export function headerRules() {
+  return [
+    { source: `/:path((?!${nonceSegment}).*)`, headers: SECURITY_HEADERS },
+    {
+      source: `${NONCE_PATH_PREFIX}:path*`,
+      headers: SECURITY_HEADERS.filter((h) => h.key !== "Content-Security-Policy"),
+    },
+  ];
+}
 
 /*
   The coaching policies are published once, on the company site next to the
@@ -158,7 +147,7 @@ const nextConfig = {
   poweredByHeader: false,
 
   async headers() {
-    return [{ source: "/:path*", headers: SECURITY_HEADERS }];
+    return headerRules();
   },
 
   async redirects() {
