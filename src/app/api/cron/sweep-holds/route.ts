@@ -9,6 +9,7 @@ import { confirmBookingOnCalendar, listBookingsAwaitingConfirmation } from "@/da
 import { getSchedulingProvider } from "@/domain/scheduling/factory";
 import type { SchedulingProvider } from "@/domain/scheduling/provider";
 import { countPaidButUnscheduled } from "@/data/audit-events";
+import { readAppliedSchemaVersion, schemaStatus } from "@/data/schema-version";
 import { recordAudit } from "@/lib/audit";
 import { authoriseCronRequest } from "@/lib/cron-auth";
 import { serverEnv } from "@/lib/env";
@@ -94,6 +95,21 @@ export async function POST(request: Request): Promise<NextResponse> {
       availability now reads - so the time is off sale for everyone until the
       event goes. Deleted here, every run, until each one is recorded as gone.
     */
+    /*
+      The database behind the code: a migration was never applied. Raised on
+      every run until it is, instead of surfacing as a query failing in front
+      of a customer.
+    */
+    const schema = schemaStatus(
+      await withTransaction((runner) => readAppliedSchemaVersion(runner)),
+    );
+    if (!schema.current) {
+      logger.error("DATABASE SCHEMA IS BEHIND THE CODE - run pnpm db:migrate", {
+        expected: schema.expected,
+        applied: schema.applied,
+      });
+    }
+
     const calendar = await releaseCalendarEvents(now);
 
     /*
@@ -117,6 +133,7 @@ export async function POST(request: Request): Promise<NextResponse> {
       // Reported on every run, so the number is visible to whatever calls this
       // rather than only in a log somebody has to go looking for.
       paidButUnscheduled,
+      schema,
     });
   } catch (error) {
     /*
