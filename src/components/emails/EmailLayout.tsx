@@ -1,4 +1,5 @@
 import type { CSSProperties, ReactNode } from "react";
+import { LICENCE, legalEntityName } from "@/config/site";
 
 /**
  * The frame every customer email sits in.
@@ -114,7 +115,8 @@ export function EmailLayout({ preview, companyName, supportEmail, children }: Em
                     <tr>
                       <td style={emailStyles.footer}>
                         Questions? Reply to this email, or write to {supportEmail}. This message is
-                        about a session you booked with {companyName}.
+                        about a session you booked with {companyName}. {legalEntityName()},{" "}
+                        {LICENCE}.
                       </td>
                     </tr>
                   </tbody>

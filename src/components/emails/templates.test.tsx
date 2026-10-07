@@ -179,3 +179,46 @@ describe("renderWithdrawalAcknowledgement", () => {
     expect(containsPlaceholder(await renderWithdrawalAcknowledgement(withdrawal))).toBe(false);
   });
 });
+
+/*
+  The payment acknowledgement is the confirmation of the contract. It carries
+  what the customer agreed to, in the words stored when they agreed, so their
+  copy and ours can never differ.
+*/
+describe("the payment acknowledgement as the record of the contract", () => {
+  const agreement = {
+    amountPaidFils: 149_900,
+    termsVersion: "2026-09-27",
+    keyTerms: ["You pay the full price now.", "No refund if you change your mind."],
+    expressRequestText: "I ask you to hold my session on the date I chose.",
+  };
+
+  it("states the amount paid and the terms agreed, word for word", async () => {
+    const email = await renderTemplate("payment_receipt", { ...model, agreement });
+    expect(email.text).toContain("Paid: AED 1,499");
+    expect(email.text).toContain("You pay the full price now.");
+    expect(email.text).toContain("No refund if you change your mind.");
+    expect(email.text).toContain("terms version 2026-09-27");
+  });
+
+  it("includes the 14-day request only when the customer made it", async () => {
+    const asked = await renderTemplate("payment_receipt", { ...model, agreement });
+    expect(asked.text).toContain("I ask you to hold my session on the date I chose.");
+    const notAsked = await renderTemplate("payment_receipt", {
+      ...model,
+      agreement: { ...agreement, expressRequestText: null },
+    });
+    expect(notAsked.text).not.toContain("I ask you to hold");
+  });
+
+  it("says how to complain", async () => {
+    const email = await renderTemplate("payment_receipt", { ...model, agreement });
+    expect(email.text).toMatch(/reply to this email.*2 working days/is);
+  });
+
+  it("names the business behind every email: legal name and licence", async () => {
+    const email = await renderTemplate("booking_confirmation", model);
+    expect(email.text).toContain("Zaaheen Artificial Intelligence Developing Services");
+    expect(email.text).toContain("Dubai trade licence 1651252");
+  });
+});

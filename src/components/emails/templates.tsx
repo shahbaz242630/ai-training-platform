@@ -43,8 +43,17 @@ export interface SessionEmailModel {
   /** The customer's zone, as captured at booking. */
   readonly timeZone: string;
   readonly joinUrl: string | null;
+  /** What was paid and agreed, for the payment acknowledgement; from the stored consent record. */
+  readonly agreement?: AgreementModel | null;
   /** The catalogue's natural next step after this session, if it has one. */
   readonly nextSessionTitle: string | null;
+}
+
+export interface AgreementModel {
+  readonly amountPaidFils: Fils;
+  readonly termsVersion: string;
+  readonly keyTerms: readonly string[];
+  readonly expressRequestText: string | null;
 }
 
 export interface RenderedEmail {
@@ -117,7 +126,17 @@ export async function renderTemplate(
     case "payment_receipt":
       return rendered(
         paymentReceivedSubject(details),
-        <PaymentReceivedEmail {...details} {...identity} {...person} rights={rights} />,
+        <PaymentReceivedEmail
+          {...details}
+          {...identity}
+          {...person}
+          rights={rights}
+          agreement={
+            model.agreement
+              ? { ...model.agreement, amountPaid: formatAed(model.agreement.amountPaidFils) }
+              : null
+          }
+        />,
       );
 
     case "booking_confirmation":

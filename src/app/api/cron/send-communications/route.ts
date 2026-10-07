@@ -233,6 +233,9 @@ async function prepareSessionEmail(
       timeZone: context.customerTimezone,
       joinUrl: context.meetingUrl,
       nextSessionTitle: nextSessionTitle(session.displayOrder),
+      agreement: context.agreement
+        ? { ...context.agreement, amountPaidFils: context.amountPaidFils }
+        : null,
     });
     return { ok: true, email };
   } catch (error) {
