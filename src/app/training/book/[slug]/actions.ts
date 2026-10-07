@@ -25,6 +25,7 @@ import {
   SlotHoldNoLongerLiveError,
 } from "@/data/orders";
 import { getSessionBySlug } from "@/config/sessions";
+import { contactLine } from "@/components/ui/ContactLink";
 import { resolvePrice } from "@/domain/pricing/resolve-price";
 import { createOrder } from "@/domain/booking/order";
 import {
@@ -253,7 +254,7 @@ export async function startCheckoutAction(input: unknown): Promise<StartCheckout
     return {
       ok: false,
       reason: "unavailable",
-      message: "Payment is not available right now. Please get in touch and we will book you in.",
+      message: `Payment is not available right now. Please ${contactLine()} and we will book you in.`,
     };
   }
 
@@ -265,7 +266,7 @@ export async function startCheckoutAction(input: unknown): Promise<StartCheckout
     return {
       ok: false,
       reason: "unavailable",
-      message: "Payment is not available right now. Please get in touch and we will book you in.",
+      message: `Payment is not available right now. Please ${contactLine()} and we will book you in.`,
     };
   }
 
@@ -339,16 +340,14 @@ export async function startCheckoutAction(input: unknown): Promise<StartCheckout
       return {
         ok: false,
         reason: "address_limit",
-        message:
-          "Several times are already reserved from this connection. Please try again in half an hour, or get in touch and we will book you in.",
+        message: `Several times are already reserved from this connection. Please try again in half an hour, or ${contactLine()} and we will book you in.`,
       };
     }
     if (!outcome.ok && outcome.reason === "diary_busy") {
       return {
         ok: false,
         reason: "diary_busy",
-        message:
-          "A lot of people are booking right now. Please try again in a few minutes, or get in touch and we will book you in.",
+        message: `A lot of people are booking right now. Please try again in a few minutes, or ${contactLine()} and we will book you in.`,
       };
     }
     if (!outcome.ok) {
