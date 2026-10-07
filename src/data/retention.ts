@@ -57,13 +57,20 @@ export async function purgeExpiredPersonalData(
   now: Date,
 ): Promise<PurgeReport> {
   /*
-    Seven years after the end of the tax year: a last order in year Y is kept
-    to the end of Y + 7 and goes from 1 January of Y + 8, on Dubai's clock.
+    Seven years after the end of the tax year: a person whose latest record is
+    in year Y is kept to the end of Y + 7 and goes from 1 January of Y + 8, on
+    Dubai's clock. The latest record is the latest of any order being made or
+    changed (a refund is a later record) and any of their sessions taking place
+    or changing, so nothing dated in a later tax year goes a year early.
   */
   const expiredCustomers = `
     select o.customer_id from orders o
+      left join bookings b on b.order_id = o.id
      group by o.customer_id
-    having max(extract(year from o.created_at at time zone 'Asia/Dubai'))
+    having extract(year from max(greatest(o.created_at, o.updated_at,
+                                          coalesce(b.scheduled_end, o.created_at),
+                                          coalesce(b.updated_at, o.created_at)))
+                   at time zone 'Asia/Dubai')
            + ${RECORD_YEARS + 1} <= extract(year from $1::timestamptz at time zone 'Asia/Dubai')`;
   const expiredCustomerIds = (
     await runner.query<{ customer_id: string }>(expiredCustomers, [now])
@@ -84,11 +91,20 @@ export async function purgeExpiredPersonalData(
     [now],
   );
 
-  // Nobody with an order left (paid, or unpaid but recent) is touched here.
+  /*
+    Nobody with an order left (paid, or unpaid but recent) is touched here, nor
+    anybody who came back: a returning person's row keeps its old dates, so a
+    fresh questionnaire, or a time they are holding right now, is what shows
+    they are in the middle of booking.
+  */
   const customers = await runner.query<{ id: string }>(
     `delete from customers c
       where greatest(c.created_at, c.updated_at) < $1::timestamptz - interval '${LEAD_DAYS} days'
         and not exists (select 1 from orders o where o.customer_id = c.id)
+        and not exists (select 1 from intakes i where i.customer_id = c.id
+                           and i.created_at >= $1::timestamptz - interval '${LEAD_DAYS} days')
+        and not exists (select 1 from slot_holds h
+                         where h.customer_id = c.id and h.status = 'held')
       returning c.id`,
     [now],
   );
@@ -96,16 +112,19 @@ export async function purgeExpiredPersonalData(
   /*
     The questionnaire is kept while any paid booking is still to come, and for
     12 months after the last one ended. A booking that never had a time counts
-    from when it last changed (a cancellation, say).
+    from when it last changed (a cancellation, say). A questionnaire under 12
+    months old is never deleted: it is written before its order exists, so a
+    past customer starting a new booking has one with nothing attached yet.
   */
   const intakes = await runner.query<{ id: string }>(
     `delete from intakes i
-      where exists (select 1 from orders o where o.customer_id = i.customer_id
+      where i.created_at < $1::timestamptz - interval '${INTAKE_DAYS} days'
+        and exists (select 1 from orders o where o.customer_id = i.customer_id
                        and o.payment_status in ('paid', 'refunded', 'partially_refunded'))
         and not exists (
           select 1 from bookings b join orders o on o.id = b.order_id
            where o.customer_id = i.customer_id
-             and o.payment_status = 'paid'
+             and o.payment_status in ('paid', 'partially_refunded')
              and b.status in ('awaiting_schedule', 'scheduled', 'confirmed'))
         and (select max(coalesce(b.scheduled_end, b.updated_at))
                from bookings b join orders o on o.id = b.order_id

@@ -60,16 +60,17 @@ async function order(
   sessionEnd: Date | null = null,
 ): Promise<{ orderId: string; bookingId: string }> {
   const o = await db.query<{ id: string }>(
-    `insert into orders (customer_id, order_type, session_slug, gross_amount_fils, payment_status, created_at)
-     values ($1, 'single', 'claude-claude-code', 149900, $2, $3) returning id`,
+    `insert into orders (customer_id, order_type, session_slug, gross_amount_fils, payment_status,
+                         created_at, updated_at)
+     values ($1, 'single', 'claude-claude-code', 149900, $2, $3, $3) returning id`,
     [customerId, paymentStatus, createdAt],
   );
   const orderId = o.rows[0]!.id;
   const start = sessionEnd === null ? null : new Date(sessionEnd.getTime() - 90 * 60_000);
   const b = await db.query<{ id: string }>(
     `insert into bookings (order_id, session_slug, sequence, status, scheduled_start, scheduled_end,
-                           customer_timezone, created_at)
-     values ($1, 'claude-claude-code', 1, $2, $3, $4, 'Asia/Dubai', $5) returning id`,
+                           customer_timezone, created_at, updated_at)
+     values ($1, 'claude-claude-code', 1, $2, $3, $4, 'Asia/Dubai', $5, $5) returning id`,
     [orderId, start === null ? "awaiting_schedule" : "completed", start, sessionEnd, createdAt],
   );
   await db.query(
@@ -79,6 +80,13 @@ async function order(
     [orderId, "0".repeat(64), createdAt],
   );
   return { orderId, bookingId: b.rows[0]!.id };
+}
+
+/** Backdate a change: the updated_at triggers would otherwise stamp it with the real clock. */
+async function backdate(table: "orders" | "bookings", id: string, updatedAt: Date): Promise<void> {
+  await db.exec(`alter table ${table} disable trigger ${table}_set_updated_at`);
+  await db.query(`update ${table} set updated_at = $2 where id = $1`, [id, updatedAt]);
+  await db.exec(`alter table ${table} enable trigger ${table}_set_updated_at`);
 }
 
 const exists = async (table: string, id: string) =>
@@ -248,5 +256,82 @@ it("reports what it removed and is a no-op when run again", async () => {
     intakes: 0,
     holdAddresses: 0,
     expiredRecords: 0,
+  });
+});
+
+/*
+  Found by the independent review: people coming back. An intake is written
+  before its order exists, so a returning person's fresh details must survive
+  the sweep that runs between the form and checkout.
+*/
+describe("a person coming back", () => {
+  it("keeps an old lead who has just filled in the form again", async () => {
+    const c = await customer(ago(40));
+    const fresh = await intake(c, ago(0.01));
+    await purgeExpiredPersonalData(runner, NOW);
+    expect(await exists("customers", c)).toBe(true);
+    expect(await exists("intakes", fresh)).toBe(true);
+  });
+
+  it("keeps an old lead holding a time right now", async () => {
+    const c = await customer(ago(40));
+    await db.query(
+      `insert into slot_holds (slot_start, slot_end, expires_at, status, customer_id)
+       values ($1, $2, $3, 'held', $4)`,
+      [
+        new Date(NOW.getTime() + 300 * DAY),
+        new Date(NOW.getTime() + 300 * DAY + 90 * 60_000),
+        new Date(NOW.getTime() + 10 * 60_000),
+        c,
+      ],
+    );
+    await purgeExpiredPersonalData(runner, NOW);
+    expect(await exists("customers", c)).toBe(true);
+  });
+
+  it("keeps a past customer's new questionnaire for the booking they are starting", async () => {
+    const c = await customer(ago(800));
+    const old = await intake(c, ago(800));
+    await order(c, ago(800), "paid", ago(400));
+    const fresh = await intake(c, ago(0.01));
+    await purgeExpiredPersonalData(runner, NOW);
+    expect(await exists("intakes", fresh)).toBe(true);
+    expect(await exists("intakes", old)).toBe(false);
+  });
+
+  it("keeps the questionnaire while a partly refunded order still has a session to come", async () => {
+    const c = await customer(ago(800));
+    const i = await intake(c, ago(800));
+    const { bookingId } = await order(c, ago(800), "partially_refunded", null);
+    await backdate("bookings", bookingId, ago(500));
+    await purgeExpiredPersonalData(runner, NOW);
+    expect(await exists("intakes", i)).toBe(true);
+  });
+});
+
+describe("the seven years count from the latest record, not the first", () => {
+  it("keeps a 2019 order refunded in 2020 until the end of 2027", async () => {
+    const c = await customer(new Date("2019-12-20T00:00:00Z"));
+    const { orderId } = await order(
+      c,
+      new Date("2019-12-20T00:00:00Z"),
+      "refunded",
+      new Date("2019-12-28T00:00:00Z"),
+    );
+    await backdate("orders", orderId, new Date("2020-01-05T00:00:00Z"));
+    await purgeExpiredPersonalData(runner, NOW);
+    expect(await exists("orders", orderId)).toBe(true);
+  });
+
+  it("keeps an order whose session took place in a later tax year", async () => {
+    const c = await customer(new Date("2019-12-30T00:00:00Z"));
+    const { orderId } = await order(
+      c,
+      new Date("2019-12-30T00:00:00Z"),
+      "paid",
+      new Date("2020-01-15T00:00:00Z"),
+    );
+    await purgeExpiredPersonalData(runner, NOW);
+    expect(await exists("orders", orderId)).toBe(true);
   });
 });

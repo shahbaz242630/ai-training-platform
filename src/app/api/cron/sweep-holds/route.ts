@@ -9,7 +9,7 @@ import { confirmBookingOnCalendar, listBookingsAwaitingConfirmation } from "@/da
 import { getSchedulingProvider } from "@/domain/scheduling/factory";
 import type { SchedulingProvider } from "@/domain/scheduling/provider";
 import { countPaidButUnscheduled } from "@/data/audit-events";
-import { purgeExpiredPersonalData } from "@/data/retention";
+import { purgeExpiredPersonalData, type PurgeReport } from "@/data/retention";
 import { readAppliedSchemaVersion, schemaStatus } from "@/data/schema-version";
 import { recordAudit } from "@/lib/audit";
 import { authoriseCronRequest } from "@/lib/cron-auth";
@@ -124,7 +124,7 @@ export async function POST(request: Request): Promise<NextResponse> {
       What the privacy notice says we stop keeping, deleted on schedule. Every
       step is keyed on time, so a run with nothing due changes nothing.
     */
-    const retention = await withTransaction((runner) => purgeExpiredPersonalData(runner, now));
+    const retention = await purgeOrReport(now);
 
     if (expired.length > 0) {
       logger.info("expired slot holds swept", { expired: expired.length });
@@ -224,4 +224,19 @@ async function retryConfirmations(
     }
   }
   return counts;
+}
+
+/**
+ * The purge, in its own transaction and its own failure. The holds, calendar
+ * and confirmations before it have already committed; one bad row here must
+ * not turn every run red and hide a real failure among them. It is reported
+ * in the answer and logged at error level until it is fixed.
+ */
+async function purgeOrReport(now: Date): Promise<PurgeReport | { error: string }> {
+  try {
+    return await withTransaction((runner) => purgeExpiredPersonalData(runner, now));
+  } catch (error) {
+    logger.error("personal data purge failed", { error: (error as Error).message });
+    return { error: "purge failed" };
+  }
 }
