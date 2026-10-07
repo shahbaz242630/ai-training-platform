@@ -4,11 +4,11 @@ import type { EmailMessage, EmailProvider, SendResult } from "./provider";
 /**
  * Email from the booking mailbox, through Microsoft Graph.
  *
- * The same mailbox that owns the calendar sends the mail, so a customer gets
- * the calendar invitation and every email from one address, and there is one
- * tenant, one registration and one secret to look after rather than a second
- * vendor. The permission is `Mail.Send` on that one mailbox, scoped by the
- * same application access policy as the calendar permission.
+ * The booking desk's mailbox sends the mail, through the same tenant,
+ * registration and secret as the calendar, so there is no second vendor to
+ * look after. The permission is `Mail.Send` on that one mailbox only, scoped
+ * by RBAC for Applications; the calendar permission is scoped to the diary's
+ * mailbox the same way.
  *
  * Two things about Graph's send-mail call shape this adapter:
  *
