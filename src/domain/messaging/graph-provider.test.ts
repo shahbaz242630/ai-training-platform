@@ -56,6 +56,15 @@ const message: EmailMessage = {
 };
 
 describe("GraphEmailProvider", () => {
+  it("adds a blind copy only when the message asks for one", async () => {
+    const { mail, calls } = provider([{ status: 202 }]);
+    await mail.send({ ...message, bcc: "desk@example.com" });
+    const [, send] = calls;
+    expect((send?.body as { message: { bccRecipients?: unknown } }).message.bccRecipients).toEqual([
+      { emailAddress: { address: "desk@example.com" } },
+    ]);
+  });
+
   it("sends from the mailbox with the HTML body, the recipient and our key as a header", async () => {
     const { mail, calls } = provider([{ status: 202 }]);
 

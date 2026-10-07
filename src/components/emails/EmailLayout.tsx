@@ -172,3 +172,37 @@ export function SessionDetails({
     </div>
   );
 }
+
+export interface BookingRightsProps {
+  /** What the customer quotes about this booking, e.g. "3F9A1C2B". */
+  readonly reference: string;
+  /** The withdrawal form, with the reference filled in. */
+  readonly withdrawUrl: string;
+  readonly termsUrl: string;
+  readonly policyUrl: string;
+  readonly cancellationDays: number;
+  readonly moveNoticeHours: number;
+}
+
+/**
+ * The booking reference and the customer's rights, in every email sent when a
+ * booking is made: the "withdraw from contract here" link the law asks for
+ * while the cancellation period runs, how to move the session, and the terms.
+ */
+export function BookingRights(props: BookingRightsProps) {
+  return (
+    <div style={{ margin: "24px 0 0" }}>
+      <p style={emailStyles.detail}>
+        <strong>Booking reference:</strong> {props.reference}
+      </p>
+      <p style={emailStyles.muted}>
+        To move your session, reply to this email at least {props.moveNoticeHours} hours before it
+        starts. If you live in the UK or EU and booked for yourself, you can cancel within{" "}
+        {props.cancellationDays} days of booking:{" "}
+        <a href={props.withdrawUrl}>Withdraw from contract here</a>. Your booking follows our{" "}
+        <a href={props.termsUrl}>Coaching Terms</a> and{" "}
+        <a href={props.policyUrl}>Booking and Refund Policy</a>.
+      </p>
+    </div>
+  );
+}

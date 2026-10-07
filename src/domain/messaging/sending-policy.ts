@@ -28,6 +28,7 @@ export type TemplateKey =
   | "reminder_3h"
   | "reschedule_confirmation"
   | "cancellation_confirmation"
+  | "withdrawal_acknowledgement"
   | "payment_receipt"
   | "follow_up"
   | "session_offers"
@@ -46,6 +47,8 @@ export const TEMPLATE_KINDS: Readonly<Record<TemplateKey, MessageKind>> = {
   reminder_3h: "transactional",
   reschedule_confirmation: "transactional",
   cancellation_confirmation: "transactional",
+  // The legal acknowledgement of a customer's notice of withdrawal.
+  withdrawal_acknowledgement: "transactional",
   payment_receipt: "transactional",
   follow_up: "transactional",
 

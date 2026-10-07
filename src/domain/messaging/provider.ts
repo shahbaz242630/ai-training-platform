@@ -27,6 +27,11 @@ export interface EmailMessage {
    * it is not idempotent at all.
    */
   readonly idempotencyKey: string;
+  /**
+   * A blind copy, for the rare message the business must also see (a
+   * withdrawal, which a person has to act on). Absent on everything else.
+   */
+  readonly bcc?: string;
 }
 
 export type SendResult =
