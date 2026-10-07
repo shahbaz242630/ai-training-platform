@@ -20,6 +20,7 @@ const state = vi.hoisted(() => ({
   cronSecret: "sweep-secret-long-enough-for-the-minimum-length" as string | undefined,
   calendarDown: false,
   databaseDown: false,
+  purgeFails: false,
 }));
 
 const EVERY_DAY = {
@@ -36,6 +37,17 @@ const EVERY_DAY = {
 
 let provider = new MockSchedulingProvider({ rules: EVERY_DAY });
 let db: PGlite;
+
+vi.mock("@/data/retention", async (importOriginal) => {
+  const original = await importOriginal<typeof import("@/data/retention")>();
+  return {
+    ...original,
+    purgeExpiredPersonalData: (...args: Parameters<typeof original.purgeExpiredPersonalData>) => {
+      if (state.purgeFails) throw new Error("purge broke");
+      return original.purgeExpiredPersonalData(...args);
+    },
+  };
+});
 
 vi.mock("@/lib/env", () => ({
   serverEnv: () => ({ CRON_SECRET: state.cronSecret }),
@@ -84,6 +96,7 @@ beforeEach(() => {
   state.cronSecret = "sweep-secret-long-enough-for-the-minimum-length";
   state.calendarDown = false;
   state.databaseDown = false;
+  state.purgeFails = false;
   provider = new MockSchedulingProvider({ rules: EVERY_DAY });
   logs = [];
   setLogSink((r) => {
@@ -349,5 +362,39 @@ describe("the database schema", () => {
         (l) => l.level === "error" && l.message.startsWith("DATABASE SCHEMA IS BEHIND THE CODE"),
       ),
     ).toBe(true);
+  });
+});
+
+describe("keeping data no longer than the privacy notice says", () => {
+  it("does not fail the sweep when the purge fails: it says so and the rest still runs", async () => {
+    state.purgeFails = true;
+    const result = await run();
+    expect(result.status).toBe(200);
+    expect(result.body.retention).toEqual({ error: "purge failed" });
+    expect(
+      logs.some((l) => l.level === "error" && l.message.startsWith("personal data purge failed")),
+    ).toBe(true);
+  });
+
+  it("deletes a booking started and never paid once 30 days have passed, and reports it", async () => {
+    counter += 1;
+    const old = new Date(Date.now() - 31 * 24 * 60 * 60 * 1000);
+    const customer = await db.query<{ id: string }>(
+      `insert into customers (first_name, last_name, email, timezone, created_at, updated_at)
+       values ('Amina', 'Khan', $1, 'Asia/Dubai', $2, $2) returning id`,
+      [`purge${counter}@example.com`, old],
+    );
+    const order = await db.query<{ id: string }>(
+      `insert into orders (customer_id, order_type, session_slug, gross_amount_fils, payment_status, created_at)
+       values ($1, 'single', 'claude-claude-code', 149900, 'pending', $2) returning id`,
+      [customer.rows[0]?.id, old],
+    );
+
+    const result = await run();
+
+    expect(result.status).toBe(200);
+    expect(result.body.retention).toMatchObject({ unpaidOrders: 1 });
+    const left = await db.query(`select 1 from orders where id = $1`, [order.rows[0]?.id]);
+    expect(left.rows).toHaveLength(0);
   });
 });
