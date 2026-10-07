@@ -81,6 +81,8 @@ const REFUSALS: Record<WithdrawalRefusal, () => string> = {
   period_over: () =>
     "The 14 days to withdraw from this booking have ended. Our Booking and Refund Policy " +
     `explains your other options, or ${contactLine()}.`,
+  several_sessions: () =>
+    `This booking is one of several sessions bought together, so we work out the refund with you. Please ${contactLine()}.`,
   session_started: () =>
     "Your session has already started, so we need to work out together what was delivered. " +
     `Please ${contactLine()}.`,

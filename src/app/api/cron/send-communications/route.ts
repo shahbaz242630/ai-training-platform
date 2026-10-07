@@ -13,6 +13,7 @@ import {
   claimDueCommunications,
   countFailedCommunications,
   loadCommunicationContext,
+  markCommunicationCancelled,
   markCommunicationFailed,
   markCommunicationSent,
   requeueCommunication,
@@ -54,7 +55,7 @@ export const dynamic = "force-dynamic";
 /** Enough to drain a normal five minutes many times over; small enough that a backlog drains in steps. */
 const BATCH_SIZE = 50;
 
-type Outcome = "sent" | "retry" | "failed";
+type Outcome = "sent" | "retry" | "failed" | "withdrawn";
 
 export async function POST(request: Request): Promise<NextResponse> {
   const auth = authoriseCronRequest(request.headers.get("authorization"), serverEnv().CRON_SECRET);
@@ -87,7 +88,7 @@ export async function POST(request: Request): Promise<NextResponse> {
       claimDueCommunications(runner, now, BATCH_SIZE),
     );
 
-    const outcomes: Record<Outcome, number> = { sent: 0, retry: 0, failed: 0 };
+    const outcomes: Record<Outcome, number> = { sent: 0, retry: 0, failed: 0, withdrawn: 0 };
     for (const row of claimed) {
       outcomes[await deliver(row, provider, now)] += 1;
     }
@@ -138,6 +139,21 @@ async function deliver(
   });
   if (!decision.allowed) {
     return giveUp(row, `not_allowed: ${decision.reason}`, now);
+  }
+
+  /*
+    A cancelled booking is owed nothing more about its session. Checked here as
+    well as when it was cancelled, because a run may have claimed a reminder a
+    moment before the cancellation withdrew it, and claiming leaves the row
+    queued. Only the acknowledgement of a withdrawal still goes.
+  */
+  if (context.bookingStatus === "cancelled" && row.templateKey !== "withdrawal_acknowledgement") {
+    await withTransaction((runner) => markCommunicationCancelled(runner, row.id));
+    logger.info("message withdrawn: its booking is cancelled", {
+      communicationId: row.id,
+      templateKey: row.templateKey,
+    });
+    return "withdrawn";
   }
 
   const prepared =

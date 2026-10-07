@@ -130,7 +130,7 @@ describe("step 1: look up", () => {
 
   it("refuses after 14 days, naming where to write", async () => {
     const b = await booked(40);
-    const result = await lookUpWithdrawal(b.form, deps(new Date(b.madeAt.getTime() + 15 * DAY)));
+    const result = await lookUpWithdrawal(b.form, deps(new Date(b.madeAt.getTime() + 16 * DAY)));
     expect(result).toMatchObject({ ok: false, message: expect.stringMatching(/14 days/) });
     expect(result.ok ? "" : result.message).toContain("knowledgecentre@zaaheen.com");
   });

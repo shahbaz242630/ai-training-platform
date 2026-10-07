@@ -32,10 +32,13 @@ export interface WithdrawalFacts {
   readonly bookedAt: Date;
   readonly scheduledStart: Date | null;
   readonly amountPaidFils: Fils;
+  /** Sessions on the order. More than one (a pathway) is decided by a person. */
+  readonly bookingsOnOrder: number;
   readonly now: Date;
 }
 
-export type WithdrawalRefusal = "not_paid" | "closed" | "period_over" | "session_started";
+export type WithdrawalRefusal =
+  "not_paid" | "closed" | "period_over" | "session_started" | "several_sessions";
 
 export type WithdrawalDecision =
   | { readonly ok: true; readonly refundDueFils: Fils }
@@ -46,8 +49,16 @@ const OPEN_STATUSES: readonly BookingStatus[] = ["awaiting_schedule", "scheduled
 export function decideWithdrawal(facts: WithdrawalFacts): WithdrawalDecision {
   if (facts.paymentStatus !== "paid") return { ok: false, reason: "not_paid" };
   if (!OPEN_STATUSES.includes(facts.bookingStatus)) return { ok: false, reason: "closed" };
+  // The refund for one session of several depends on what else was delivered.
+  if (facts.bookingsOnOrder > 1) return { ok: false, reason: "several_sessions" };
 
-  const periodEnds = facts.bookedAt.getTime() + BOOKING_POLICY.cancellationDays * 24 * 3_600_000;
+  /*
+    Counted generously, never short. The moment held for the booking is when
+    checkout began, which can be a little before payment, and the legal period
+    runs to the end of its last day. One extra day covers both.
+  */
+  const periodEnds =
+    facts.bookedAt.getTime() + (BOOKING_POLICY.cancellationDays + 1) * 24 * 3_600_000;
   if (facts.now.getTime() >= periodEnds) return { ok: false, reason: "period_over" };
 
   if (facts.scheduledStart !== null && facts.now.getTime() >= facts.scheduledStart.getTime()) {

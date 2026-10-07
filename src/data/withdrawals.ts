@@ -1,5 +1,6 @@
 import type { QueryRunner } from "./db";
 import { cancelQueuedCommunications, queueForBooking } from "./communications";
+import { releaseConvertedHoldForLostSlot } from "./slot-holds";
 import type { BookingStatus } from "@/domain/booking/booking";
 import type { Fils } from "@/lib/money";
 
@@ -27,6 +28,7 @@ export interface BookingForWithdrawal {
   /** The later of the order and the booking being created: when the contract was made. */
   readonly bookedAt: Date;
   readonly amountPaidFils: Fils;
+  readonly bookingsOnOrder: number;
   /** Set when a notice has already been received for this booking. */
   readonly withdrawal: ExistingWithdrawal | null;
 }
@@ -47,10 +49,12 @@ export async function findBookingForWithdrawal(
     gross_amount_fils: string | number;
     received_at: Date | null;
     refund_due_fils: string | number | null;
+    bookings_on_order: number;
   }>(
     `select b.id, b.status, o.payment_status, b.session_slug, b.scheduled_start,
             b.customer_timezone, greatest(o.created_at, b.created_at) as booked_at,
-            o.gross_amount_fils, w.received_at, w.refund_due_fils
+            o.gross_amount_fils, w.received_at, w.refund_due_fils,
+            (select count(*)::int from bookings x where x.order_id = o.id) as bookings_on_order
        from bookings b
        join orders o on o.id = b.order_id
        join customers c on c.id = o.customer_id
@@ -73,6 +77,7 @@ export async function findBookingForWithdrawal(
     customerTimezone: row.customer_timezone,
     bookedAt: row.booked_at,
     amountPaidFils: Number(row.gross_amount_fils),
+    bookingsOnOrder: row.bookings_on_order,
     withdrawal:
       row.received_at === null
         ? null
@@ -139,11 +144,31 @@ export async function recordWithdrawal(
   }
 
   // The statuses a booking may be cancelled from, as the booking domain allows.
-  await runner.query(
+  const cancelled = await runner.query<{
+    order_id: string;
+    scheduled_start: Date | null;
+    scheduled_end: Date | null;
+  }>(
     `update bookings set status = 'cancelled', updated_at = $2
-      where id = $1 and status in ('awaiting_schedule', 'scheduled', 'confirmed')`,
+      where id = $1 and status in ('awaiting_schedule', 'scheduled', 'confirmed')
+      returning order_id, scheduled_start, scheduled_end`,
     [input.bookingId, input.receivedAt],
   );
+  /*
+    The time goes back on sale. Settlement converted a hold for it, and a
+    converted hold blocks its time with no end; left behind, the slot would be
+    off sale for good with nothing saying so. Released, it is offered again
+    from the next availability read, and the sweep deletes its calendar event
+    like any other released hold.
+  */
+  const slot = cancelled.rows[0];
+  if (slot && slot.scheduled_start !== null && slot.scheduled_end !== null) {
+    await releaseConvertedHoldForLostSlot(runner, {
+      orderId: slot.order_id,
+      slotStart: slot.scheduled_start,
+      slotEnd: slot.scheduled_end,
+    });
+  }
   await cancelQueuedCommunications(runner, input.bookingId);
   await queueForBooking(runner, input.bookingId, [
     { templateKey: "withdrawal_acknowledgement", scheduledFor: input.receivedAt },

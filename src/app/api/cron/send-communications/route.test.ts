@@ -468,3 +468,18 @@ describe("the withdrawal acknowledgement", () => {
     expect(provider.sent[0]?.bcc).toBeUndefined();
   });
 });
+
+describe("a booking withdrawn after its reminder was queued", () => {
+  it("withdraws the reminder instead of sending it, even if the send run already holds it", async () => {
+    const { bookingId } = await scheduledBooking({ meetingUrl: "https://teams.example/join" });
+    await queueForBooking(runner, bookingId, [{ templateKey: "reminder_24h", scheduledFor: PAST }]);
+    // The withdrawal lands after the row is queued but the booking is what decides.
+    await db.query(`update bookings set status = 'cancelled' where id = $1`, [bookingId]);
+
+    const result = await run();
+
+    expect(provider.sent).toHaveLength(0);
+    expect(result.body).toMatchObject({ withdrawn: 1, failed: 0 });
+    expect((await rowFor(bookingId, "reminder_24h"))?.status).toBe("cancelled");
+  });
+});

@@ -71,7 +71,7 @@ export async function confirmWithdrawalAction(
         metadata: { reason: "customer_withdrawal" },
       });
       // No name or email here: the booking id is enough to find everything.
-      logger.warn("withdrawal received: take the session off the calendar and refund by hand", {
+      logger.warn("withdrawal received: refund by hand and check the calendar event has gone", {
         bookingId: result.bookingId,
       });
     }

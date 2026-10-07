@@ -99,6 +99,7 @@ describe("findBookingForWithdrawal", () => {
       sessionSlug: "claude-claude-code",
       amountPaidFils: 149900,
       customerTimezone: "Europe/London",
+      bookingsOnOrder: 1,
       withdrawal: null,
     });
     expect(found?.scheduledStart).toBeInstanceOf(Date);
@@ -212,6 +213,28 @@ describe("recordWithdrawal", () => {
       receivedAt: new Date("2026-10-07T09:00:00Z"),
       refundDueFils: 149900,
     });
+  });
+});
+
+describe("the withdrawn session's time", () => {
+  it("goes back on sale: the hold that kept it is released", async () => {
+    const s = await seed();
+    const b = await db.query<{ order_id: string; scheduled_start: Date; scheduled_end: Date }>(
+      `select order_id, scheduled_start, scheduled_end from bookings where id = $1`,
+      [s.bookingId],
+    );
+    const row = b.rows[0]!;
+    const hold = await db.query<{ id: string }>(
+      `insert into slot_holds (slot_start, slot_end, order_id, expires_at, status)
+       values ($1, $2, $3, $1, 'converted') returning id`,
+      [row.scheduled_start, row.scheduled_end, row.order_id],
+    );
+    await recordWithdrawal(runner, input(s));
+    const after = await db.query<{ status: string }>(
+      `select status from slot_holds where id = $1`,
+      [hold.rows[0]!.id],
+    );
+    expect(after.rows[0]?.status).toBe("released");
   });
 });
 

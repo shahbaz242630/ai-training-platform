@@ -16,6 +16,7 @@ const facts = (over: Partial<WithdrawalFacts> = {}): WithdrawalFacts => ({
   bookedAt,
   scheduledStart: new Date(bookedAt.getTime() + 20 * DAY),
   amountPaidFils: 129_900,
+  bookingsOnOrder: 1,
   now: new Date(bookedAt.getTime() + 3 * DAY),
   ...over,
 });
@@ -50,13 +51,21 @@ describe("decideWithdrawal", () => {
     ).toEqual({ ok: true, refundDueFils: 129_900 });
   });
 
-  it("allows it up to the last moment of the 14 days", () => {
-    const now = new Date(bookedAt.getTime() + 14 * DAY - 1);
-    expect(decideWithdrawal(facts({ now })).ok).toBe(true);
+  /*
+    Counted generously: the moment of booking we hold is when checkout began,
+    which can be a little before payment, and the legal period runs to the end
+    of its last day. So the form allows a full extra day rather than risk
+    closing early.
+  */
+  it("allows it to the end of an extra day after the 14 days", () => {
+    expect(decideWithdrawal(facts({ now: new Date(bookedAt.getTime() + 14 * DAY) })).ok).toBe(true);
+    expect(decideWithdrawal(facts({ now: new Date(bookedAt.getTime() + 15 * DAY - 1) })).ok).toBe(
+      true,
+    );
   });
 
-  it("refuses after the 14 days", () => {
-    const now = new Date(bookedAt.getTime() + 14 * DAY);
+  it("refuses after that", () => {
+    const now = new Date(bookedAt.getTime() + 15 * DAY);
     expect(decideWithdrawal(facts({ now }))).toEqual({ ok: false, reason: "period_over" });
   });
 
@@ -65,6 +74,13 @@ describe("decideWithdrawal", () => {
     expect(decideWithdrawal(facts({ scheduledStart: start }))).toEqual({
       ok: false,
       reason: "session_started",
+    });
+  });
+
+  it("hands an order of more than one session to a person", () => {
+    expect(decideWithdrawal(facts({ bookingsOnOrder: 2 }))).toEqual({
+      ok: false,
+      reason: "several_sessions",
     });
   });
 
