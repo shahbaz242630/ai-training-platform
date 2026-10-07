@@ -13,6 +13,7 @@ import {
   TERMS_VERSION,
 } from "@/config/booking-terms";
 import { POLICY_LINKS } from "@/config/site";
+import { ContactLink } from "@/components/ui/ContactLink";
 
 /**
  * The booking box: who you are, then when, then payment.
@@ -199,7 +200,7 @@ export function BookingPanel({
         <div className="px-6 py-5">
           <p className="text-ink-soft text-[14.5px] leading-relaxed">
             We cannot take payment online at the moment, so this session cannot be booked here yet.
-            Please get in touch and we will arrange a time with you directly.
+            Please email <ContactLink showAddress /> and we will arrange a time with you directly.
           </p>
           <p className="text-ink-faint mt-3 text-[13px] leading-relaxed">
             Nothing you enter here would be saved, so there is no form to fill in.
@@ -333,7 +334,7 @@ export function BookingPanel({
               */
               <p className="text-ink-soft text-[14.5px] leading-relaxed">
                 We could not load available times just now. Please refresh the page in a moment, or
-                get in touch and we will arrange one directly.
+                email <ContactLink showAddress /> and we will arrange one directly.
               </p>
             ) : (
               <SlotPicker

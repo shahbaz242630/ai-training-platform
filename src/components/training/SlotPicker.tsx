@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { presentSlots } from "@/domain/scheduling/slot-presentation";
 import { useCustomerTimeZone } from "./useCustomerTimeZone";
+import { ContactLink } from "@/components/ui/ContactLink";
 
 /**
  * The calendar a customer chooses a slot from.
@@ -54,7 +55,8 @@ export function SlotPicker({
   if (slotStarts.length === 0) {
     return (
       <p className="text-ink-muted text-sm leading-relaxed">
-        There are no times available at the moment. Please get in touch and we will find one.
+        There are no times available at the moment. Please email <ContactLink showAddress /> and we
+        will find one.
       </p>
     );
   }

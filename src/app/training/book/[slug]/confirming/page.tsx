@@ -5,6 +5,7 @@ import { SiteFooter } from "@/components/layout/SiteFooter";
 import { Container } from "@/components/ui/Container";
 import { ButtonLink } from "@/components/ui/Button";
 import { getSessionBySlug } from "@/config/sessions";
+import { ContactLink } from "@/components/ui/ContactLink";
 
 /**
  * Where Stripe sends somebody after they pay.
@@ -77,8 +78,9 @@ export default async function ConfirmingPage({
               exists this becomes a promise we can keep, and not before.
             */}
             <p className="text-ink-muted mt-4 text-[17px] leading-[1.65]">
-              If you have not heard from us within one working day, please get in touch and quote
-              the email address you booked with - we will find your booking.
+              If you have not heard from us within one working day, please email{" "}
+              <ContactLink showAddress /> and quote the email address you booked with - we will find
+              your booking.
             </p>
 
             <div className="border-line mt-10 border-t pt-8">
