@@ -9,6 +9,7 @@ import { confirmBookingOnCalendar, listBookingsAwaitingConfirmation } from "@/da
 import { getSchedulingProvider } from "@/domain/scheduling/factory";
 import type { SchedulingProvider } from "@/domain/scheduling/provider";
 import { countPaidButUnscheduled } from "@/data/audit-events";
+import { purgeExpiredPersonalData } from "@/data/retention";
 import { readAppliedSchemaVersion, schemaStatus } from "@/data/schema-version";
 import { recordAudit } from "@/lib/audit";
 import { authoriseCronRequest } from "@/lib/cron-auth";
@@ -119,6 +120,12 @@ export async function POST(request: Request): Promise<NextResponse> {
     */
     const confirmations = await retryConfirmations(now);
 
+    /*
+      What the privacy notice says we stop keeping, deleted on schedule. Every
+      step is keyed on time, so a run with nothing due changes nothing.
+    */
+    const retention = await withTransaction((runner) => purgeExpiredPersonalData(runner, now));
+
     if (expired.length > 0) {
       logger.info("expired slot holds swept", { expired: expired.length });
     }
@@ -130,6 +137,7 @@ export async function POST(request: Request): Promise<NextResponse> {
       calendarEventsReleased: calendar.released,
       calendarEventsStillBlocking: calendar.failed,
       confirmations,
+      retention,
       // Reported on every run, so the number is visible to whatever calls this
       // rather than only in a log somebody has to go looking for.
       paidButUnscheduled,

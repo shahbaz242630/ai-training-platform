@@ -351,3 +351,27 @@ describe("the database schema", () => {
     ).toBe(true);
   });
 });
+
+describe("keeping data no longer than the privacy notice says", () => {
+  it("deletes a booking started and never paid once 30 days have passed, and reports it", async () => {
+    counter += 1;
+    const old = new Date(Date.now() - 31 * 24 * 60 * 60 * 1000);
+    const customer = await db.query<{ id: string }>(
+      `insert into customers (first_name, last_name, email, timezone, created_at, updated_at)
+       values ('Amina', 'Khan', $1, 'Asia/Dubai', $2, $2) returning id`,
+      [`purge${counter}@example.com`, old],
+    );
+    const order = await db.query<{ id: string }>(
+      `insert into orders (customer_id, order_type, session_slug, gross_amount_fils, payment_status, created_at)
+       values ($1, 'single', 'claude-claude-code', 149900, 'pending', $2) returning id`,
+      [customer.rows[0]?.id, old],
+    );
+
+    const result = await run();
+
+    expect(result.status).toBe(200);
+    expect(result.body.retention).toMatchObject({ unpaidOrders: 1 });
+    const left = await db.query(`select 1 from orders where id = $1`, [order.rows[0]?.id]);
+    expect(left.rows).toHaveLength(0);
+  });
+});
