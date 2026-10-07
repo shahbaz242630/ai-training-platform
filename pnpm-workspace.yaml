@@ -106,5 +106,14 @@ nodeLinker: hoisted
 # merge keys) reaches us only through ESLint, which parses our own config on a
 # developer machine, so no visitor input can reach it. Forced to the fixed
 # version anyway (security scan, 2026-09-28). Remove once eslint pulls it.
+#
+# sharp below 0.35.5 (GHSA-wq5f-xc86-pv6w, high: a flaw in its bundled
+# librsvg) and source-map-js below 1.2.2 (GHSA-68fv-2mgg-jv7q, high: event-loop
+# denial of service through crafted source-map offsets) both arrive through
+# `next` and failed the production dependency audit on 2026-10-07. Forced to
+# the fixed versions, each published more than a week earlier, so the release-age
+# wait above still holds. Remove each once `next` pulls the fixed version.
 overrides:
   "js-yaml@>=4.0.0 <4.3.2": "4.3.2"
+  "sharp@<0.35.5": "0.35.5"
+  "source-map-js@>=1.0.0 <1.2.2": "1.2.2"

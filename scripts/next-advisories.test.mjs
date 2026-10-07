@@ -260,3 +260,50 @@ describe("fetchAdvisories", () => {
     await expect(fetchAdvisories("t", impl)).rejects.toThrow(/page limit/);
   });
 });
+
+/*
+  On 2026-09-30 vercel/next.js published seven advisories whose fixed version
+  is written "16.3.?" (upper bounds and patched_versions alike). The release
+  notes of v16.3.8 name all seven as fixed. An unnamed patch is never read as
+  "safe" by itself: only a version recorded from the release notes resolves it.
+*/
+describe("advisories that leave the fixed patch unnamed", () => {
+  const vuln = (range, patched) => ({
+    package: { ecosystem: "npm", name: "next" },
+    vulnerable_version_range: range,
+    patched_versions: patched,
+  });
+  const unnamed = (ghsa, vulnerabilities) => advisory("", { ghsa_id: ghsa, vulnerabilities });
+
+  it("fails closed on an upper bound of 16.3.? with no recorded fix", () => {
+    expect(() =>
+      affecting("16.3.8", [unnamed("GHSA-none-none-none", [vuln(">= 16.0.0 < 16.3.?", "16.3.?")])]),
+    ).toThrow(/unreadable/);
+  });
+
+  it("treats a patched_versions of 16.3.? with no recorded fix as not patched", () => {
+    expect(
+      affecting("16.3.8", [unnamed("GHSA-none-none-none", [vuln(">= 16.0.0", "16.3.?")])]),
+    ).toHaveLength(1);
+  });
+
+  it("resolves the high advisory to 16.3.8, as its release notes say", () => {
+    const ssrf = unnamed("GHSA-cjq9-62q9-8jv4", [vuln(">= 16.0.0 < 16.3.?", "16.3.?")]);
+    expect(affecting("16.3.6", [ssrf])).toHaveLength(1);
+    expect(affecting("16.3.8", [ssrf])).toEqual([]);
+  });
+
+  it("resolves the open-ended ones, on each line they list, to their recorded fix", () => {
+    const cache = unnamed("GHSA-4jqv-mc3x-m676", [
+      vuln(">= 15.0.0", "15.5.?"),
+      vuln(">= 16.0.0", "16.3.?"),
+    ]);
+    expect(affecting("16.3.6", [cache])).toHaveLength(1);
+    expect(affecting("16.3.8", [cache])).toEqual([]);
+  });
+
+  it("does not let a recorded fix on one line excuse an unnamed patch on another", () => {
+    const cache = unnamed("GHSA-4jqv-mc3x-m676", [vuln(">= 15.0.0", "15.5.?")]);
+    expect(affecting("15.5.30", [cache])).toHaveLength(1);
+  });
+});
