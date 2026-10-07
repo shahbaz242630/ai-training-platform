@@ -121,6 +121,13 @@ export interface CommunicationContext {
   readonly marketingConsent: boolean;
   readonly marketingConsentConfirmedAt: Date | null;
   readonly unsubscribedAt: Date | null;
+  readonly amountPaidFils: number;
+  /** The consent record's stored words, when one exists for the order. */
+  readonly agreement: {
+    readonly termsVersion: string;
+    readonly keyTerms: readonly string[];
+    readonly expressRequestText: string | null;
+  } | null;
 }
 
 export async function loadCommunicationContext(
@@ -140,14 +147,20 @@ export async function loadCommunicationContext(
     marketing_consent: boolean;
     marketing_consent_confirmed_at: Date | null;
     unsubscribed_at: Date | null;
+    gross_amount_fils: string | number;
+    terms_version: string | null;
+    key_terms: string | null;
+    express_request_text: string | null;
   }>(
     `select b.id as booking_id, b.status, b.session_slug, b.scheduled_start, b.scheduled_end,
             b.meeting_url, b.customer_timezone,
             c.email, c.first_name, c.marketing_consent, c.marketing_consent_confirmed_at,
-            c.unsubscribed_at
+            c.unsubscribed_at, o.gross_amount_fils,
+            k.terms_version, k.key_terms, k.express_request_text
        from bookings b
        join orders o on o.id = b.order_id
        join customers c on c.id = o.customer_id
+       left join booking_consents k on k.order_id = o.id
       where b.id = $1`,
     [bookingId],
   );
@@ -166,6 +179,16 @@ export async function loadCommunicationContext(
     marketingConsent: row.marketing_consent,
     marketingConsentConfirmedAt: row.marketing_consent_confirmed_at,
     unsubscribedAt: row.unsubscribed_at,
+    amountPaidFils: Number(row.gross_amount_fils),
+    agreement:
+      row.terms_version === null || row.key_terms === null
+        ? null
+        : {
+            termsVersion: row.terms_version,
+            // Stored one line per term, as shown on the booking page.
+            keyTerms: row.key_terms.split("\n"),
+            expressRequestText: row.express_request_text,
+          },
   };
 }
 

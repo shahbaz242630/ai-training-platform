@@ -483,3 +483,28 @@ describe("a booking withdrawn after its reminder was queued", () => {
     expect((await rowFor(bookingId, "reminder_24h"))?.status).toBe("cancelled");
   });
 });
+
+describe("the payment acknowledgement", () => {
+  it("carries the amount paid and the terms as the consent record stored them", async () => {
+    const { bookingId } = await scheduledBooking();
+    await db.query(
+      `insert into booking_consents (order_id, terms_version, key_terms, agreement_text,
+         within_cancellation_period, express_request, express_request_text, text_sha256, accepted_at)
+       select order_id, '2026-09-27', E'First stored term.\nSecond stored term.', 'agree',
+              true, true, 'Stored express request.', $2, now()
+         from bookings where id = $1`,
+      [bookingId, "0".repeat(64)],
+    );
+    await queueForBooking(runner, bookingId, [
+      { templateKey: "payment_receipt", scheduledFor: PAST },
+    ]);
+
+    await run();
+
+    const sent = provider.sent[0];
+    expect(sent?.text).toContain("Paid: AED 1,499");
+    expect(sent?.text).toContain("First stored term.");
+    expect(sent?.text).toContain("Second stored term.");
+    expect(sent?.text).toContain("Stored express request.");
+  });
+});
