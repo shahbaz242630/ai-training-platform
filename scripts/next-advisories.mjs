@@ -148,6 +148,36 @@ export function inRange(version, range, patchedVersions = null) {
     .some((alt) => alternativeAffects(version, alt, patchedVersions));
 }
 
+/**
+ * Advisories that write their fixed version as an unnamed patch ("16.3.?"),
+ * with the version that fixes them, read from vercel/next.js's own release
+ * notes. Without an entry, "16.3.?" stays unreadable as an upper bound (the
+ * check fails) and ignored as a patched version (the version stays flagged),
+ * so an unnamed patch is never taken as "safe" by itself.
+ *
+ * Every entry below: release v16.3.8 (2026-09-30), whose notes list all seven
+ * as fixed in it. Only the 16.3 line is recorded; the 15.5 line is not ours.
+ */
+const FIXED_IN = {
+  "GHSA-cjq9-62q9-8jv4": { 16.3: "16.3.8" },
+  "GHSA-f87g-xv8r-7p7x": { 16.3: "16.3.8" },
+  "GHSA-3w37-wq28-93x7": { 16.3: "16.3.8" },
+  "GHSA-h694-7cp9-m8p3": { 16.3: "16.3.8" },
+  "GHSA-4jqv-mc3x-m676": { 16.3: "16.3.8" },
+  "GHSA-mcj8-r9mp-w47p": { 16.3: "16.3.8" },
+  "GHSA-39w2-rjm5-chcv": { 16.3: "16.3.8" },
+};
+
+/** Replace "major.minor.?" with the recorded fix for that line, where there is one. */
+function nameUnnamedPatches(text, ghsaId) {
+  if (typeof text !== "string") return text;
+  const fixes = FIXED_IN[ghsaId] ?? {};
+  return text.replace(
+    /(\d+)\.(\d+)\.\?/g,
+    (unnamed, major, minor) => fixes[`${major}.${minor}`] ?? unnamed,
+  );
+}
+
 /** The published, not withdrawn, advisories that affect `next` at `version`. */
 export function affecting(version, advisories) {
   return advisories.filter(
@@ -158,7 +188,11 @@ export function affecting(version, advisories) {
         (v) =>
           v.package?.name === "next" &&
           typeof v.vulnerable_version_range === "string" &&
-          inRange(version, v.vulnerable_version_range, v.patched_versions),
+          inRange(
+            version,
+            nameUnnamedPatches(v.vulnerable_version_range, advisory.ghsa_id),
+            nameUnnamedPatches(v.patched_versions, advisory.ghsa_id),
+          ),
       ),
   );
 }
