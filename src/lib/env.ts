@@ -51,7 +51,10 @@ const serverSchema = z.object({
   MS_TENANT_ID: optional(z.string()),
   MS_CLIENT_ID: optional(z.string()),
   MS_CLIENT_SECRET: optional(z.string()),
+  /** The mailbox that owns the diary. */
   MS_CALENDAR_USER_ID: optional(z.string()),
+  /** The mailbox every customer email is sent from: the booking desk's, not the diary's. */
+  MS_MAIL_SENDER_ID: optional(z.string()),
 
   CRON_SECRET: optional(z.string()),
   SENTRY_DSN: optional(z.string()),
