@@ -198,6 +198,11 @@ export async function markCommunicationFailed(
   );
 }
 
+/** Withdraw one message that is no longer owed (its booking was cancelled). Not a failure. */
+export async function markCommunicationCancelled(runner: QueryRunner, id: string): Promise<void> {
+  await runner.query(`update communication_log set status = 'cancelled' where id = $1`, [id]);
+}
+
 /** Try again later. Stays queued, so the next run that finds it due picks it up. */
 export async function requeueCommunication(
   runner: QueryRunner,

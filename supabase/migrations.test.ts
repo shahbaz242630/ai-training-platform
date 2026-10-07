@@ -98,6 +98,7 @@ describe("applying the migrations", () => {
       "orders",
       "slot_holds",
       "webhook_events",
+      "withdrawal_requests",
     ]);
   });
 });

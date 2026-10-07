@@ -1,20 +1,27 @@
 import { NextResponse } from "next/server";
 import {
   renderTemplate,
+  renderWithdrawalAcknowledgement,
   containsPlaceholder,
   TemplateNotAvailableError,
+  type RenderedEmail,
 } from "@/components/emails/templates";
 import { SESSIONS, getSessionBySlug } from "@/config/sessions";
+import { supportEmail } from "@/config/site";
 import { withTransaction } from "@/data/db";
 import {
   claimDueCommunications,
   countFailedCommunications,
   loadCommunicationContext,
+  markCommunicationCancelled,
   markCommunicationFailed,
   markCommunicationSent,
   requeueCommunication,
   type ClaimedCommunication,
+  type CommunicationContext,
 } from "@/data/communications";
+import { loadWithdrawal } from "@/data/withdrawals";
+import { bookingReference } from "@/domain/booking/withdrawal";
 import { getEmailProvider } from "@/domain/messaging/factory";
 import type { EmailProvider } from "@/domain/messaging/provider";
 import { nextAttemptAt } from "@/domain/messaging/schedule";
@@ -48,7 +55,7 @@ export const dynamic = "force-dynamic";
 /** Enough to drain a normal five minutes many times over; small enough that a backlog drains in steps. */
 const BATCH_SIZE = 50;
 
-type Outcome = "sent" | "retry" | "failed";
+type Outcome = "sent" | "retry" | "failed" | "withdrawn";
 
 export async function POST(request: Request): Promise<NextResponse> {
   const auth = authoriseCronRequest(request.headers.get("authorization"), serverEnv().CRON_SECRET);
@@ -81,7 +88,7 @@ export async function POST(request: Request): Promise<NextResponse> {
       claimDueCommunications(runner, now, BATCH_SIZE),
     );
 
-    const outcomes: Record<Outcome, number> = { sent: 0, retry: 0, failed: 0 };
+    const outcomes: Record<Outcome, number> = { sent: 0, retry: 0, failed: 0, withdrawn: 0 };
     for (const row of claimed) {
       outcomes[await deliver(row, provider, now)] += 1;
     }
@@ -134,32 +141,27 @@ async function deliver(
     return giveUp(row, `not_allowed: ${decision.reason}`, now);
   }
 
-  if (context.scheduledStart === null || context.scheduledEnd === null) {
-    // Nothing about a session can be said until it has a time. A message
-    // queued for a booking that lost its slot waits for a person, not a retry.
-    return giveUp(row, "booking_has_no_time", now);
-  }
-
-  const session = getSessionBySlug(context.sessionSlug);
-  if (!session) {
-    return giveUp(row, "unknown_session", now);
-  }
-
-  let email;
-  try {
-    email = await renderTemplate(row.templateKey, {
-      firstName: context.firstName,
-      sessionTitle: session.title,
-      durationMinutes: session.durationMinutes,
-      slot: { start: context.scheduledStart, end: context.scheduledEnd },
-      timeZone: context.customerTimezone,
-      joinUrl: context.meetingUrl,
-      nextSessionTitle: nextSessionTitle(session.displayOrder),
+  /*
+    A cancelled booking is owed nothing more about its session. Checked here as
+    well as when it was cancelled, because a run may have claimed a reminder a
+    moment before the cancellation withdrew it, and claiming leaves the row
+    queued. Only the acknowledgement of a withdrawal still goes.
+  */
+  if (context.bookingStatus === "cancelled" && row.templateKey !== "withdrawal_acknowledgement") {
+    await withTransaction((runner) => markCommunicationCancelled(runner, row.id));
+    logger.info("message withdrawn: its booking is cancelled", {
+      communicationId: row.id,
+      templateKey: row.templateKey,
     });
-  } catch (error) {
-    if (error instanceof TemplateNotAvailableError) return giveUp(row, error.message, now);
-    throw error;
+    return "withdrawn";
   }
+
+  const prepared =
+    row.templateKey === "withdrawal_acknowledgement"
+      ? await prepareWithdrawalAcknowledgement(context)
+      : await prepareSessionEmail(row, context);
+  if (!prepared.ok) return giveUp(row, prepared.reason, now);
+  const { email } = prepared;
 
   /*
     An identity placeholder in a customer's inbox would be worse than no
@@ -176,6 +178,7 @@ async function deliver(
     html: email.html,
     text: email.text,
     idempotencyKey: `communication:${row.id}`,
+    ...(prepared.bcc ? { bcc: prepared.bcc } : {}),
   });
 
   if (result.ok) {
@@ -200,6 +203,66 @@ async function deliver(
     nextAttemptAt: again.toISOString(),
   });
   return "retry";
+}
+
+type Prepared =
+  | { readonly ok: true; readonly email: RenderedEmail; readonly bcc?: string }
+  | { readonly ok: false; readonly reason: string };
+
+/** A message about a session: it needs the session's time, and says nothing without one. */
+async function prepareSessionEmail(
+  row: ClaimedCommunication,
+  context: CommunicationContext,
+): Promise<Prepared> {
+  if (context.scheduledStart === null || context.scheduledEnd === null) {
+    // Nothing about a session can be said until it has a time. A message
+    // queued for a booking that lost its slot waits for a person, not a retry.
+    return { ok: false, reason: "booking_has_no_time" };
+  }
+
+  const session = getSessionBySlug(context.sessionSlug);
+  if (!session) return { ok: false, reason: "unknown_session" };
+
+  try {
+    const email = await renderTemplate(row.templateKey, {
+      bookingId: context.bookingId,
+      firstName: context.firstName,
+      sessionTitle: session.title,
+      durationMinutes: session.durationMinutes,
+      slot: { start: context.scheduledStart, end: context.scheduledEnd },
+      timeZone: context.customerTimezone,
+      joinUrl: context.meetingUrl,
+      nextSessionTitle: nextSessionTitle(session.displayOrder),
+    });
+    return { ok: true, email };
+  } catch (error) {
+    if (error instanceof TemplateNotAvailableError) return { ok: false, reason: error.message };
+    throw error;
+  }
+}
+
+/**
+ * The acknowledgement of a withdrawal. About the notice, not a session, so it
+ * goes whether or not the booking ever had a time. The booking desk gets a
+ * blind copy: a person has to take the event off the calendar and refund.
+ */
+async function prepareWithdrawalAcknowledgement(context: CommunicationContext): Promise<Prepared> {
+  const withdrawal = await withTransaction((runner) => loadWithdrawal(runner, context.bookingId));
+  if (withdrawal === null) return { ok: false, reason: "no_withdrawal_on_record" };
+
+  const session = getSessionBySlug(context.sessionSlug);
+  if (!session) return { ok: false, reason: "unknown_session" };
+
+  const email = await renderWithdrawalAcknowledgement({
+    firstName: context.firstName,
+    sessionTitle: session.title,
+    reference: bookingReference(context.bookingId),
+    statement: withdrawal.statement,
+    receivedAt: withdrawal.receivedAt,
+    timeZone: context.customerTimezone,
+    refundDueFils: withdrawal.refundDueFils,
+  });
+  return { ok: true, email, bcc: supportEmail() };
 }
 
 async function giveUp(row: ClaimedCommunication, reason: string, now: Date): Promise<Outcome> {

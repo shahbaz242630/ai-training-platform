@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { PGlite } from "@electric-sql/pglite";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { queueForBooking } from "@/data/communications";
+import { recordWithdrawal } from "@/data/withdrawals";
 import type { QueryRunner } from "@/data/db";
 import { MockEmailProvider } from "@/domain/messaging/mock-provider";
 import { resetLogSink, setLogSink, type LogRecord } from "@/lib/logger";
@@ -389,5 +390,96 @@ describe("what is refused before a provider is involved", () => {
     expect(result.body).toMatchObject({ failed: 1 });
     expect(provider.sent.map((m) => m.to)).toContain(good.email);
     expect(provider.sent.map((m) => m.to)).not.toContain(bad.email);
+  });
+});
+
+/*
+  The acknowledgement of a withdrawal is about the notice, not a session: it
+  goes whether or not the booking ever had a time, and the booking desk gets a
+  blind copy, because a person must cancel the calendar event and refund.
+*/
+describe("the withdrawal acknowledgement", () => {
+  it("is sent to the customer with a blind copy to the booking desk", async () => {
+    const { bookingId, email } = await scheduledBooking();
+    await recordWithdrawal(runner, {
+      bookingId,
+      fullName: "Amina Khan",
+      email,
+      statement: "I, Amina Khan, withdraw from my contract.",
+      refundDueFils: 149900,
+      receivedAt: PAST,
+      ipAddress: null,
+      userAgent: null,
+    });
+
+    const result = await run();
+
+    expect(result.body).toMatchObject({ ok: true, failed: 0 });
+    const sent = provider.sent.find((m) =>
+      m.subject.startsWith("We have received your withdrawal"),
+    );
+    expect(sent?.to).toBe(email);
+    expect(sent?.bcc).toBe("help@example.com");
+    expect(sent?.text).toContain("I, Amina Khan, withdraw from my contract.");
+    expect(sent?.text).toContain("AED 1,499");
+    expect((await rowFor(bookingId, "withdrawal_acknowledgement"))?.status).toBe("sent");
+  });
+
+  it("is sent for a booking that never had a time", async () => {
+    const { bookingId, email } = await scheduledBooking({ times: false });
+    await recordWithdrawal(runner, {
+      bookingId,
+      fullName: "Amina Khan",
+      email,
+      statement: "I, Amina Khan, withdraw from my contract.",
+      refundDueFils: 149900,
+      receivedAt: PAST,
+      ipAddress: null,
+      userAgent: null,
+    });
+
+    await run();
+
+    expect((await rowFor(bookingId, "withdrawal_acknowledgement"))?.status).toBe("sent");
+  });
+
+  it("is left for a person if the notice it acknowledges cannot be found", async () => {
+    const { bookingId } = await scheduledBooking();
+    await queueForBooking(runner, bookingId, [
+      { templateKey: "withdrawal_acknowledgement", scheduledFor: PAST },
+    ]);
+
+    await run();
+
+    const row = await rowFor(bookingId, "withdrawal_acknowledgement");
+    expect(row?.status).toBe("failed");
+    expect(row?.last_error).toBe("no_withdrawal_on_record");
+  });
+
+  it("never copies anyone else into ordinary booking emails", async () => {
+    const { bookingId } = await scheduledBooking();
+    await queueForBooking(runner, bookingId, [
+      { templateKey: "payment_receipt", scheduledFor: PAST },
+    ]);
+
+    await run();
+
+    expect(provider.sent).toHaveLength(1);
+    expect(provider.sent[0]?.bcc).toBeUndefined();
+  });
+});
+
+describe("a booking withdrawn after its reminder was queued", () => {
+  it("withdraws the reminder instead of sending it, even if the send run already holds it", async () => {
+    const { bookingId } = await scheduledBooking({ meetingUrl: "https://teams.example/join" });
+    await queueForBooking(runner, bookingId, [{ templateKey: "reminder_24h", scheduledFor: PAST }]);
+    // The withdrawal lands after the row is queued but the booking is what decides.
+    await db.query(`update bookings set status = 'cancelled' where id = $1`, [bookingId]);
+
+    const result = await run();
+
+    expect(provider.sent).toHaveLength(0);
+    expect(result.body).toMatchObject({ withdrawn: 1, failed: 0 });
+    expect((await rowFor(bookingId, "reminder_24h"))?.status).toBe("cancelled");
   });
 });

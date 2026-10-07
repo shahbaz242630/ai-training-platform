@@ -135,12 +135,16 @@ export const BOOKING_POLICY = {
   noShowMinutes: 15,
   /** UK and EU consumers' statutory cancellation period. */
   cancellationDays: 14,
+  /** After a withdrawal, the refund reaches the card within this many days. */
+  withdrawalRefundDays: 14,
 } as const;
 
 export const FOOTER_LINKS = [
   { href: POLICY_LINKS.terms, label: "Coaching Terms" },
   { href: POLICY_LINKS.bookingAndRefunds, label: "Booking and Refund Policy" },
   { href: POLICY_LINKS.privacy, label: "Privacy Notice" },
+  // The law asks for the withdrawal function to be easy to find the whole time.
+  { href: `${TRAINING_BASE}/book/withdraw`, label: "Withdraw from contract here" },
 ] as const;
 
 /**

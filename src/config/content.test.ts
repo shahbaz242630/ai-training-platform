@@ -301,12 +301,15 @@ describe("no long dashes in customer-facing text", () => {
 });
 
 describe("policy links", () => {
-  it("links the footer to the three coaching policies on the company site", () => {
+  it("links the footer to the three coaching policies and the withdrawal function", () => {
     expect(FOOTER_LINKS.map((l) => l.href)).toEqual([
       POLICY_LINKS.terms,
       POLICY_LINKS.bookingAndRefunds,
       POLICY_LINKS.privacy,
+      "/training/book/withdraw",
     ]);
+    // The label the law asks for, word for word.
+    expect(FOOTER_LINKS.at(-1)?.label).toBe("Withdraw from contract here");
     for (const href of Object.values(POLICY_LINKS)) {
       expect(href.startsWith(`${COMPANY_SITE_URL}/knowledge-centre/`)).toBe(true);
       expect(href.endsWith("/")).toBe(true);

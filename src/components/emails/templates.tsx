@@ -1,7 +1,20 @@
 import { render } from "@react-email/render";
-import { companyName, supportEmail } from "@/config/site";
+import {
+  BOOKING_POLICY,
+  POLICY_LINKS,
+  TRAINING_BASE,
+  companyName,
+  supportEmail,
+} from "@/config/site";
+import { bookingReference } from "@/domain/booking/withdrawal";
+import { clientEnv } from "@/lib/env";
 import type { TemplateKey } from "@/domain/messaging/sending-policy";
-import { presentSlots } from "@/domain/scheduling/slot-presentation";
+import { describeInstant, presentSlots } from "@/domain/scheduling/slot-presentation";
+import { formatAed, type Fils } from "@/lib/money";
+import {
+  WithdrawalAcknowledgementEmail,
+  withdrawalAcknowledgementSubject,
+} from "./WithdrawalAcknowledgementEmail";
 import { BookingConfirmationEmail, bookingConfirmationSubject } from "./BookingConfirmationEmail";
 import { FollowUpEmail, followUpSubject } from "./FollowUpEmail";
 import { PaymentReceivedEmail, paymentReceivedSubject } from "./PaymentReceivedEmail";
@@ -21,6 +34,8 @@ import { ReminderEmail, reminderSubject } from "./ReminderEmail";
  */
 
 export interface SessionEmailModel {
+  /** The booking this message is about; its reference is quoted to customers. */
+  readonly bookingId: string;
   readonly firstName: string;
   readonly sessionTitle: string;
   readonly durationMinutes: number;
@@ -76,6 +91,15 @@ export async function renderTemplate(
   };
   const identity = { companyName: companyName(), supportEmail: supportEmail() };
   const person = { firstName: model.firstName };
+  const reference = bookingReference(model.bookingId);
+  const rights = {
+    reference,
+    withdrawUrl: `${clientEnv.NEXT_PUBLIC_SITE_URL}${TRAINING_BASE}/book/withdraw?ref=${reference}`,
+    termsUrl: POLICY_LINKS.terms,
+    policyUrl: POLICY_LINKS.bookingAndRefunds,
+    cancellationDays: BOOKING_POLICY.cancellationDays,
+    moveNoticeHours: BOOKING_POLICY.moveNoticeHours,
+  };
 
   /*
     A confirmation or a reminder with nowhere to click is worse than none: the
@@ -93,7 +117,7 @@ export async function renderTemplate(
     case "payment_receipt":
       return rendered(
         paymentReceivedSubject(details),
-        <PaymentReceivedEmail {...details} {...identity} {...person} />,
+        <PaymentReceivedEmail {...details} {...identity} {...person} rights={rights} />,
       );
 
     case "booking_confirmation":
@@ -103,6 +127,7 @@ export async function renderTemplate(
           {...details}
           {...identity}
           {...person}
+          rights={rights}
           joinUrl={joinUrl()}
           durationMinutes={model.durationMinutes}
         />,
@@ -137,6 +162,37 @@ export async function renderTemplate(
     default:
       throw new TemplateNotAvailableError(templateKey, "no template exists for it yet");
   }
+}
+
+/** What the withdrawal acknowledgement states. Not a session email: a booking may have no time yet. */
+export interface WithdrawalEmailModel {
+  readonly firstName: string;
+  readonly sessionTitle: string;
+  readonly reference: string;
+  readonly statement: string;
+  readonly receivedAt: Date;
+  /** The customer's zone, as captured at booking. */
+  readonly timeZone: string;
+  readonly refundDueFils: Fils;
+}
+
+export async function renderWithdrawalAcknowledgement(
+  model: WithdrawalEmailModel,
+): Promise<RenderedEmail> {
+  return rendered(
+    withdrawalAcknowledgementSubject(model),
+    <WithdrawalAcknowledgementEmail
+      firstName={model.firstName}
+      sessionTitle={model.sessionTitle}
+      reference={model.reference}
+      statement={model.statement}
+      receivedLabel={describeInstant(model.receivedAt, model.timeZone)}
+      refundLabel={formatAed(model.refundDueFils)}
+      refundDays={BOOKING_POLICY.withdrawalRefundDays}
+      companyName={companyName()}
+      supportEmail={supportEmail()}
+    />,
+  );
 }
 
 async function rendered(subject: string, element: React.ReactElement): Promise<RenderedEmail> {

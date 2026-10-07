@@ -148,6 +148,22 @@ export function formatClockTime(instant: Date, timeZone: string): string {
   return formatTime(instant, timeZone);
 }
 
+/**
+ * One moment as a sentence a customer can keep: "Wednesday, 7 October 2026 at
+ * 10:05 (Europe/London) · 13:05 GST". The Dubai reference is left off when
+ * the customer's clock already reads the same, and dated when it is another day.
+ */
+export function describeInstant(instant: Date, timeZone: string): string {
+  assertKnownTimeZone(timeZone);
+  const local = `${formatDayLabel(instant, timeZone)} at ${formatTime(instant, timeZone)} (${timeZone})`;
+  const gst = formatTime(instant, GST_TIMEZONE);
+  const sameDay = dayKey(instant, timeZone) === dayKey(instant, GST_TIMEZONE);
+  if (sameDay && gst === formatTime(instant, timeZone)) return local;
+  return sameDay
+    ? `${local} · ${gst} GST`
+    : `${local} · ${gst} GST, ${formatShortDate(instant, GST_TIMEZONE)}`;
+}
+
 function formatTime(instant: Date, timeZone: string): string {
   return new Intl.DateTimeFormat(LOCALE, {
     timeZone,

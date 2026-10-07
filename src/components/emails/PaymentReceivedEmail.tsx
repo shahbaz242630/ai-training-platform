@@ -1,4 +1,11 @@
-import { EmailLayout, SessionDetails, emailStyles, type SessionDetailsProps } from "./EmailLayout";
+import {
+  BookingRights,
+  EmailLayout,
+  SessionDetails,
+  emailStyles,
+  type BookingRightsProps,
+  type SessionDetailsProps,
+} from "./EmailLayout";
 
 /**
  * Sent the moment a payment settles, before the calendar invitation exists.
@@ -9,6 +16,7 @@ import { EmailLayout, SessionDetails, emailStyles, type SessionDetailsProps } fr
  * follow, with a way to ask if they do not.
  */
 export interface PaymentReceivedEmailProps extends SessionDetailsProps {
+  readonly rights: BookingRightsProps;
   readonly firstName: string;
   readonly companyName: string;
   readonly supportEmail: string;
@@ -40,6 +48,7 @@ export function PaymentReceivedEmail(props: PaymentReceivedEmailProps) {
         Times are shown in your own time zone. We are in Dubai, Gulf Standard Time, four hours ahead
         of UTC all year.
       </p>
+      <BookingRights {...props.rights} />
     </EmailLayout>
   );
 }

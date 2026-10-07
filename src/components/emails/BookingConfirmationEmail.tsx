@@ -1,4 +1,11 @@
-import { EmailLayout, SessionDetails, emailStyles, type SessionDetailsProps } from "./EmailLayout";
+import {
+  BookingRights,
+  EmailLayout,
+  SessionDetails,
+  emailStyles,
+  type BookingRightsProps,
+  type SessionDetailsProps,
+} from "./EmailLayout";
 
 /**
  * Sent once the session exists in the calendar with a joining link.
@@ -7,6 +14,7 @@ import { EmailLayout, SessionDetails, emailStyles, type SessionDetailsProps } fr
  * is worse than no confirmation, because the customer stops waiting for one.
  */
 export interface BookingConfirmationEmailProps extends SessionDetailsProps {
+  readonly rights: BookingRightsProps;
   readonly firstName: string;
   readonly joinUrl: string;
   readonly durationMinutes: number;
@@ -49,6 +57,7 @@ export function BookingConfirmationEmail(props: BookingConfirmationEmailProps) {
         Need a different time? Reply to this email as early as you can and we will find another slot
         together.
       </p>
+      <BookingRights {...props.rights} />
     </EmailLayout>
   );
 }

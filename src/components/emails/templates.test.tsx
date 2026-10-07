@@ -3,6 +3,7 @@ import {
   TemplateNotAvailableError,
   containsPlaceholder,
   renderTemplate,
+  renderWithdrawalAcknowledgement,
   type SessionEmailModel,
 } from "./templates";
 
@@ -13,6 +14,7 @@ import {
  */
 
 const model: SessionEmailModel = {
+  bookingId: "3f9a1c2b-0d4e-4f00-9a11-222233334444",
   firstName: "Amina",
   sessionTitle: "Claude, Claude Code & Advanced Workflows",
   durationMinutes: 90,
@@ -93,6 +95,19 @@ describe("renderTemplate", () => {
   });
 });
 
+describe("the booking reference and the right to cancel", () => {
+  it("are in the payment acknowledgement and the confirmation, with the withdrawal link prefilled", async () => {
+    for (const key of ["payment_receipt", "booking_confirmation"] as const) {
+      const email = await renderTemplate(key, model);
+      expect(email.text).toContain("Booking reference: 3F9A1C2B");
+      expect(email.html).toContain("/training/book/withdraw?ref=3F9A1C2B");
+      expect(email.text).toContain("Withdraw from contract here");
+      expect(email.html).toContain("https://zaaheen.com/knowledge-centre/terms/");
+      expect(email.text).toContain("24 hours before it starts");
+    }
+  });
+});
+
 describe("containsPlaceholder", () => {
   it("detects an identity placeholder in the text or the subject", async () => {
     // The real identity is filled in, so the placeholder is planted: the sweep
@@ -118,5 +133,49 @@ describe("containsPlaceholder", () => {
         text: "Booked [ok]",
       }),
     ).toBe(false);
+  });
+});
+
+/*
+  The acknowledgement the law asks for when a customer withdraws: on a durable
+  medium, straight away, with the notice itself, when it was received and the
+  refund due.
+*/
+describe("renderWithdrawalAcknowledgement", () => {
+  const withdrawal = {
+    firstName: "Amina",
+    sessionTitle: "Claude, Claude Code & Advanced Workflows",
+    reference: "3F9A1C2B",
+    statement:
+      'I, Amina Khan, withdraw from my contract for the coaching session "Claude, Claude Code & Advanced Workflows" (booking reference 3F9A1C2B).',
+    receivedAt: new Date("2026-10-07T09:05:00Z"),
+    timeZone: "Europe/London",
+    refundDueFils: 129_900,
+  };
+
+  it("quotes the notice, when it was received and the refund due", async () => {
+    const email = await renderWithdrawalAcknowledgement(withdrawal);
+    expect(email.subject).toBe("We have received your withdrawal (booking 3F9A1C2B)");
+    expect(email.text).toContain("I, Amina Khan, withdraw from my contract");
+    expect(email.text).toContain("Wednesday, 7 October 2026 at 10:05 (Europe/London)");
+    expect(email.text).toContain("13:05 GST");
+    expect(email.text).toContain("AED 1,299");
+    expect(email.text).toContain("within 14 days");
+    expect(email.text).toContain("3F9A1C2B");
+  });
+
+  it("tells the customer what to do if they did not send it", async () => {
+    const email = await renderWithdrawalAcknowledgement(withdrawal);
+    expect(email.text).toMatch(/did not send this/i);
+  });
+
+  it("omits the GST reference when the customer is on Dubai time", async () => {
+    const email = await renderWithdrawalAcknowledgement({ ...withdrawal, timeZone: "Asia/Dubai" });
+    expect(email.text).toContain("at 13:05 (Asia/Dubai)");
+    expect(email.text).not.toContain("13:05 GST");
+  });
+
+  it("carries no identity placeholder", async () => {
+    expect(containsPlaceholder(await renderWithdrawalAcknowledgement(withdrawal))).toBe(false);
   });
 });
