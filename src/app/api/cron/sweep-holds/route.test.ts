@@ -338,3 +338,16 @@ describe("what the sweep reports and survives", () => {
     expect(after.rows[0]?.status).toBe("awaiting_schedule");
   });
 });
+
+describe("the database schema", () => {
+  it("raises the standing alarm and reports it while the database is behind the code", async () => {
+    // The test database is built without the migration ledger, so it is behind.
+    const result = await run();
+    expect(result.body.schema).toMatchObject({ applied: null, current: false });
+    expect(
+      logs.some(
+        (l) => l.level === "error" && l.message.startsWith("DATABASE SCHEMA IS BEHIND THE CODE"),
+      ),
+    ).toBe(true);
+  });
+});
