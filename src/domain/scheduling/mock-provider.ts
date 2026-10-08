@@ -94,7 +94,7 @@ export class MockSchedulingProvider implements SchedulingProvider {
       meetingUrl: `https://teams.mock.invalid/meet/${externalId}`,
     };
     this.events.set(externalId, confirmed);
-    // Recorded so a test can assert who would have received the invitation.
+    // Recorded so a test can assert who the session was confirmed for.
     this.invitations.set(externalId, attendee);
     return Promise.resolve(confirmed);
   }

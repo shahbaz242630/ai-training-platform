@@ -502,6 +502,41 @@ describe("the booking desk's copy", () => {
   });
 });
 
+/*
+  The customer is never invited from the coach's mailbox, so the confirmation
+  is where the session reaches their calendar: an "add to calendar" file with
+  the join link, one per booking id so a later version replaces it.
+*/
+describe("the add-to-calendar file", () => {
+  it("rides on the booking confirmation with the session's time and join link", async () => {
+    const { bookingId } = await scheduledBooking({ meetingUrl: "https://teams.example/join" });
+    await queueForBooking(runner, bookingId, [
+      { templateKey: "booking_confirmation", scheduledFor: PAST },
+    ]);
+
+    await run();
+
+    const files = provider.sent[0]?.attachments ?? [];
+    expect(files).toHaveLength(1);
+    expect(files[0]?.name).toMatch(/\.ics$/);
+    expect(files[0]?.contentType).toBe("text/calendar");
+    const ics = (files[0]?.content ?? "").replace(/\r\n /g, "");
+    expect(ics).toContain(`UID:booking-${bookingId}@zaaheen.com`);
+    expect(ics).toContain("URL:https://teams.example/join");
+    expect(ics).toMatch(/DTSTART:\d{8}T\d{6}Z/);
+    expect(ics).not.toContain("ATTENDEE");
+  });
+
+  it("is not attached to a reminder", async () => {
+    const { bookingId } = await scheduledBooking({ meetingUrl: "https://teams.example/join" });
+    await queueForBooking(runner, bookingId, [{ templateKey: "reminder_24h", scheduledFor: PAST }]);
+
+    await run();
+
+    expect(provider.sent[0]?.attachments).toBeUndefined();
+  });
+});
+
 describe("a booking withdrawn after its reminder was queued", () => {
   it("withdraws the reminder instead of sending it, even if the send run already holds it", async () => {
     const { bookingId } = await scheduledBooking({ meetingUrl: "https://teams.example/join" });

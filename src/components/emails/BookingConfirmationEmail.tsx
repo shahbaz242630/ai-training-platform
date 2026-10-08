@@ -43,8 +43,8 @@ export function BookingConfirmationEmail(props: BookingConfirmationEmailProps) {
         </a>
       </p>
       <p style={emailStyles.paragraph}>
-        The same link is in the calendar invitation. It is a one-to-one video call lasting{" "}
-        {props.durationMinutes} minutes.
+        Open the calendar file attached to this email to add the session, with this link, to your
+        calendar. It is a one-to-one video call lasting {props.durationMinutes} minutes.
       </p>
       <h2 style={{ ...emailStyles.heading, fontSize: "17px", margin: "24px 0 8px" }}>
         Before we start

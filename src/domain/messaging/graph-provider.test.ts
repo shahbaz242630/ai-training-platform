@@ -65,6 +65,25 @@ describe("GraphEmailProvider", () => {
     ]);
   });
 
+  it("attaches a file only when the message carries one, base64-encoded as Graph expects", async () => {
+    const { mail, calls } = provider([{ status: 202 }]);
+    await mail.send({
+      ...message,
+      attachments: [
+        { name: "session.ics", contentType: "text/calendar", content: "BEGIN:VCALENDAR\r\né" },
+      ],
+    });
+    const [, send] = calls;
+    expect((send?.body as { message: { attachments?: unknown } }).message.attachments).toEqual([
+      {
+        "@odata.type": "#microsoft.graph.fileAttachment",
+        name: "session.ics",
+        contentType: "text/calendar",
+        contentBytes: Buffer.from("BEGIN:VCALENDAR\r\né", "utf8").toString("base64"),
+      },
+    ]);
+  });
+
   it("sends from the mailbox with the HTML body, the recipient and our key as a header", async () => {
     const { mail, calls } = provider([{ status: 202 }]);
 

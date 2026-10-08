@@ -8,7 +8,7 @@ import {
 } from "./EmailLayout";
 
 /**
- * Sent the moment a payment settles, before the calendar invitation exists.
+ * Sent the moment a payment settles, before the joining link exists.
  *
  * This is the email that ends "a customer who paid today would receive
  * nothing". It promises only what settlement has actually done - taken the
@@ -54,8 +54,9 @@ export function PaymentReceivedEmail(props: PaymentReceivedEmailProps) {
       <SessionDetails {...props} joinUrl={null} />
       {props.agreement ? <Agreement {...props.agreement} /> : null}
       <p style={emailStyles.paragraph}>
-        Your calendar invitation and the link to join will follow by email. If they have not arrived
-        within one working day, reply to this message and we will sort it out.
+        Your confirmation, with the link to join and a file to add the session to your calendar,
+        will follow by email. If it has not arrived within one working day, reply to this message
+        and we will sort it out.
       </p>
       <p style={emailStyles.muted}>
         Times are shown in your own time zone. We are in Dubai, Gulf Standard Time, four hours ahead
