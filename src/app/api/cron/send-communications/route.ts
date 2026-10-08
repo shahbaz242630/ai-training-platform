@@ -237,7 +237,11 @@ async function prepareSessionEmail(
         ? { ...context.agreement, amountPaidFils: context.amountPaidFils }
         : null,
     });
-    return { ok: true, email };
+    // The booking desk keeps a copy of each confirmed booking in its own inbox.
+    // Only the confirmation: copies of every reminder would bury that inbox.
+    return row.templateKey === "booking_confirmation"
+      ? { ok: true, email, bcc: supportEmail() }
+      : { ok: true, email };
   } catch (error) {
     if (error instanceof TemplateNotAvailableError) return { ok: false, reason: error.message };
     throw error;
