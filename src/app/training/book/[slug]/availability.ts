@@ -33,11 +33,18 @@ import { createSingleFlightCache } from "@/lib/single-flight-cache";
 export async function offeredSlots(
   durationMinutes: number,
   now: Date,
+  /** Moving a session: look this far instead of the booking horizon. */
+  until?: Date,
 ): Promise<readonly TimeSlot[]> {
-  const to = addDays(now, AVAILABILITY.bookingHorizonDays);
+  const to = until ?? addDays(now, AVAILABILITY.bookingHorizonDays);
 
   const scheduler = getSchedulingProvider();
-  const candidates = await scheduler.listAvailability({ from: now, to, durationMinutes });
+  const candidates = await scheduler.listAvailability({
+    from: now,
+    to,
+    durationMinutes,
+    ...(until ? { horizon: until } : {}),
+  });
 
   const holds = await withTransaction((runner) => listLiveHolds(runner, { from: now, to }, now));
 

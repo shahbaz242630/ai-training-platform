@@ -28,6 +28,12 @@ export interface AvailabilityQuery {
   readonly to: Date;
   /** How long the session runs, which decides whether a slot can hold it. */
   readonly durationMinutes: number;
+  /**
+   * The furthest a slot may start, in place of the booking horizon. Only for
+   * moving a session: the policy lets a move go to any open time within 90
+   * days of the original date, which can be further out than a new booking.
+   */
+  readonly horizon?: Date;
 }
 
 export type ExternalEventStatus = "tentative" | "confirmed" | "cancelled";
@@ -138,6 +144,13 @@ export interface SchedulingProvider {
 
   /** Cancel a session that was already confirmed. */
   cancelEvent(externalId: string): Promise<void>;
+
+  /**
+   * Move a confirmed session's event to a new time, keeping its meeting.
+   * Throws EventNotFoundError if the event has gone: a booked session whose
+   * event vanished is a real problem, not a clean state.
+   */
+  moveEvent(externalId: string, slot: TimeSlot): Promise<void>;
 
   /** Read an event back, for reconciling our state against the calendar. */
   getEvent(externalId: string): Promise<ExternalEvent | null>;

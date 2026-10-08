@@ -57,6 +57,12 @@ const serverSchema = z.object({
   MS_MAIL_SENDER_ID: optional(z.string()),
 
   CRON_SECRET: optional(z.string()),
+  /*
+    Signs the links that let a customer manage their own booking (reschedule)
+    from their email. At least 32 characters. Changing it makes every link
+    already sent stop working, so set it once per environment.
+  */
+  MANAGE_LINK_SECRET: optional(z.string().min(32)),
   SENTRY_DSN: optional(z.string()),
 });
 

@@ -238,6 +238,50 @@ describe("expired holds and their calendar events", () => {
   });
 });
 
+describe("moved sessions whose calendar event has not caught up", () => {
+  it("moves the event to the booking's new time and clears the flag", async () => {
+    const { eventId } = await holdWithEvent(FUTURE);
+    const bookingId = await paidScheduledBooking();
+    const moved = nextSlot();
+    await db.query(
+      `update bookings
+          set status = 'confirmed', calendar_event_id = $2, calendar_move_due = true,
+              scheduled_start = $3, scheduled_end = $4
+        where id = $1`,
+      [bookingId, eventId, moved.start, moved.end],
+    );
+
+    const result = await run();
+
+    expect(result.body).toMatchObject({ calendarMoves: { moved: 1, missing: 0, failed: 0 } });
+    expect(await provider.getEvent(eventId)).toMatchObject({ start: moved.start, end: moved.end });
+    const row = await db.query<{ calendar_move_due: boolean }>(
+      "select calendar_move_due from bookings where id = $1",
+      [bookingId],
+    );
+    expect(row.rows[0]?.calendar_move_due).toBe(false);
+  });
+
+  it("raises a booking whose event has vanished, for a person to put back", async () => {
+    const bookingId = await paidScheduledBooking();
+    const moved = nextSlot();
+    await db.query(
+      `update bookings
+          set status = 'confirmed', calendar_event_id = 'evt_gone', calendar_move_due = true,
+              scheduled_start = $2, scheduled_end = $3
+        where id = $1`,
+      [bookingId, moved.start, moved.end],
+    );
+
+    const result = await run();
+
+    expect(result.body).toMatchObject({ calendarMoves: expect.objectContaining({ missing: 1 }) });
+    expect(logs.some((l) => l.level === "error" && l.message.includes("no calendar event"))).toBe(
+      true,
+    );
+  });
+});
+
 describe("paid bookings the calendar step did not finish", () => {
   it("confirms them, with a join link and the messages queued", async () => {
     const bookingId = await paidScheduledBooking();

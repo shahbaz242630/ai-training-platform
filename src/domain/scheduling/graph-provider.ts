@@ -196,6 +196,21 @@ export class GraphSchedulingProvider implements SchedulingProvider {
     }
   }
 
+  async moveEvent(externalId: string, slot: TimeSlot): Promise<void> {
+    try {
+      // Only the times change: the Teams meeting, and its join link, stay with the event.
+      await this.client.request({
+        method: "PATCH",
+        path: this.eventPath(externalId),
+        headers: PREFER_UTC,
+        body: { start: graphTime(slot.start), end: graphTime(slot.end) },
+      });
+    } catch (error) {
+      if (error instanceof GraphNotFoundError) throw new EventNotFoundError(externalId);
+      throw error;
+    }
+  }
+
   async getEvent(externalId: string): Promise<ExternalEvent | null> {
     const event = await this.readEvent(externalId);
     return event === null ? null : toExternalEvent(event);

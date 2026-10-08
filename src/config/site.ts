@@ -131,6 +131,8 @@ export const BOOKING_POLICY = {
   moveNoticeHours: 24,
   /** A moved session goes to an open time within this many days of the original. */
   moveWindowDays: 90,
+  /** How many times one booking may be moved by the customer. Moves we make never count. */
+  movesPerBooking: 1,
   /** Not joined this long after the start: the session counts as used. */
   noShowMinutes: 15,
   /** UK and EU consumers' statutory cancellation period. */
