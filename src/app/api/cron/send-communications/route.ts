@@ -31,6 +31,7 @@ import { authoriseCronRequest } from "@/lib/cron-auth";
 import { clientEnv, serverEnv } from "@/lib/env";
 import { logger } from "@/lib/logger";
 import { createManageToken } from "@/lib/manage-link";
+import { termsPdfFor, termsPdfName } from "@/legal/terms-pdfs";
 
 /**
  * Send what is due.
@@ -250,6 +251,31 @@ async function prepareSessionEmail(
           ? manageUrlFor(context.bookingId, context.scheduledStart)
           : null,
     });
+    if (row.templateKey === "payment_receipt") {
+      // The terms exactly as agreed, as a fixed copy: a web page can change later.
+      const version = context.agreement?.termsVersion ?? null;
+      const pdf = version === null ? null : termsPdfFor(version);
+      if (version !== null && pdf === null) {
+        // Still sent: the email quotes the key terms and links the full ones.
+        logger.error("no printed terms exist for this terms version; sent without the PDF", {
+          termsVersion: version,
+        });
+      }
+      return version !== null && pdf !== null
+        ? {
+            ok: true,
+            email,
+            attachments: [
+              {
+                name: termsPdfName(version),
+                contentType: "application/pdf",
+                content: pdf,
+                encoding: "base64",
+              },
+            ],
+          }
+        : { ok: true, email };
+    }
     if (
       row.templateKey !== "booking_confirmation" &&
       row.templateKey !== "reschedule_confirmation"

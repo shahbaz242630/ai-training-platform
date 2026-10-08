@@ -84,6 +84,20 @@ describe("GraphEmailProvider", () => {
     ]);
   });
 
+  it("passes a file that is already base64 through unchanged", async () => {
+    const { mail, calls } = provider([{ status: 202 }]);
+    const pdf = Buffer.from("%PDF-1.4 binary ÿ").toString("base64");
+    await mail.send({
+      ...message,
+      attachments: [
+        { name: "terms.pdf", contentType: "application/pdf", content: pdf, encoding: "base64" },
+      ],
+    });
+    const [, send] = calls;
+    const sent = (send?.body as { message: { attachments: { contentBytes: string }[] } }).message;
+    expect(sent.attachments[0]?.contentBytes).toBe(pdf);
+  });
+
   it("sends from the mailbox with the HTML body, the recipient and our key as a header", async () => {
     const { mail, calls } = provider([{ status: 202 }]);
 
