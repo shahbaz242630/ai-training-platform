@@ -72,6 +72,6 @@ export const FAQS: readonly Faq[] = [
   {
     id: "cancellation",
     question: "What is the cancellation and rescheduling policy?",
-    answer: `To move your session, email us at least ${moveNoticeHours} hours before it starts and we move it free to another open time within ${moveWindowDays} days. There is no refund if you change your mind, cannot attend or miss your session; less than ${moveNoticeHours} hours before, a session cannot be moved. If we cancel, you choose a full refund or a new time. The Booking and Refund Policy has the full details, including your legal rights.`,
+    answer: `To move your session, use the Reschedule link in your confirmation email at least ${moveNoticeHours} hours before it starts. You can move it once, free, to another open time within ${moveWindowDays} days. There is no refund if you change your mind, cannot attend or miss your session; less than ${moveNoticeHours} hours before, a session cannot be moved. If we cancel, you choose a full refund or a new time. The Booking and Refund Policy has the full details, including your legal rights.`,
   },
 ];

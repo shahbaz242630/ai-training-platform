@@ -7,7 +7,7 @@ import {
   type RenderedEmail,
 } from "@/components/emails/templates";
 import { SESSIONS, getSessionBySlug } from "@/config/sessions";
-import { supportEmail } from "@/config/site";
+import { TRAINING_BASE, supportEmail } from "@/config/site";
 import { withTransaction } from "@/data/db";
 import {
   claimDueCommunications,
@@ -28,8 +28,9 @@ import type { EmailAttachment, EmailProvider } from "@/domain/messaging/provider
 import { nextAttemptAt } from "@/domain/messaging/schedule";
 import { decideSendTemplate } from "@/domain/messaging/sending-policy";
 import { authoriseCronRequest } from "@/lib/cron-auth";
-import { serverEnv } from "@/lib/env";
+import { clientEnv, serverEnv } from "@/lib/env";
 import { logger } from "@/lib/logger";
+import { createManageToken } from "@/lib/manage-link";
 
 /**
  * Send what is due.
@@ -244,20 +245,30 @@ async function prepareSessionEmail(
       agreement: context.agreement
         ? { ...context.agreement, amountPaidFils: context.amountPaidFils }
         : null,
+      manageUrl:
+        row.templateKey === "booking_confirmation" && context.rescheduleCount === 0
+          ? manageUrlFor(context.bookingId, context.scheduledStart)
+          : null,
     });
-    if (row.templateKey !== "booking_confirmation") return { ok: true, email };
+    if (
+      row.templateKey !== "booking_confirmation" &&
+      row.templateKey !== "reschedule_confirmation"
+    ) {
+      return { ok: true, email };
+    }
 
-    // The booking desk keeps a copy of each confirmed booking in its own inbox.
-    // Only the confirmation: copies of every reminder would bury that inbox.
-    // The customer is never invited from the coach's mailbox, so this is
-    // also where the session reaches their calendar.
+    // The booking desk keeps a copy of each confirmed or moved booking in its
+    // own inbox. Not the reminders: copies of those would bury that inbox.
+    // The customer is never invited from the coach's mailbox, so these are
+    // also where the session reaches their calendar. The file's sequence is
+    // the move count, so the moved file replaces the first one.
     const calendarFile: EmailAttachment | null = context.meetingUrl
       ? {
           name: "zaaheen-session.ics",
           contentType: "text/calendar",
           content: buildCalendarFile({
             uid: `booking-${context.bookingId}@zaaheen.com`,
-            sequence: 0,
+            sequence: context.rescheduleCount,
             start: context.scheduledStart,
             end: context.scheduledEnd,
             stamp: now,
@@ -281,6 +292,18 @@ async function prepareSessionEmail(
     if (error instanceof TemplateNotAvailableError) return { ok: false, reason: error.message };
     throw error;
   }
+}
+
+/**
+ * The customer's own link to move the session, valid until it starts. Null
+ * when no signing secret is configured: the email then says to reply instead,
+ * rather than carry a link that cannot work.
+ */
+function manageUrlFor(bookingId: string, sessionStart: Date): string | null {
+  const secret = serverEnv().MANAGE_LINK_SECRET;
+  if (!secret) return null;
+  const token = createManageToken({ bookingId, expiresAt: sessionStart }, secret);
+  return `${clientEnv.NEXT_PUBLIC_SITE_URL}${TRAINING_BASE}/book/manage?t=${token}`;
 }
 
 /**

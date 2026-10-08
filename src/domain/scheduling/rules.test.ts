@@ -34,6 +34,21 @@ const SATURDAY_10 = {
 const query = { from: NOW, to: addDays(NOW, 10), durationMinutes: 90 };
 
 describe("candidateSlots", () => {
+  it("stops at the booking horizon, unless the query brings its own (moving a session)", () => {
+    const far = { from: NOW, to: addDays(NOW, 50), durationMinutes: 90 };
+    const lastStart = (slots: readonly { start: Date }[]) =>
+      Math.max(...slots.map((s) => s.start.getTime()));
+
+    const booking = candidateSlots(far, RULES, NOW, []);
+    expect(lastStart(booking)).toBeLessThanOrEqual(
+      addDays(NOW, RULES.bookingHorizonDays).getTime(),
+    );
+
+    const moving = candidateSlots({ ...far, horizon: addDays(NOW, 45) }, RULES, NOW, []);
+    expect(lastStart(moving)).toBeGreaterThan(addDays(NOW, RULES.bookingHorizonDays).getTime());
+    expect(lastStart(moving)).toBeLessThanOrEqual(addDays(NOW, 45).getTime());
+  });
+
   it("offers the same grid whether or not anything is busy, minus the busy times", () => {
     const free = candidateSlots(query, RULES, NOW, []);
     const withBusy = candidateSlots(query, RULES, NOW, [SATURDAY_10]);

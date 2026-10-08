@@ -77,6 +77,7 @@ describe("blockCalendar", () => {
       confirmSlot: () => Promise.reject(new Error("no")),
       releaseSlot: () => Promise.reject(new Error("no")),
       cancelEvent: () => Promise.reject(new Error("no")),
+      moveEvent: () => Promise.reject(new Error("no")),
       getEvent: () => Promise.reject(new Error("no")),
     };
 
@@ -97,6 +98,7 @@ describe("blockCalendar, when the failure is not even an Error", () => {
       confirmSlot: () => Promise.reject("nope"),
       releaseSlot: () => Promise.reject("nope"),
       cancelEvent: () => Promise.reject("nope"),
+      moveEvent: () => Promise.reject("nope"),
       getEvent: () => Promise.reject("nope"),
     };
     expect(await blockCalendar(input(odd))).toEqual({ kind: "unblocked", reason: "nope" });

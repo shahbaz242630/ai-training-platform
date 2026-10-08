@@ -115,6 +115,8 @@ export interface CommunicationContext {
   readonly scheduledStart: Date | null;
   readonly scheduledEnd: Date | null;
   readonly meetingUrl: string | null;
+  /** How many times the customer has moved this booking: 0 while their one move is unused. */
+  readonly rescheduleCount: number;
   readonly customerTimezone: string;
   readonly email: string;
   readonly firstName: string;
@@ -141,6 +143,7 @@ export async function loadCommunicationContext(
     scheduled_start: Date | null;
     scheduled_end: Date | null;
     meeting_url: string | null;
+    reschedule_count: number;
     customer_timezone: string;
     email: string;
     first_name: string;
@@ -153,7 +156,7 @@ export async function loadCommunicationContext(
     express_request_text: string | null;
   }>(
     `select b.id as booking_id, b.status, b.session_slug, b.scheduled_start, b.scheduled_end,
-            b.meeting_url, b.customer_timezone,
+            b.meeting_url, b.reschedule_count, b.customer_timezone,
             c.email, c.first_name, c.marketing_consent, c.marketing_consent_confirmed_at,
             c.unsubscribed_at, o.gross_amount_fils,
             k.terms_version, k.key_terms, k.express_request_text
@@ -173,6 +176,7 @@ export async function loadCommunicationContext(
     scheduledStart: row.scheduled_start,
     scheduledEnd: row.scheduled_end,
     meetingUrl: row.meeting_url,
+    rescheduleCount: row.reschedule_count,
     customerTimezone: row.customer_timezone,
     email: row.email,
     firstName: row.first_name,

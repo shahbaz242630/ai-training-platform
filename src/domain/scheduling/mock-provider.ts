@@ -117,6 +117,14 @@ export class MockSchedulingProvider implements SchedulingProvider {
     return Promise.resolve();
   }
 
+  moveEvent(externalId: string, slot: TimeSlot): Promise<void> {
+    const event = this.events.get(externalId);
+    if (!event) return Promise.reject(new EventNotFoundError(externalId));
+    // The meeting and its link stay; only the times change.
+    this.events.set(externalId, { ...event, start: slot.start, end: slot.end });
+    return Promise.resolve();
+  }
+
   getEvent(externalId: string): Promise<ExternalEvent | null> {
     return Promise.resolve(this.events.get(externalId) ?? null);
   }

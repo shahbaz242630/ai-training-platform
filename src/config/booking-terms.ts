@@ -17,13 +17,13 @@ import { BOOKING_POLICY } from "./site";
 const { moveNoticeHours, moveWindowDays, noShowMinutes, cancellationDays } = BOOKING_POLICY;
 
 /** The date the terms these words point at were published. */
-export const TERMS_VERSION = "2026-09-27";
+export const TERMS_VERSION = "2026-10-08";
 
 /** The bold box directly above the tickboxes, one item per line. */
 export const KEY_TERMS: readonly string[] = [
   "You pay the full price now, in UAE dirhams (AED), for one private session at the time you chose.",
   "No refund if you change your mind, cannot attend or miss your session.",
-  `To move your session, email us at least ${moveNoticeHours} hours before it starts. You can move it free to any open time within ${moveWindowDays} days. Less than ${moveNoticeHours} hours before, it cannot be moved.`,
+  `To move your session, use the Reschedule link in your confirmation email at least ${moveNoticeHours} hours before it starts. You can move it once, free, to any open time within ${moveWindowDays} days. Less than ${moveNoticeHours} hours before, it cannot be moved.`,
   `If you have not joined within ${noShowMinutes} minutes of the start, the session counts as used.`,
   "If we cancel, or cannot run the session, you choose a full refund or a new time.",
   `If you live in the UK or the EU, you can cancel within ${cancellationDays} days of booking for a full refund, as long as your session has not taken place.`,
@@ -48,4 +48,4 @@ export function stripeTermsMessage(links: { terms: string; policy: string }): st
 }
 
 /** Directly above Stripe's Pay button. */
-export const STRIPE_SUBMIT_MESSAGE = `One private coaching session. No refund if you change your mind or miss it; move it free if you ask at least ${moveNoticeHours} hours before. If we cancel, you choose a refund or a new time.`;
+export const STRIPE_SUBMIT_MESSAGE = `One private coaching session. No refund if you change your mind or miss it; move it once, free, if you do it at least ${moveNoticeHours} hours before. If we cancel, you choose a refund or a new time.`;

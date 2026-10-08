@@ -19,13 +19,14 @@ const state = vi.hoisted(() => ({
   cronSecret: "test-cron-secret-long-enough-for-the-minimum" as string | undefined,
   emailConfigured: true,
   realIdentity: true,
+  manageSecret: "x".repeat(40) as string | undefined,
 }));
 
 let provider = new MockEmailProvider();
 let db: PGlite;
 
 vi.mock("@/lib/env", () => ({
-  serverEnv: () => ({ CRON_SECRET: state.cronSecret }),
+  serverEnv: () => ({ CRON_SECRET: state.cronSecret, MANAGE_LINK_SECRET: state.manageSecret }),
   clientEnv: { NEXT_PUBLIC_SITE_ENV: "development", NEXT_PUBLIC_SITE_URL: "http://localhost:3000" },
 }));
 
@@ -81,6 +82,7 @@ beforeEach(() => {
   state.cronSecret = "test-cron-secret-long-enough-for-the-minimum";
   state.emailConfigured = true;
   state.realIdentity = true;
+  state.manageSecret = "x".repeat(40);
   provider = new MockEmailProvider();
   logs = [];
   setLogSink((record) => {
@@ -507,6 +509,57 @@ describe("the booking desk's copy", () => {
   is where the session reaches their calendar: an "add to calendar" file with
   the join link, one per booking id so a later version replaces it.
 */
+/*
+  Moving a session: the confirmation carries the customer's own link while
+  their one move is unused, and the email after a move carries the new time,
+  a copy for the booking desk, and a calendar file that replaces the first.
+*/
+describe("moving a session", () => {
+  it("puts the customer's own move link in the booking confirmation", async () => {
+    const { bookingId } = await scheduledBooking({ meetingUrl: "https://teams.example/join" });
+    await queueForBooking(runner, bookingId, [
+      { templateKey: "booking_confirmation", scheduledFor: PAST },
+    ]);
+
+    await run();
+
+    expect(provider.sent[0]?.html).toContain("http://localhost:3000/training/book/manage?t=v1.");
+    expect(provider.sent[0]?.text).toContain("Reschedule my session");
+  });
+
+  it("asks for a reply instead when no link can be signed", async () => {
+    state.manageSecret = undefined;
+    const { bookingId } = await scheduledBooking({ meetingUrl: "https://teams.example/join" });
+    await queueForBooking(runner, bookingId, [
+      { templateKey: "booking_confirmation", scheduledFor: PAST },
+    ]);
+
+    await run();
+
+    expect(provider.sent[0]?.html).not.toContain("/book/manage");
+    expect(provider.sent[0]?.text).toContain("Reply to this email");
+  });
+
+  it("sends the moved session's details, a desk copy and a calendar file that replaces the first", async () => {
+    const { bookingId } = await scheduledBooking({ meetingUrl: "https://teams.example/join" });
+    await runner.query("update bookings set reschedule_count = 1 where id = $1", [bookingId]);
+    await queueForBooking(runner, bookingId, [
+      { templateKey: "reschedule_confirmation", scheduledFor: PAST },
+    ]);
+
+    await run();
+
+    const sent = provider.sent[0];
+    expect(sent?.subject).toMatch(/^Moved: /);
+    expect(sent?.bcc).toBe("help@example.com");
+    expect(sent?.text).toContain("final");
+    expect(sent?.html).not.toContain("/book/manage");
+    const ics = (sent?.attachments?.[0]?.content ?? "").replace(/\r\n /g, "");
+    expect(ics).toContain(`UID:booking-${bookingId}@zaaheen.com`);
+    expect(ics).toContain("SEQUENCE:1");
+  });
+});
+
 describe("the add-to-calendar file", () => {
   it("rides on the booking confirmation with the session's time and join link", async () => {
     const { bookingId } = await scheduledBooking({ meetingUrl: "https://teams.example/join" });

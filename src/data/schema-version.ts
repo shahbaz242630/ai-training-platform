@@ -9,7 +9,7 @@ import type { QueryRunner } from "./db";
  * the database is behind: a migration that was never applied would otherwise
  * show up only as a query failing in front of a customer.
  */
-export const EXPECTED_SCHEMA_VERSION = "20261007120000";
+export const EXPECTED_SCHEMA_VERSION = "20261008150000";
 
 /** The newest version the migration ledger records; null when there is no ledger. */
 export async function readAppliedSchemaVersion(runner: QueryRunner): Promise<string | null> {
