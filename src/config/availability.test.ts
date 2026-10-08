@@ -1,17 +1,14 @@
 import { describe, it, expect } from "vitest";
 import { AVAILABILITY, windowsForWeekday, type AvailabilityRules } from "./availability";
-import { at, type Weekday } from "@/lib/time";
+import { addDays, at, gstIsoDate, toGstParts, type Weekday } from "@/lib/time";
+import { candidateSlots } from "@/domain/scheduling/rules";
 
 /*
-  These tests check the SHAPE of the availability rules, never the particular
-  hours. The hours are a business decision and are currently placeholders; a
-  test asserting "Saturday starts at 10:00" would have to be edited the day the
-  founder picks his real hours, which teaches everyone to edit tests to make
-  them pass.
-
-  The shape, though, must hold whatever the hours become - and every one of
-  these failures is silent in production. A window that ends before it starts
-  simply offers nothing, and looks identical to a quiet week.
+  Most of these tests check the SHAPE of the availability rules, which must
+  hold whatever the hours become - and every one of these failures is silent
+  in production. A window that ends before it starts simply offers nothing,
+  and looks identical to a quiet week. One block below pins the founder's
+  confirmed hours themselves.
 */
 
 const MINUTES_IN_A_DAY = 24 * 60;
@@ -72,6 +69,46 @@ describe("the shipped availability rules", () => {
       (window) => window.endMinutes - window.startMinutes >= longestSessionMinutes,
     );
     expect(fits).toBe(true);
+  });
+});
+
+describe("the founder's real hours (confirmed 2026-10-08)", () => {
+  /*
+    The one test that pins the hours themselves, because they are now a
+    decision rather than a placeholder: two 90-minute sessions every evening,
+    7:00-8:30pm and 9:00-10:30pm Dubai time, seven days a week, with the break
+    between them. Change this test only when the founder changes his hours.
+  */
+
+  /** Monday 7 September 2026, 10:00 in Dubai. */
+  const NOW = new Date("2026-09-07T06:00:00.000Z");
+  const query = { from: NOW, to: addDays(NOW, 10), durationMinutes: 90 };
+
+  function startsByDay(slots: readonly { start: Date }[]): Map<string, number[]> {
+    const byDay = new Map<string, number[]>();
+    for (const slot of slots) {
+      const day = gstIsoDate(slot.start);
+      byDay.set(day, [...(byDay.get(day) ?? []), toGstParts(slot.start).minutesOfDay]);
+    }
+    return byDay;
+  }
+
+  it("offers exactly 7pm and 9pm on every day of the week", () => {
+    const byDay = startsByDay(candidateSlots(query, AVAILABILITY, NOW, []));
+    // Tuesday 8 to Monday 14 September: seven whole days past the notice period.
+    const week = ["08", "09", "10", "11", "12", "13", "14"].map((d) => `2026-09-${d}`);
+    for (const day of week) {
+      expect(byDay.get(day)).toEqual([at(19), at(21)]);
+    }
+  });
+
+  it("still offers 9pm when 7pm is booked, so the break holds the buffer", () => {
+    const sevenPm = {
+      start: new Date("2026-09-10T15:00:00.000Z"),
+      end: new Date("2026-09-10T16:30:00.000Z"),
+    };
+    const byDay = startsByDay(candidateSlots(query, AVAILABILITY, NOW, [sevenPm]));
+    expect(byDay.get("2026-09-10")).toEqual([at(21)]);
   });
 });
 
