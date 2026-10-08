@@ -7,18 +7,13 @@ import { at, type Weekday } from "@/lib/time";
  * generates slots from these and from the calendar; no component invents its
  * own hours.
  *
- * ============================================================================
- * THE HOURS BELOW ARE PLACEHOLDERS AND HAVE NOT BEEN CONFIRMED.
- *
- * They exist so the booking flow can be built and tested end to end. They are
- * a guess at a working pattern, not a decision, and no customer has seen them:
- * nothing renders availability yet, and the whole site is noindex.
- *
- * Replace them with real hours before any booking surface goes live. Getting
- * this wrong does not fail loudly - it silently offers a customer a time
- * nobody intends to be available, and that is discovered when someone does not
- * turn up to a session they paid for.
- * ============================================================================
+ * The hours are the founder's, confirmed 2026-10-08: two 90-minute sessions
+ * every evening, 7:00-8:30pm and 9:00-10:30pm Dubai time, seven days a week,
+ * with the break between them. The 120-minute slot interval is what makes it
+ * exactly two: a session can only start at 7pm or 9pm, so no 7:30 booking can
+ * swallow the whole evening. Getting this wrong does not fail loudly - it
+ * silently offers a customer a time nobody intends to be available - so
+ * `availability.test.ts` pins these exact starts.
  */
 
 export interface AvailabilityWindow {
@@ -40,24 +35,18 @@ export interface AvailabilityRules {
   readonly bookingHorizonDays: number;
 }
 
-const MONDAY: Weekday = 1;
-const TUESDAY: Weekday = 2;
-const WEDNESDAY: Weekday = 3;
-const THURSDAY: Weekday = 4;
-const SATURDAY: Weekday = 6;
+const EVERY_DAY: readonly Weekday[] = [0, 1, 2, 3, 4, 5, 6];
 
-/** Weekday evenings and Saturday daytime. PLACEHOLDER - see the note above. */
-const PLACEHOLDER_WINDOWS: readonly AvailabilityWindow[] = [
-  { weekday: MONDAY, startMinutes: at(18), endMinutes: at(21, 30) },
-  { weekday: TUESDAY, startMinutes: at(18), endMinutes: at(21, 30) },
-  { weekday: WEDNESDAY, startMinutes: at(18), endMinutes: at(21, 30) },
-  { weekday: THURSDAY, startMinutes: at(18), endMinutes: at(21, 30) },
-  { weekday: SATURDAY, startMinutes: at(10), endMinutes: at(16) },
-];
+/** Every evening, 7:00 to 10:30pm Dubai time. */
+const EVENING_WINDOWS: readonly AvailabilityWindow[] = EVERY_DAY.map((weekday) => ({
+  weekday,
+  startMinutes: at(19),
+  endMinutes: at(22, 30),
+}));
 
 export const AVAILABILITY: AvailabilityRules = {
-  windows: PLACEHOLDER_WINDOWS,
-  slotIntervalMinutes: 30,
+  windows: EVENING_WINDOWS,
+  slotIntervalMinutes: 120,
   bufferMinutes: 15,
   minimumNoticeHours: 24,
   bookingHorizonDays: 60,

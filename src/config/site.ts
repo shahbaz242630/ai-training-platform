@@ -154,6 +154,6 @@ export const FOOTER_LINKS = [
 export const DELIVERY = {
   format: "Private 1-to-1, online via Microsoft Teams",
   durationMinutes: 90,
-  availability: "Evenings, Monday to Thursday, plus selected weekend slots",
+  availability: "Every evening, seven days a week, starting at 7pm or 9pm Dubai time",
   timezoneLabel: "Gulf Standard Time (UTC+4)",
 } as const;

@@ -37,7 +37,7 @@ export const FAQS: readonly Faq[] = [
     id: "evenings",
     question: "Are evening appointments available?",
     answer:
-      "Yes, and they are the default. Sessions run in the evening Monday to Thursday plus selected weekend slots, because most people booking these work or study during the day. Times are shown in your own timezone alongside Gulf Standard Time.",
+      "Yes, every evening, seven days a week. Sessions start at 7pm or 9pm Dubai time, because most people booking these work or study during the day. Times are shown in your own timezone alongside Gulf Standard Time.",
   },
   {
     id: "single-session",
