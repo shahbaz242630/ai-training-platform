@@ -28,10 +28,19 @@ export interface EmailMessage {
    */
   readonly idempotencyKey: string;
   /**
-   * A blind copy, for the rare message the business must also see (a
-   * withdrawal, which a person has to act on). Absent on everything else.
+   * A blind copy, for the messages the business must also see: a booking
+   * confirmation, and a withdrawal a person has to act on. Absent on the rest.
    */
   readonly bcc?: string;
+  /** Files to attach, such as the "add to calendar" file on a confirmation. Absent on most messages. */
+  readonly attachments?: readonly EmailAttachment[];
+}
+
+export interface EmailAttachment {
+  readonly name: string;
+  readonly contentType: string;
+  /** The file as text; the adapter encodes it for the wire. */
+  readonly content: string;
 }
 
 export type SendResult =

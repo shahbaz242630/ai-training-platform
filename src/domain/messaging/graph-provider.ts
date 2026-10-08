@@ -59,6 +59,16 @@ export class GraphEmailProvider implements EmailProvider {
             body: { contentType: "HTML", content: message.html },
             toRecipients: [{ emailAddress: { address: message.to } }],
             ...(message.bcc ? { bccRecipients: [{ emailAddress: { address: message.bcc } }] } : {}),
+            ...(message.attachments?.length
+              ? {
+                  attachments: message.attachments.map((file) => ({
+                    "@odata.type": "#microsoft.graph.fileAttachment",
+                    name: file.name,
+                    contentType: file.contentType,
+                    contentBytes: Buffer.from(file.content, "utf8").toString("base64"),
+                  })),
+                }
+              : {}),
             internetMessageHeaders: [{ name: KEY_HEADER, value: message.idempotencyKey }],
           },
           saveToSentItems: true,

@@ -248,7 +248,7 @@ describe("holdSlot", () => {
 });
 
 describe("confirmSlot", () => {
-  it("promotes the event, invites the attendee, switches on Teams, and returns the join link", async () => {
+  it("promotes the event, switches on Teams, invites nobody, and returns the join link", async () => {
     sleeps.length = 0;
     const { graph, graphCalls } = provider([
       { status: 200, body: graphEvent({}) },
@@ -273,10 +273,11 @@ describe("confirmSlot", () => {
       showAs: "busy",
       isOnlineMeeting: true,
       onlineMeetingProvider: "teamsForBusiness",
-      attendees: [
-        { emailAddress: { address: "amina@example.com", name: "Amina Khan" }, type: "required" },
-      ],
     });
+    // The customer is told by the booking desk's email, never by an invitation
+    // from the coach's mailbox. The coach's calendar entry still says who it is.
+    expect(patch?.body).not.toHaveProperty("attendees");
+    expect(JSON.stringify(patch?.body)).toContain("Amina Khan (amina@example.com)");
     expect(confirmed).toMatchObject({
       status: "confirmed",
       meetingUrl: "https://teams.microsoft.com/l/x",
@@ -358,15 +359,15 @@ describe("releaseSlot, cancelEvent and getEvent", () => {
     expect(graphCalls().map((c) => c.method)).toEqual(["DELETE", "DELETE"]);
   });
 
-  it("cancels through the calendar's own action so the attendee is told, and refuses a missing event", async () => {
+  it("cancels by deleting the event (nobody is invited, so nobody to notify), and refuses a missing event", async () => {
     const { graph, graphCalls } = provider([
-      { status: 202 },
+      { status: 204 },
       { status: 404, body: { error: { code: "ErrorItemNotFound", message: "no" } } },
     ]);
     await graph.cancelEvent("evt_1");
     expect(graphCalls()[0]).toMatchObject({
-      method: "POST",
-      url: `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(MAILBOX)}/events/evt_1/cancel`,
+      method: "DELETE",
+      url: `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(MAILBOX)}/events/evt_1`,
     });
     await expect(graph.cancelEvent("evt_gone")).rejects.toBeInstanceOf(EventNotFoundError);
   });

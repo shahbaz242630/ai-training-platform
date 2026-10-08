@@ -22,8 +22,9 @@ import {
 } from "@/data/communications";
 import { loadWithdrawal } from "@/data/withdrawals";
 import { bookingReference } from "@/domain/booking/withdrawal";
+import { buildCalendarFile } from "@/domain/messaging/calendar-file";
 import { getEmailProvider } from "@/domain/messaging/factory";
-import type { EmailProvider } from "@/domain/messaging/provider";
+import type { EmailAttachment, EmailProvider } from "@/domain/messaging/provider";
 import { nextAttemptAt } from "@/domain/messaging/schedule";
 import { decideSendTemplate } from "@/domain/messaging/sending-policy";
 import { authoriseCronRequest } from "@/lib/cron-auth";
@@ -159,7 +160,7 @@ async function deliver(
   const prepared =
     row.templateKey === "withdrawal_acknowledgement"
       ? await prepareWithdrawalAcknowledgement(context)
-      : await prepareSessionEmail(row, context);
+      : await prepareSessionEmail(row, context, now);
   if (!prepared.ok) return giveUp(row, prepared.reason, now);
   const { email } = prepared;
 
@@ -179,6 +180,7 @@ async function deliver(
     text: email.text,
     idempotencyKey: `communication:${row.id}`,
     ...(prepared.bcc ? { bcc: prepared.bcc } : {}),
+    ...(prepared.attachments ? { attachments: prepared.attachments } : {}),
   });
 
   if (result.ok) {
@@ -206,13 +208,19 @@ async function deliver(
 }
 
 type Prepared =
-  | { readonly ok: true; readonly email: RenderedEmail; readonly bcc?: string }
+  | {
+      readonly ok: true;
+      readonly email: RenderedEmail;
+      readonly bcc?: string;
+      readonly attachments?: readonly EmailAttachment[];
+    }
   | { readonly ok: false; readonly reason: string };
 
 /** A message about a session: it needs the session's time, and says nothing without one. */
 async function prepareSessionEmail(
   row: ClaimedCommunication,
   context: CommunicationContext,
+  now: Date,
 ): Promise<Prepared> {
   if (context.scheduledStart === null || context.scheduledEnd === null) {
     // Nothing about a session can be said until it has a time. A message
@@ -237,11 +245,38 @@ async function prepareSessionEmail(
         ? { ...context.agreement, amountPaidFils: context.amountPaidFils }
         : null,
     });
+    if (row.templateKey !== "booking_confirmation") return { ok: true, email };
+
     // The booking desk keeps a copy of each confirmed booking in its own inbox.
     // Only the confirmation: copies of every reminder would bury that inbox.
-    return row.templateKey === "booking_confirmation"
-      ? { ok: true, email, bcc: supportEmail() }
-      : { ok: true, email };
+    // The customer is never invited from the coach's mailbox, so this is
+    // also where the session reaches their calendar.
+    const calendarFile: EmailAttachment | null = context.meetingUrl
+      ? {
+          name: "zaaheen-session.ics",
+          contentType: "text/calendar",
+          content: buildCalendarFile({
+            uid: `booking-${context.bookingId}@zaaheen.com`,
+            sequence: 0,
+            start: context.scheduledStart,
+            end: context.scheduledEnd,
+            stamp: now,
+            summary: `${session.title} (Zaaheen)`,
+            description: [
+              "Your private one-to-one session.",
+              `Join on Microsoft Teams: ${context.meetingUrl}`,
+              `Booking reference: ${bookingReference(context.bookingId)}`,
+            ].join("\n"),
+            url: context.meetingUrl,
+          }),
+        }
+      : null;
+    return {
+      ok: true,
+      email,
+      bcc: supportEmail(),
+      ...(calendarFile ? { attachments: [calendarFile] } : {}),
+    };
   } catch (error) {
     if (error instanceof TemplateNotAvailableError) return { ok: false, reason: error.message };
     throw error;

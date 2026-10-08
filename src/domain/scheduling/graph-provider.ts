@@ -23,12 +23,12 @@ import { candidateSlots, isBookableSlot } from "./rules";
  * That includes the founder's own appointments, which is the whole reason a
  * real provider exists: a personal commitment must take a slot off sale.
  *
- * The sequence follows the port. A hold is a TENTATIVE event with no
- * attendee, so nothing is emailed to anybody before payment. Confirmation
- * patches it to busy, switches on the Teams meeting, and adds the customer -
- * which is what makes Outlook send the invitation carrying the join link.
- * Release deletes; cancel uses the calendar's own cancel action, so an
- * invited customer is told.
+ * The sequence follows the port. The customer is never an attendee: an
+ * invitation would come from the coach's own mailbox, and everything a
+ * customer receives comes from the booking desk instead, with the join link
+ * and an "add to calendar" file. A hold is a TENTATIVE event; confirmation
+ * patches it to busy, switches on the Teams meeting, and notes who booked it.
+ * Release and cancel both delete: there is no invited customer to notify.
  *
  * Every time sent to Graph is UTC, and every time read back is asked for in
  * UTC, so no offset arithmetic happens here at all.
@@ -147,15 +147,11 @@ export class GraphSchedulingProvider implements SchedulingProvider {
         onlineMeetingProvider: "teamsForBusiness",
         isReminderOn: true,
         reminderMinutesBeforeStart: 15,
-        attendees: [
-          {
-            emailAddress: { address: attendee.attendeeEmail, name: attendee.attendeeName },
-            type: "required",
-          },
-        ],
+        // No attendees: the customer gets the join link from the booking desk.
+        // The coach's entry says who booked, since nobody is on the invite list.
         body: {
           contentType: "text",
-          content: "Your private session. Join with the Teams link in this invitation.",
+          content: `Booked by ${attendee.attendeeName} (${attendee.attendeeEmail}). They join with the Teams link in their confirmation email.`,
         },
       },
     });
@@ -191,12 +187,9 @@ export class GraphSchedulingProvider implements SchedulingProvider {
 
   async cancelEvent(externalId: string): Promise<void> {
     try {
-      // The calendar's own cancel, not a delete: the invited customer is told.
-      await this.client.request({
-        method: "POST",
-        path: this.eventPath(`${externalId}/cancel`),
-        body: { comment: "This session has been cancelled." },
-      });
+      // A delete: nobody is invited, so there is nobody for the calendar to tell.
+      // The customer hears from the booking desk instead.
+      await this.client.request({ method: "DELETE", path: this.eventPath(externalId) });
     } catch (error) {
       if (error instanceof GraphNotFoundError) throw new EventNotFoundError(externalId);
       throw error;

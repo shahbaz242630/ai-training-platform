@@ -63,10 +63,10 @@ export interface HoldSlotInput {
 /**
  * Who the session is for, given at confirmation rather than at hold time.
  *
- * Adding the attendee to a calendar event is what makes the calendar send
- * them an invitation. Before payment that would tell a customer they have a
- * session they do not yet have, so the attendee is attached only when the
- * event is promoted.
+ * Written onto the coach's calendar entry so it says who booked. The
+ * customer is never made an attendee: an invitation would come from the
+ * coach's mailbox, and the booking desk's confirmation carries the join link
+ * and an "add to calendar" file instead.
  */
 export interface ConfirmSlotInput {
   readonly attendeeName: string;
