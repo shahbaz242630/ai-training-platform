@@ -469,6 +469,39 @@ describe("the withdrawal acknowledgement", () => {
   });
 });
 
+/*
+  The booking desk keeps a copy of every confirmed booking in its own inbox, so
+  a booking can be found there without opening the database. Only the
+  confirmation: a copy of every reminder and follow-up would bury the inbox in
+  four or five messages per booking.
+*/
+describe("the booking desk's copy", () => {
+  it("gets a blind copy of the booking confirmation", async () => {
+    const { bookingId, email } = await scheduledBooking({
+      meetingUrl: "https://teams.example/join",
+    });
+    await queueForBooking(runner, bookingId, [
+      { templateKey: "booking_confirmation", scheduledFor: PAST },
+    ]);
+
+    await run();
+
+    expect(provider.sent).toHaveLength(1);
+    expect(provider.sent[0]?.to).toBe(email);
+    expect(provider.sent[0]?.bcc).toBe("help@example.com");
+  });
+
+  it("gets no copy of a reminder", async () => {
+    const { bookingId } = await scheduledBooking({ meetingUrl: "https://teams.example/join" });
+    await queueForBooking(runner, bookingId, [{ templateKey: "reminder_24h", scheduledFor: PAST }]);
+
+    await run();
+
+    expect(provider.sent).toHaveLength(1);
+    expect(provider.sent[0]?.bcc).toBeUndefined();
+  });
+});
+
 describe("a booking withdrawn after its reminder was queued", () => {
   it("withdraws the reminder instead of sending it, even if the send run already holds it", async () => {
     const { bookingId } = await scheduledBooking({ meetingUrl: "https://teams.example/join" });
