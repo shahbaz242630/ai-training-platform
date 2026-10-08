@@ -1,8 +1,25 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { BOOKING_POLICY, TRAINING_BASE } from "@/config/site";
 import { moveBookingAction } from "./actions";
 import type { ManageView } from "./flow";
+
+/** The other thing a UK or EU customer may want to do here: the withdrawal page, prefilled. */
+function WithdrawNote({ reference }: { readonly reference: string }) {
+  return (
+    <p className="text-ink-muted mt-4 text-[12.5px] leading-normal">
+      Live in the UK or EU and want to cancel within {BOOKING_POLICY.cancellationDays} days instead?{" "}
+      <a
+        href={`${TRAINING_BASE}/book/withdraw?ref=${reference}`}
+        className="text-accent underline underline-offset-[3px]"
+      >
+        Withdraw from contract here
+      </a>
+      .
+    </p>
+  );
+}
 
 /**
  * Pick a new time, then confirm. Nothing here decides anything: the server
@@ -53,6 +70,7 @@ export function RescheduleForm({
       <Card title="Your booking">
         {facts}
         <p className="text-ink-soft mt-4 text-[14.5px] leading-relaxed">{view.notMovable}</p>
+        <WithdrawNote reference={view.reference} />
       </Card>
     );
   }
@@ -125,6 +143,7 @@ export function RescheduleForm({
       <p className="text-ink-muted mt-3 text-[12.5px] leading-normal">
         You can move a booking once. After that, the new time is final.
       </p>
+      <WithdrawNote reference={view.reference} />
     </Card>
   );
 }

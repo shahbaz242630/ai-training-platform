@@ -17,6 +17,7 @@ import {
 } from "./WithdrawalAcknowledgementEmail";
 import { BookingConfirmationEmail, bookingConfirmationSubject } from "./BookingConfirmationEmail";
 import { FollowUpEmail, followUpSubject } from "./FollowUpEmail";
+import { ManageLinkEmail, manageLinkSubject } from "./ManageLinkEmail";
 import { PaymentReceivedEmail, paymentReceivedSubject } from "./PaymentReceivedEmail";
 import { ReminderEmail, reminderSubject } from "./ReminderEmail";
 import {
@@ -114,6 +115,7 @@ export async function renderTemplate(
     policyUrl: POLICY_LINKS.bookingAndRefunds,
     cancellationDays: BOOKING_POLICY.cancellationDays,
     moveNoticeHours: BOOKING_POLICY.moveNoticeHours,
+    findBookingUrl: `${clientEnv.NEXT_PUBLIC_SITE_URL}${TRAINING_BASE}/book/manage`,
   };
 
   /*
@@ -199,6 +201,37 @@ export async function renderTemplate(
     default:
       throw new TemplateNotAvailableError(templateKey, "no template exists for it yet");
   }
+}
+
+/** The "Manage my booking" email: one link per upcoming booking, each valid for a short time. */
+export interface ManageLinkEmailModel {
+  readonly firstName: string;
+  readonly bookings: ReadonlyArray<{
+    readonly sessionTitle: string;
+    readonly start: Date;
+    readonly timeZone: string;
+    readonly reference: string;
+    readonly manageUrl: string;
+  }>;
+  readonly linkMinutes: number;
+}
+
+export async function renderManageLinkEmail(model: ManageLinkEmailModel): Promise<RenderedEmail> {
+  return rendered(
+    manageLinkSubject(),
+    <ManageLinkEmail
+      firstName={model.firstName}
+      bookings={model.bookings.map((b) => ({
+        sessionTitle: b.sessionTitle,
+        when: describeInstant(b.start, b.timeZone),
+        reference: b.reference,
+        manageUrl: b.manageUrl,
+      }))}
+      linkMinutes={model.linkMinutes}
+      companyName={companyName()}
+      supportEmail={supportEmail()}
+    />,
+  );
 }
 
 /** What the withdrawal acknowledgement states. Not a session email: a booking may have no time yet. */

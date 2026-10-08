@@ -73,7 +73,7 @@ export interface ManageView {
 }
 
 export const LINK_MESSAGE = (): string =>
-  `This link has expired or is not valid. Please ${contactLine()} and we will help.`;
+  "This link has expired or is not valid. You can get a new one with the email address you booked with.";
 
 const TIME_GONE = "That time is no longer available. Please choose another.";
 const TAKEN = "Someone has just booked that time. Please choose another.";
@@ -100,8 +100,10 @@ export async function loadManageView(
   if (bookingId === null) return { ok: false, message: LINK_MESSAGE() };
 
   const booking = await deps.transaction((runner) => loadBookingForManage(runner, bookingId));
-  const session = booking ? getSessionBySlug(booking.sessionSlug) : undefined;
-  if (!booking || !session || !booking.scheduledStart) {
+  // A link to a booking that no longer exists reads like any other dead link: ask for a new one.
+  if (!booking) return { ok: false, message: LINK_MESSAGE() };
+  const session = getSessionBySlug(booking.sessionSlug);
+  if (!session || !booking.scheduledStart) {
     return { ok: false, message: REFUSALS.not_movable() };
   }
 
