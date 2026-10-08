@@ -40,7 +40,8 @@ export function candidateSlots(
   if (query.durationMinutes <= 0) return [];
 
   const earliest = maxDate(query.from, addMinutes(now, rules.minimumNoticeHours * 60));
-  const latest = minDate(query.to, addDays(now, rules.bookingHorizonDays));
+  // A move brings its own horizon (90 days from the original session); a new booking uses ours.
+  const latest = minDate(query.to, query.horizon ?? addDays(now, rules.bookingHorizonDays));
   if (earliest.getTime() >= latest.getTime()) return [];
 
   const slots: TimeSlot[] = [];

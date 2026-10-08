@@ -372,6 +372,29 @@ describe("releaseSlot, cancelEvent and getEvent", () => {
     await expect(graph.cancelEvent("evt_gone")).rejects.toBeInstanceOf(EventNotFoundError);
   });
 
+  it("moves an event to a new time in UTC, and refuses a missing event", async () => {
+    const { graph, graphCalls } = provider([
+      { status: 200, body: graphEvent({ showAs: "busy" }) },
+      { status: 404, body: { error: { code: "ErrorItemNotFound", message: "no" } } },
+    ]);
+    const start = new Date("2026-09-12T17:00:00.000Z");
+    const end = new Date("2026-09-12T18:30:00.000Z");
+
+    await graph.moveEvent("evt_1", { start, end });
+
+    expect(graphCalls()[0]).toMatchObject({
+      method: "PATCH",
+      url: `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(MAILBOX)}/events/evt_1`,
+      body: {
+        start: { dateTime: "2026-09-12T17:00:00", timeZone: "UTC" },
+        end: { dateTime: "2026-09-12T18:30:00", timeZone: "UTC" },
+      },
+    });
+    await expect(graph.moveEvent("evt_gone", { start, end })).rejects.toBeInstanceOf(
+      EventNotFoundError,
+    );
+  });
+
   it("reads an event back, hands out a link only once confirmed, and is null when there is none", async () => {
     const { graph } = provider([
       { status: 200, body: graphEvent({ showAs: "tentative", joinUrl: "https://early.example" }) },

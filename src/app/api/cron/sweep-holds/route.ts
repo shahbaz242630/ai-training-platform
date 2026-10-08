@@ -6,6 +6,7 @@ import {
   markCalendarReleased,
 } from "@/data/slot-holds";
 import { confirmBookingOnCalendar, listBookingsAwaitingConfirmation } from "@/data/confirmation";
+import { listCalendarMovesDue, syncCalendarMove } from "@/data/reschedule";
 import { getSchedulingProvider } from "@/domain/scheduling/factory";
 import type { SchedulingProvider } from "@/domain/scheduling/provider";
 import { countPaidButUnscheduled } from "@/data/audit-events";
@@ -121,6 +122,14 @@ export async function POST(request: Request): Promise<NextResponse> {
     const confirmations = await retryConfirmations(now);
 
     /*
+      Sessions a customer moved whose calendar event still shows the old time:
+      the move commits in the database first, and the event follows here until
+      it succeeds. Until then the coach's calendar is wrong, so this runs
+      every time.
+    */
+    const calendarMoves = await applyCalendarMoves();
+
+    /*
       What the privacy notice says we stop keeping, deleted on schedule. Every
       step is keyed on time, so a run with nothing due changes nothing.
     */
@@ -137,6 +146,7 @@ export async function POST(request: Request): Promise<NextResponse> {
       calendarEventsReleased: calendar.released,
       calendarEventsStillBlocking: calendar.failed,
       confirmations,
+      calendarMoves,
       retention,
       // Reported on every run, so the number is visible to whatever calls this
       // rather than only in a log somebody has to go looking for.
@@ -219,6 +229,40 @@ async function retryConfirmations(
       counts.failed += 1;
       logger.error("a paid booking could not be confirmed on the calendar; will retry", {
         bookingId,
+        error: (error as Error).message,
+      });
+    }
+  }
+  return counts;
+}
+
+async function applyCalendarMoves(): Promise<{ moved: number; missing: number; failed: number }> {
+  const due = await withTransaction((runner) => listCalendarMovesDue(runner, 20));
+  const counts = { moved: 0, missing: 0, failed: 0 };
+  if (due.length === 0) return counts;
+
+  const provider = calendarOrNull("moved sessions cannot be moved on the calendar");
+  if (provider === null) return { ...counts, failed: due.length };
+
+  for (const booking of due) {
+    try {
+      const result = await syncCalendarMove({
+        bookingId: booking.bookingId,
+        provider,
+        transaction: withTransaction,
+      });
+      if (result === "moved") counts.moved += 1;
+      if (result === "event_missing") {
+        counts.missing += 1;
+        logger.error(
+          "a moved session has no calendar event - put it back on the calendar by hand",
+          { bookingId: booking.bookingId, calendarEventId: booking.calendarEventId },
+        );
+      }
+    } catch (error) {
+      counts.failed += 1;
+      logger.error("a moved session's calendar event still shows the old time; will retry", {
+        bookingId: booking.bookingId,
         error: (error as Error).message,
       });
     }

@@ -53,10 +53,18 @@ export function BookingConfirmationEmail(props: BookingConfirmationEmailProps) {
         Have the tools you want to work with open and signed in, and bring one real task from your
         own work. We will spend the time on that, not on slides.
       </p>
-      <p style={emailStyles.muted}>
-        Need a different time? Reply to this email as early as you can and we will find another slot
-        together.
-      </p>
+      {props.rights.manageUrl ? (
+        <p style={emailStyles.muted}>
+          Need a different time? You can move your session once, free, up to{" "}
+          {props.rights.moveNoticeHours} hours before it starts:{" "}
+          <a href={props.rights.manageUrl}>Reschedule my session</a>.
+        </p>
+      ) : (
+        <p style={emailStyles.muted}>
+          Need a different time? Reply to this email at least {props.rights.moveNoticeHours} hours
+          before it starts and we will help.
+        </p>
+      )}
       <BookingRights {...props.rights} />
     </EmailLayout>
   );

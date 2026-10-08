@@ -19,6 +19,10 @@ import { BookingConfirmationEmail, bookingConfirmationSubject } from "./BookingC
 import { FollowUpEmail, followUpSubject } from "./FollowUpEmail";
 import { PaymentReceivedEmail, paymentReceivedSubject } from "./PaymentReceivedEmail";
 import { ReminderEmail, reminderSubject } from "./ReminderEmail";
+import {
+  RescheduleConfirmationEmail,
+  rescheduleConfirmationSubject,
+} from "./RescheduleConfirmationEmail";
 
 /**
  * From a template key and the facts about a booking to a sendable email.
@@ -47,6 +51,8 @@ export interface SessionEmailModel {
   readonly agreement?: AgreementModel | null;
   /** The catalogue's natural next step after this session, if it has one. */
   readonly nextSessionTitle: string | null;
+  /** The customer's own link to move the session; only while a move is still available. */
+  readonly manageUrl?: string | null;
 }
 
 export interface AgreementModel {
@@ -146,9 +152,21 @@ export async function renderTemplate(
           {...details}
           {...identity}
           {...person}
-          rights={rights}
+          rights={{ ...rights, manageUrl: model.manageUrl ?? null }}
           joinUrl={joinUrl()}
           durationMinutes={model.durationMinutes}
+        />,
+      );
+
+    case "reschedule_confirmation":
+      return rendered(
+        rescheduleConfirmationSubject(details),
+        <RescheduleConfirmationEmail
+          {...details}
+          {...identity}
+          {...person}
+          rights={rights}
+          joinUrl={joinUrl()}
         />,
       );
 

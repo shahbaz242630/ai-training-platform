@@ -184,6 +184,14 @@ export interface BookingRightsProps {
   readonly policyUrl: string;
   readonly cancellationDays: number;
   readonly moveNoticeHours: number;
+  /**
+   * The customer's own link to move the session, on the confirmation only.
+   * Absent elsewhere: the payment email arrives before the session is
+   * confirmed, so it points to the confirmation instead.
+   */
+  readonly manageUrl?: string | null;
+  /** The customer has used their one move: no move is offered any more. */
+  readonly moved?: boolean;
 }
 
 /**
@@ -198,8 +206,22 @@ export function BookingRights(props: BookingRightsProps) {
         <strong>Booking reference:</strong> {props.reference}
       </p>
       <p style={emailStyles.muted}>
-        To move your session, reply to this email at least {props.moveNoticeHours} hours before it
-        starts. If you live in the UK or EU and booked for yourself, you can cancel within{" "}
+        {props.moved ? (
+          "Your session has been moved once, so its time is final."
+        ) : (
+          <>
+            You can move your session once, free, at least {props.moveNoticeHours} hours before it
+            starts
+            {props.manageUrl ? (
+              <>
+                : <a href={props.manageUrl}>Reschedule my session</a>.
+              </>
+            ) : (
+              ", with the link in your booking confirmation email."
+            )}
+          </>
+        )}{" "}
+        If you live in the UK or EU and booked for yourself, you can cancel within{" "}
         {props.cancellationDays} days of booking:{" "}
         <a href={props.withdrawUrl}>Withdraw from contract here</a>. Your booking follows our{" "}
         <a href={props.termsUrl}>Coaching Terms</a> and{" "}
