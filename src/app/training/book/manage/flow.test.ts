@@ -22,7 +22,8 @@ import {
  * the server at the moment it is confirmed.
  */
 
-const SECRET = "a-test-secret-that-is-long-enough-1234";
+// A plain run of one letter: long enough for the 32-character minimum, never mistaken for a key.
+const SECRET = "x".repeat(40);
 
 let db: PGlite;
 let runner: QueryRunner;

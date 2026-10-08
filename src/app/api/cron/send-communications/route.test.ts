@@ -19,7 +19,7 @@ const state = vi.hoisted(() => ({
   cronSecret: "test-cron-secret-long-enough-for-the-minimum" as string | undefined,
   emailConfigured: true,
   realIdentity: true,
-  manageSecret: "test-manage-link-secret-long-enough-1234" as string | undefined,
+  manageSecret: "x".repeat(40) as string | undefined,
 }));
 
 let provider = new MockEmailProvider();
@@ -82,7 +82,7 @@ beforeEach(() => {
   state.cronSecret = "test-cron-secret-long-enough-for-the-minimum";
   state.emailConfigured = true;
   state.realIdentity = true;
-  state.manageSecret = "test-manage-link-secret-long-enough-1234";
+  state.manageSecret = "x".repeat(40);
   provider = new MockEmailProvider();
   logs = [];
   setLogSink((record) => {

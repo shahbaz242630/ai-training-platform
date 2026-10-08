@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { createManageToken, readManageToken } from "./manage-link";
 
-const SECRET = "a-test-secret-that-is-long-enough-1234";
+// A plain run of one letter: long enough for the 32-character minimum, never mistaken for a key.
+const SECRET = "x".repeat(40);
 const BOOKING = "3f2a9c1e-5b7d-4e8f-9a0b-1c2d3e4f5a6b";
 const NOW = new Date("2026-09-08T09:00:00.000Z");
 const LATER = new Date("2026-09-10T15:00:00.000Z");
@@ -19,7 +20,7 @@ describe("manage links", () => {
 
   it("refuses a link signed with another secret", () => {
     const token = createManageToken({ bookingId: BOOKING, expiresAt: LATER }, SECRET);
-    expect(readManageToken(token, NOW, "another-secret-that-is-long-enough-5678")).toBeNull();
+    expect(readManageToken(token, NOW, "y".repeat(40))).toBeNull();
   });
 
   it("refuses a link whose booking or expiry was edited", () => {
