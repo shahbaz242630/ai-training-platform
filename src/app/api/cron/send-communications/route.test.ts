@@ -536,7 +536,7 @@ describe("moving a session", () => {
 
     await run();
 
-    expect(provider.sent[0]?.html).not.toContain("/book/manage");
+    expect(provider.sent[0]?.html).not.toContain("/book/manage?t=");
     expect(provider.sent[0]?.text).toContain("Reply to this email");
   });
 
@@ -553,7 +553,7 @@ describe("moving a session", () => {
     expect(sent?.subject).toMatch(/^Moved: /);
     expect(sent?.bcc).toBe("help@example.com");
     expect(sent?.text).toContain("final");
-    expect(sent?.html).not.toContain("/book/manage");
+    expect(sent?.html).not.toContain("/book/manage?t=");
     const ics = (sent?.attachments?.[0]?.content ?? "").replace(/\r\n /g, "");
     expect(ics).toContain(`UID:booking-${bookingId}@zaaheen.com`);
     expect(ics).toContain("SEQUENCE:1");

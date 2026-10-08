@@ -11,6 +11,7 @@ import { logger } from "@/lib/logger";
 import { createRateLimiter } from "@/lib/rate-limit";
 import { offeredSlots } from "../[slug]/availability";
 import { LINK_MESSAGE, MESSAGES, loadManageView } from "./flow";
+import { RequestLinkForm } from "./RequestLinkForm";
 import { RescheduleForm } from "./RescheduleForm";
 
 /**
@@ -55,7 +56,8 @@ export default async function ManagePage({ searchParams }: PageProps<"/training/
       />
     );
   } else if (token === "") {
-    content = <Notice message={LINK_MESSAGE()} />;
+    // No link: ask for the email address and send one.
+    content = <RequestLinkForm />;
   } else {
     const result = await loadManageView(token, {
       transaction: withTransaction,
@@ -70,6 +72,9 @@ export default async function ManagePage({ searchParams }: PageProps<"/training/
     });
     content = result.ok ? (
       <RescheduleForm token={token} view={result.view} />
+    ) : result.message === LINK_MESSAGE() ? (
+      // An old or broken link: offer a fresh one straight away.
+      <RequestLinkForm notice={result.message} />
     ) : (
       <Notice message={result.message} />
     );

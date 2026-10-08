@@ -192,6 +192,8 @@ export interface BookingRightsProps {
   readonly manageUrl?: string | null;
   /** The customer has used their one move: no move is offered any more. */
   readonly moved?: boolean;
+  /** "Manage my booking": where a customer without the email asks for a fresh link. */
+  readonly findBookingUrl?: string;
 }
 
 /**
@@ -215,6 +217,11 @@ export function BookingRights(props: BookingRightsProps) {
             {props.manageUrl ? (
               <>
                 : <a href={props.manageUrl}>Reschedule my session</a>.
+              </>
+            ) : props.findBookingUrl ? (
+              <>
+                , with the link in your booking confirmation email or from{" "}
+                <a href={props.findBookingUrl}>Manage my booking</a>.
               </>
             ) : (
               ", with the link in your booking confirmation email."
