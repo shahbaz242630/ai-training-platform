@@ -9,10 +9,22 @@ import { readManageToken } from "@/lib/manage-link";
 import { addDays, addMinutes } from "@/lib/time";
 import {
   LINK_MINUTES,
+  REQUEST_RECEIVED,
   parseManageRequest,
   sendManageLinks,
   type ManageRequestDeps,
 } from "./request";
+
+describe("the answer the page gives", () => {
+  it("never claims the email has gone, and says what to do if nothing arrives", () => {
+    // It is sent after the answer, so the answer cannot know it went.
+    const answer = REQUEST_RECEIVED();
+    expect(answer).not.toMatch(/we have (emailed|sent)/i);
+    expect(answer).toContain("we are sending you a link");
+    expect(answer).toMatch(/if nothing arrives/i);
+    expect(answer).toMatch(/try again/i);
+  });
+});
 
 /** "Manage my booking" by email address: what is sent, to whom, and what never is. */
 

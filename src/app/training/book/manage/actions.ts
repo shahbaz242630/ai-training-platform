@@ -112,5 +112,5 @@ export async function requestManageLinkAction(
     }
   });
 
-  return { ok: true, message: REQUEST_RECEIVED };
+  return { ok: true, message: REQUEST_RECEIVED() };
 }
