@@ -628,4 +628,52 @@ describe("the payment acknowledgement", () => {
     expect(sent?.text).toContain("Second stored term.");
     expect(sent?.text).toContain("Stored express request.");
   });
+
+  it("attaches the printed terms of the version the customer agreed to", async () => {
+    const { bookingId } = await scheduledBooking();
+    await db.query(
+      `insert into booking_consents (order_id, terms_version, key_terms, agreement_text,
+         within_cancellation_period, express_request, express_request_text, text_sha256, accepted_at)
+       select order_id, '2026-10-08', 'A term.', 'agree', false, false, null, $2, now()
+         from bookings where id = $1`,
+      [bookingId, "0".repeat(64)],
+    );
+    await queueForBooking(runner, bookingId, [
+      { templateKey: "payment_receipt", scheduledFor: PAST },
+    ]);
+
+    await run();
+
+    const file = provider.sent[0]?.attachments?.[0];
+    expect(file?.name).toBe("Zaaheen-Knowledge-Centre-Terms-2026-10-08.pdf");
+    expect(file?.contentType).toBe("application/pdf");
+    expect(file?.encoding).toBe("base64");
+    expect(
+      Buffer.from(file?.content ?? "", "base64")
+        .subarray(0, 5)
+        .toString("latin1"),
+    ).toBe("%PDF-");
+  });
+
+  it("still sends, without a PDF and with an alarm, for terms never printed", async () => {
+    const { bookingId } = await scheduledBooking();
+    await db.query(
+      `insert into booking_consents (order_id, terms_version, key_terms, agreement_text,
+         within_cancellation_period, express_request, express_request_text, text_sha256, accepted_at)
+       select order_id, '2026-09-27', 'A term.', 'agree', false, false, null, $2, now()
+         from bookings where id = $1`,
+      [bookingId, "0".repeat(64)],
+    );
+    await queueForBooking(runner, bookingId, [
+      { templateKey: "payment_receipt", scheduledFor: PAST },
+    ]);
+
+    await run();
+
+    expect(provider.sent).toHaveLength(1);
+    expect(provider.sent[0]?.attachments).toBeUndefined();
+    expect(logs.some((l) => l.level === "error" && l.message.includes("no printed terms"))).toBe(
+      true,
+    );
+  });
 });

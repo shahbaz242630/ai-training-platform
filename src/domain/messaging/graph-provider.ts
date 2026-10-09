@@ -65,7 +65,10 @@ export class GraphEmailProvider implements EmailProvider {
                     "@odata.type": "#microsoft.graph.fileAttachment",
                     name: file.name,
                     contentType: file.contentType,
-                    contentBytes: Buffer.from(file.content, "utf8").toString("base64"),
+                    contentBytes:
+                      file.encoding === "base64"
+                        ? file.content
+                        : Buffer.from(file.content, "utf8").toString("base64"),
                   })),
                 }
               : {}),

@@ -53,6 +53,12 @@ export function PaymentReceivedEmail(props: PaymentReceivedEmailProps) {
       </p>
       <SessionDetails {...props} joinUrl={null} />
       {props.agreement ? <Agreement {...props.agreement} /> : null}
+      {props.agreement ? (
+        <p style={emailStyles.muted}>
+          The full Coaching Terms and Booking and Refund Policy you agreed to are attached as a PDF,
+          so you keep them exactly as they were when you booked.
+        </p>
+      ) : null}
       <p style={emailStyles.paragraph}>
         Your confirmation, with the link to join and a file to add the session to your calendar,
         will follow by email. If it has not arrived within one working day, reply to this message

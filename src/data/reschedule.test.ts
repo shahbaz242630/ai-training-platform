@@ -5,6 +5,7 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import type { QueryRunner } from "./db";
 import { isMoveCollision, listCalendarMovesDue, moveBooking, syncCalendarMove } from "./reschedule";
 import { EventNotFoundError, type TimeSlot } from "@/domain/scheduling/provider";
+import { resetLogSink, setLogSink, type LogRecord } from "@/lib/logger";
 import { addDays, addMinutes } from "@/lib/time";
 
 /**
@@ -271,6 +272,22 @@ describe("moveBooking", () => {
         metadata: { from: s.start.toISOString(), to: newStart.toISOString() },
       },
     ]);
+  });
+
+  it("still moves a booking placed by hand with no paid hold behind it, and says so", async () => {
+    const s = await seed();
+    await db.query("delete from slot_holds where order_id = $1", [s.orderId]);
+    const logs: LogRecord[] = [];
+    setLogSink((r) => {
+      logs.push(r);
+    });
+    try {
+      const outcome = await move(s.bookingId, addDays(s.start, 2), addDays(s.start, -5));
+      expect(outcome.kind).toBe("moved");
+      expect(logs.some((l) => l.level === "warn" && l.message.includes("no paid hold"))).toBe(true);
+    } finally {
+      resetLogSink();
+    }
   });
 
   it("does not flag a calendar move for a booking that never had an event", async () => {

@@ -39,8 +39,12 @@ export interface EmailMessage {
 export interface EmailAttachment {
   readonly name: string;
   readonly contentType: string;
-  /** The file as text; the adapter encodes it for the wire. */
+  /**
+   * The file: text that the adapter encodes for the wire, or - for a binary
+   * file such as the printed terms - already base64 (`encoding: "base64"`).
+   */
   readonly content: string;
+  readonly encoding?: "base64";
 }
 
 export type SendResult =
