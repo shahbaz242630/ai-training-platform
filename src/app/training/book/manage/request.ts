@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { containsPlaceholder, renderManageLinkEmail } from "@/components/emails/templates";
+import { contactLine } from "@/components/ui/ContactLink";
 import { TRAINING_BASE } from "@/config/site";
 import { getSessionBySlug } from "@/config/sessions";
 import { findUpcomingBookingsForEmail } from "@/data/manage-requests";
@@ -62,8 +63,15 @@ export function parseManageRequest(
   return { ok: true, request: { email: parsed.data.email.toLowerCase(), reference } };
 }
 
-export const REQUEST_RECEIVED =
-  "If there is an upcoming booking under that address, we have emailed you a link to manage it. It works for one hour. Please check your spam folder too.";
+/*
+  The page cannot know whether the email went: it is sent after the answer,
+  so the answer cannot say whether the address has booked. So the words
+  promise only what is true at that moment, and say what to do if nothing
+  comes. A retry is never blocked by a failed send: the inbox limit counts
+  only emails that really went.
+*/
+export const REQUEST_RECEIVED = (): string =>
+  `If there is an upcoming booking under that address, we are sending you a link to manage it now. It works for one hour. If nothing arrives within 10 minutes, check your spam folder, then try again or ${contactLine()}.`;
 
 export interface ManageRequestDeps {
   readonly transaction: TransactionRunner;
