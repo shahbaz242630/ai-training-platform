@@ -14,9 +14,12 @@
  */
 import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
+import { dirname, join } from "node:path";
 
 const require = createRequire(import.meta.url);
-const vitest = require.resolve("vitest/vitest.mjs");
+// Vitest 4 no longer exports "./vitest.mjs", so find the package folder through
+// its package.json (which it does export) and start the CLI file from there.
+const vitest = join(dirname(require.resolve("vitest/package.json")), "vitest.mjs");
 
 const result = spawnSync(process.execPath, [vitest, "run", "scripts/graph-smoke.test.mjs"], {
   stdio: "inherit",
