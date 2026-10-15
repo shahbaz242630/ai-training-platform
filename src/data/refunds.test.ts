@@ -12,13 +12,11 @@ import {
   closeRefund,
   createWithdrawalRefund,
   keyWindowPassed,
-  loadWithdrawalRefund,
   recomputeOrderRefunds,
   recordRefundIssued,
   recordRefundRetry,
-  refundStateForEmail,
-  refundWorkWaiting,
 } from "./refunds";
+import { loadWithdrawalRefund } from "./refund-queries";
 import type { RefundEvent } from "@/domain/payments/provider";
 
 /**
@@ -396,26 +394,6 @@ describe("closeRefund", () => {
   });
 });
 
-describe("refundStateForEmail", () => {
-  it("says refunded only once the refund succeeded", () => {
-    expect(refundStateForEmail({ status: "succeeded", providerRefundId: "re_1" })).toBe(
-      "succeeded",
-    );
-  });
-
-  it("says issued while Stripe has it and it is still on its way", () => {
-    expect(refundStateForEmail({ status: "pending", providerRefundId: "re_1" })).toBe("issued");
-  });
-
-  it("says owed for everything else, including a failed refund and none at all", () => {
-    for (const status of ["due", "issuing", "failed", "canceled", "superseded"] as const) {
-      expect(refundStateForEmail({ status, providerRefundId: null })).toBe("owed");
-    }
-    expect(refundStateForEmail({ status: "failed", providerRefundId: "re_1" })).toBe("owed");
-    expect(refundStateForEmail(null)).toBe("owed");
-  });
-});
-
 describe("backoffMinutes", () => {
   it("waits longer after each attempt, eight hours at most", () => {
     expect([1, 2, 3, 4, 5, 6, 7, 20].map(backoffMinutes)).toEqual([
@@ -492,20 +470,5 @@ describe("what cannot be found", () => {
       NOW,
     );
     expect(outcome.result).toBe("unknown_order");
-  });
-});
-
-describe("refundWorkWaiting", () => {
-  it("is true while a refund is due, and false once nothing is", async () => {
-    await db.query(
-      `update refunds set status = 'superseded' where status in ('due', 'issuing', 'pending')`,
-    );
-    expect(await refundWorkWaiting(runner, NOW)).toBe(false);
-    const s = await seed();
-    const id = await owed(s);
-    expect(await refundWorkWaiting(runner, NOW)).toBe(true);
-    await claimDueRefunds(runner, NOW, 5);
-    await closeRefund(runner, id, "superseded", null, NOW);
-    expect(await refundWorkWaiting(runner, NOW)).toBe(false);
   });
 });

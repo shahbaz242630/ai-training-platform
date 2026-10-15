@@ -257,11 +257,13 @@ describe("when a send fails", () => {
     });
     expect(afterFirst?.scheduled_for.getTime()).toBeGreaterThan(Date.now());
 
-    // Bring the retry forward rather than waiting a minute.
-    await db.query("update communication_log set scheduled_for = $2 where booking_id = $1", [
-      bookingId,
-      PAST,
-    ]);
+    // Bring the retry forward rather than waiting, past the claim's ten-minute lease too.
+    await db.query(
+      `update communication_log
+          set scheduled_for = $2, last_attempt_at = $2::timestamptz - interval '11 minutes'
+        where booking_id = $1`,
+      [bookingId, PAST],
+    );
     const second = await run();
 
     expect(second.body).toMatchObject({ sent: 1 });

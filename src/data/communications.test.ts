@@ -5,6 +5,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   cancelQueuedCommunications,
   claimDueCommunications,
+  claimQueuedCommunication,
   countFailedCommunications,
   loadCommunicationContext,
   markCommunicationFailed,
@@ -265,8 +266,12 @@ describe("recording what happened", () => {
     expect(
       (await claimDueCommunications(runner, NOW, 100)).filter((c) => c.bookingId === bookingId),
     ).toEqual([]);
+    // Due at LATER, and taken once the claim's ten-minute lease has run out too.
+    const pastLease = new Date(NOW.getTime() + 11 * 60_000);
     expect(
-      (await claimDueCommunications(runner, LATER, 100)).filter((c) => c.bookingId === bookingId),
+      (await claimDueCommunications(runner, pastLease, 100)).filter(
+        (c) => c.bookingId === bookingId,
+      ),
     ).toHaveLength(1);
   });
 
@@ -289,5 +294,49 @@ describe("recording what happened", () => {
       { template_key: "reminder_24h", status: "cancelled" },
       { template_key: "reminder_3h", status: "cancelled" },
     ]);
+  });
+});
+
+/*
+  A row being sent stays queued until the send is recorded, so the claim
+  itself must keep a second sender off it for a while: the withdrawal form
+  sends its acknowledgement straight away while the five-minute job may be
+  running, and the email service does not dedupe.
+*/
+describe("the claim's lease", () => {
+  it("keeps a just-claimed row from a second sender, then gives it back", async () => {
+    const { bookingId } = await scheduledBooking();
+    await queueForBooking(runner, bookingId, [
+      { templateKey: "withdrawal_acknowledgement", scheduledFor: new Date("2026-10-15T09:00:00Z") },
+    ]);
+    const now = new Date("2026-10-15T10:00:00Z");
+    const first = await claimQueuedCommunication(
+      runner,
+      bookingId,
+      "withdrawal_acknowledgement",
+      now,
+    );
+    expect(first?.attempts).toBe(1);
+
+    const minute = new Date(now.getTime() + 60_000);
+    expect(
+      await claimQueuedCommunication(runner, bookingId, "withdrawal_acknowledgement", minute),
+    ).toBeNull();
+    expect(
+      (await claimDueCommunications(runner, minute, 50)).map((c) => c.bookingId),
+    ).not.toContain(bookingId);
+
+    const later = new Date(now.getTime() + 11 * 60_000);
+    expect(
+      (await claimQueuedCommunication(runner, bookingId, "withdrawal_acknowledgement", later))
+        ?.attempts,
+    ).toBe(2);
+  });
+
+  it("finds nothing for a booking with no such message queued", async () => {
+    const { bookingId } = await scheduledBooking();
+    expect(
+      await claimQueuedCommunication(runner, bookingId, "refund_issued", new Date()),
+    ).toBeNull();
   });
 });

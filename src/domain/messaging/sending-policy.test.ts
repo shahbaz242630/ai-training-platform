@@ -47,6 +47,7 @@ describe("a customer who did not tick the marketing box", () => {
     "reschedule_confirmation",
     "cancellation_confirmation",
     "withdrawal_acknowledgement",
+    "refund_issued",
     "payment_receipt",
     "follow_up",
   ];

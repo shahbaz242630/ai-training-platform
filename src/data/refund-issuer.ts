@@ -4,8 +4,6 @@ import {
   claimDueRefunds,
   closeRefund,
   keyWindowPassed,
-  listPendingRefundsToRefresh,
-  markRefundChecked,
   recordRefundIssued,
   recordRefundRetry,
   refundIdempotencyKey,
@@ -13,6 +11,7 @@ import {
   type OrderRefundMove,
   type RefundEventOutcome,
 } from "./refunds";
+import { listPendingRefundsToRefresh, markRefundChecked } from "./refund-queries";
 import {
   RefundRefusedError,
   RefundUnclearError,

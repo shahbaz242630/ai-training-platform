@@ -40,6 +40,13 @@ const TOKEN_REFRESH_MARGIN_MS = 60_000;
 const DEFAULT_MAX_ATTEMPTS = 3;
 /** When Graph throttles without saying for how long. */
 const DEFAULT_RETRY_AFTER_MS = 2_000;
+/**
+ * How long one HTTP call may take, token or request, before it is abandoned.
+ * A connection that never answers would otherwise hold whatever waits on it
+ * (an email claim, a sweep run, a customer's page) for as long as the socket
+ * lasts. Thirty seconds is far beyond a normal Graph answer.
+ */
+export const GRAPH_TIMEOUT_MS = 30_000;
 /** A safety net on paging: a runaway next link must not read a calendar forever. */
 const MAX_PAGES = 50;
 
@@ -56,6 +63,8 @@ export interface GraphClientOptions {
   readonly now?: () => Date;
   readonly sleep?: (ms: number) => Promise<void>;
   readonly maxAttempts?: number;
+  /** Per call; GRAPH_TIMEOUT_MS unless a test needs it shorter. */
+  readonly timeoutMs?: number;
 }
 
 export interface GraphRequest {
@@ -115,6 +124,7 @@ export class GraphClient {
   private readonly now: () => Date;
   private readonly sleep: (ms: number) => Promise<void>;
   private readonly maxAttempts: number;
+  private readonly timeoutMs: number;
   private token: CachedToken | null = null;
 
   constructor(options: GraphClientOptions) {
@@ -123,6 +133,7 @@ export class GraphClient {
     this.now = options.now ?? (() => new Date());
     this.sleep = options.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
     this.maxAttempts = options.maxAttempts ?? DEFAULT_MAX_ATTEMPTS;
+    this.timeoutMs = options.timeoutMs ?? GRAPH_TIMEOUT_MS;
   }
 
   /**
@@ -144,6 +155,7 @@ export class GraphClient {
           ...input.headers,
         },
         body: input.body !== undefined ? JSON.stringify(input.body) : undefined,
+        signal: AbortSignal.timeout(this.timeoutMs),
       });
 
       if (response.ok) {
@@ -237,6 +249,7 @@ export class GraphClient {
           scope: TOKEN_SCOPE,
           grant_type: "client_credentials",
         }).toString(),
+        signal: AbortSignal.timeout(this.timeoutMs),
       },
     );
 

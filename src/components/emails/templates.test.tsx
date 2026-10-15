@@ -3,6 +3,7 @@ import {
   TemplateNotAvailableError,
   containsPlaceholder,
   renderTemplate,
+  renderRefundIssued,
   renderWithdrawalAcknowledgement,
   type SessionEmailModel,
 } from "./templates";
@@ -189,7 +190,9 @@ describe("renderWithdrawalAcknowledgement", () => {
 
   it("promises the refund within 14 days while none has been sent", async () => {
     const email = await renderWithdrawalAcknowledgement({ ...withdrawal, refund: "owed" });
-    expect(email.text).toContain("We will refund AED 1,299 to the card you paid with");
+    expect(email.text).toContain(
+      "Your booking is cancelled. We will refund AED 1,299 to the card you paid with within 14 days, at no cost to you, and email you when the refund has been issued.",
+    );
     expect(email.text).not.toMatch(/We have (refunded|issued)/);
   });
 
@@ -256,5 +259,28 @@ describe("the payment acknowledgement as the record of the contract", () => {
     const email = await renderTemplate("booking_confirmation", model);
     expect(email.text).toContain("Zaaheen Artificial Intelligence Developing Services");
     expect(email.text).toContain("Dubai trade licence 1651252");
+  });
+});
+
+/*
+  The short follow-up once a withdrawal's refund has gone to Stripe: the
+  amount, where it went, and what to do if it does not show.
+*/
+describe("renderRefundIssued", () => {
+  const model = { firstName: "Test", reference: "3F9A1C2B", amountFils: 129_900 };
+
+  it("names the booking and says the refund has been issued", async () => {
+    const email = await renderRefundIssued(model);
+    expect(email.subject).toBe("Your refund has been issued (booking 3F9A1C2B)");
+    expect(email.text).toContain(
+      "Test, your refund of AED 1,299 has been issued to the card you paid with. Banks usually take 5 to 10 working days to show it on your statement. If it has not appeared after 10 working days, reply to this email and we will look into it.",
+    );
+    expect(email.text).toContain("3F9A1C2B");
+  });
+
+  it("uses no long dashes and carries no identity placeholder", async () => {
+    const email = await renderRefundIssued(model);
+    expect(email.text).not.toMatch(/[–—]/);
+    expect(containsPlaceholder(email)).toBe(false);
   });
 });

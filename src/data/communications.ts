@@ -68,12 +68,45 @@ export interface ClaimedCommunication {
   readonly attempts: number;
 }
 
+/*
+  How long a claim keeps a row from every other sender. The row stays queued
+  while it is sent, so without this a second sender a moment later (the
+  five-minute job, while the withdrawal form is sending the same row) would
+  claim it again, and the email service does not dedupe.
+
+  Ten minutes, more than twice the slowest one send can take. A Graph send is
+  at most two token fetches and three request attempts, each abandoned after
+  30 seconds (GRAPH_TIMEOUT_MS), with at most two retry sleeps of at most 60
+  seconds between attempts: 2 x 30 + 3 x 30 + 2 x 60 = 270 seconds. A sender
+  that dies mid-send gives the row back after the lease; the cost is that a
+  failed send is retried no sooner than ten minutes on, two runs of the job.
+*/
+const CLAIM_LEASE = "10 minutes";
+
+const CLAIMABLE = `status = 'queued' and channel = $CHANNEL and scheduled_for <= $NOW
+  and (last_attempt_at is null or last_attempt_at < $NOW::timestamptz - interval '${CLAIM_LEASE}')`;
+
+function toClaimed(row: {
+  id: string;
+  booking_id: string;
+  template_key: TemplateKey;
+  attempts: number;
+}): ClaimedCommunication {
+  return {
+    id: row.id,
+    bookingId: row.booking_id,
+    templateKey: row.template_key,
+    attempts: row.attempts,
+  };
+}
+
 /**
  * Take the messages that are due, and mark each as attempted.
  *
  * `for update skip locked` so two overlapping runs divide the work rather
- * than both taking it. A bounded batch, so a backlog after an outage drains
- * over a few runs instead of one run holding every row at once.
+ * than both taking it, and the lease above so a row being sent right now is
+ * not taken again. A bounded batch, so a backlog after an outage drains over
+ * a few runs instead of one run holding every row at once.
  */
 export async function claimDueCommunications(
   runner: QueryRunner,
@@ -91,7 +124,7 @@ export async function claimDueCommunications(
       where id in (
         select id
           from communication_log
-         where status = 'queued' and channel = $3 and scheduled_for <= $1
+         where ${CLAIMABLE.replaceAll("$NOW", "$1").replaceAll("$CHANNEL", "$3")}
          order by scheduled_for
          limit $2
          for update skip locked
@@ -99,12 +132,40 @@ export async function claimDueCommunications(
       returning id, booking_id, template_key, attempts`,
     [now, limit, CHANNEL],
   );
-  return result.rows.map((row) => ({
-    id: row.id,
-    bookingId: row.booking_id,
-    templateKey: row.template_key,
-    attempts: row.attempts,
-  }));
+  return result.rows.map(toClaimed);
+}
+
+/**
+ * Take one booking's queued message of one kind, if it is due and nobody is
+ * sending it, under the same rules as the five-minute job. For a message that
+ * must go straight away rather than wait for the next run.
+ */
+export async function claimQueuedCommunication(
+  runner: QueryRunner,
+  bookingId: string,
+  templateKey: TemplateKey,
+  now: Date,
+): Promise<ClaimedCommunication | null> {
+  const result = await runner.query<{
+    id: string;
+    booking_id: string;
+    template_key: TemplateKey;
+    attempts: number;
+  }>(
+    `update communication_log
+        set attempts = attempts + 1, last_attempt_at = $1
+      where id in (
+        select id
+          from communication_log
+         where booking_id = $2 and template_key = $4
+           and ${CLAIMABLE.replaceAll("$NOW", "$1").replaceAll("$CHANNEL", "$3")}
+         for update skip locked
+      )
+      returning id, booking_id, template_key, attempts`,
+    [now, bookingId, CHANNEL, templateKey],
+  );
+  const row = result.rows[0];
+  return row ? toClaimed(row) : null;
 }
 
 /** Everything a template needs to be rendered for one booking, and everything the send policy needs to allow it. */

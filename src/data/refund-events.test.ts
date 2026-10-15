@@ -3,14 +3,7 @@ import { join } from "node:path";
 import { PGlite } from "@electric-sql/pglite";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { QueryRunner } from "./db";
-import {
-  applyRefundEvent,
-  closeRefund,
-  countRefundsNeedingAttention,
-  createWithdrawalRefund,
-  listPendingRefundsToRefresh,
-  markRefundChecked,
-} from "./refunds";
+import { applyRefundEvent, createWithdrawalRefund } from "./refunds";
 import type { RefundEvent } from "@/domain/payments/provider";
 
 /**
@@ -333,61 +326,6 @@ describe("applyRefundEvent", () => {
   });
 });
 
-describe("countRefundsNeedingAttention", () => {
-  it("counts a failed refund the money has not been covered for, until it is", async () => {
-    const before = await countRefundsNeedingAttention(runner, NOW);
-    const s = await seed();
-    const id = await owed(s);
-    await db.query(`update refunds set status = 'issuing' where id = $1`, [id]);
-    await closeRefund(runner, id, "failed", "no_payment_intent", NOW);
-    expect(await countRefundsNeedingAttention(runner, NOW)).toBe(before + 1);
-
-    // Somebody refunds it by hand in the dashboard: the alarm stops.
-    await applyRefundEvent(
-      runner,
-      event({ providerRefundId: "re_byhand", paymentIntentId: s.intent }),
-      NOW,
-    );
-    expect(await countRefundsNeedingAttention(runner, NOW)).toBe(before);
-  });
-
-  it("still counts a success that later failed, even though the order says refunded", async () => {
-    const before = await countRefundsNeedingAttention(runner, NOW);
-    const s = await seed();
-    await applyRefundEvent(
-      runner,
-      event({ providerRefundId: "re_flip", paymentIntentId: s.intent, status: "succeeded" }),
-      NOW,
-    );
-    await applyRefundEvent(
-      runner,
-      event({
-        providerRefundId: "re_flip",
-        paymentIntentId: s.intent,
-        status: "failed",
-        occurredAt: later(1),
-      }),
-      NOW,
-    );
-    expect(await orderStatus(s.orderId)).toBe("refunded");
-    expect(await countRefundsNeedingAttention(runner, NOW)).toBe(before + 1);
-  });
-
-  it("counts a refund still owed a day later, and one pending for days", async () => {
-    const before = await countRefundsNeedingAttention(runner, later(60 * 24 * 4));
-    const s = await seed();
-    await owed(s);
-    const t = await seed();
-    await applyRefundEvent(
-      runner,
-      event({ providerRefundId: "re_slow", paymentIntentId: t.intent, status: "pending" }),
-      NOW,
-    );
-    const after = await countRefundsNeedingAttention(runner, later(60 * 24 * 4));
-    expect(after).toBe(before + 2);
-  });
-});
-
 describe("an event that changes nothing", () => {
   /*
     A refund read again and found as it was must keep its timestamps. If the
@@ -442,39 +380,5 @@ describe("an event that changes nothing", () => {
       `select status_changed_at from refunds where provider_refund_id = 're_moves'`,
     );
     expect(r.rows[0]!.status_changed_at).toEqual(later(30));
-  });
-});
-
-describe("listPendingRefundsToRefresh", () => {
-  it("does not list a refund asked about within the hour", async () => {
-    const s = await seed();
-    await applyRefundEvent(
-      runner,
-      event({ providerRefundId: "re_asked", paymentIntentId: s.intent, status: "pending" }),
-      NOW,
-    );
-    const asked = await db.query<{ id: string }>(
-      `select id from refunds where provider_refund_id = 're_asked'`,
-    );
-    await markRefundChecked(runner, asked.rows[0]!.id, later(90));
-    const listed = async (at: Date) =>
-      (await listPendingRefundsToRefresh(runner, at, 50)).map((r) => r.providerRefundId);
-    expect(await listed(later(120))).not.toContain("re_asked");
-    expect(await listed(later(151))).toContain("re_asked");
-  });
-
-  it("lists refunds Stripe has said nothing more about for an hour", async () => {
-    const s = await seed();
-    await applyRefundEvent(
-      runner,
-      event({ providerRefundId: "re_quiet", paymentIntentId: s.intent, status: "pending" }),
-      NOW,
-    );
-    expect(
-      (await listPendingRefundsToRefresh(runner, later(30), 50)).map((r) => r.providerRefundId),
-    ).not.toContain("re_quiet");
-    expect(
-      (await listPendingRefundsToRefresh(runner, later(61), 50)).map((r) => r.providerRefundId),
-    ).toContain("re_quiet");
   });
 });

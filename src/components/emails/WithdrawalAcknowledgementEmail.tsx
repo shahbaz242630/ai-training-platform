@@ -51,7 +51,7 @@ function refundSentence(props: WithdrawalAcknowledgementEmailProps): string {
     case "owed":
       return (
         `Your booking is cancelled. We will refund ${props.refundLabel} to the card you paid with ` +
-        `within ${props.refundDays} days, at no cost to you.`
+        `within ${props.refundDays} days, at no cost to you, and email you when the refund has been issued.`
       );
   }
 }

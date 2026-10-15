@@ -29,6 +29,7 @@ export type TemplateKey =
   | "reschedule_confirmation"
   | "cancellation_confirmation"
   | "withdrawal_acknowledgement"
+  | "refund_issued"
   | "payment_receipt"
   | "follow_up"
   | "session_offers"
@@ -49,6 +50,8 @@ export const TEMPLATE_KINDS: Readonly<Record<TemplateKey, MessageKind>> = {
   cancellation_confirmation: "transactional",
   // The legal acknowledgement of a customer's notice of withdrawal.
   withdrawal_acknowledgement: "transactional",
+  // That the refund a withdrawal was owed has gone back to the card.
+  refund_issued: "transactional",
   payment_receipt: "transactional",
   follow_up: "transactional",
 
