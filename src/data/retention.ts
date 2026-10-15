@@ -37,6 +37,8 @@ async function deleteOrders(
   orderIds: string,
   params: readonly unknown[],
 ): Promise<number> {
+  // First: a refund points at both its order and its withdrawal notice.
+  await runner.query(`delete from refunds where order_id in (${orderIds})`, params);
   await runner.query(
     `delete from withdrawal_requests
       where booking_id in (select id from bookings where order_id in (${orderIds}))`,
@@ -61,15 +63,19 @@ export async function purgeExpiredPersonalData(
     in year Y is kept to the end of Y + 7 and goes from 1 January of Y + 8, on
     Dubai's clock. The latest record is the latest of any order being made or
     changed (a refund is a later record) and any of their sessions taking place
-    or changing, so nothing dated in a later tax year goes a year early.
+    or changing, so nothing dated in a later tax year goes a year early. A
+    refund row counts too: one that failed late moves no order, and is still a
+    record of that year.
   */
   const expiredCustomers = `
     select o.customer_id from orders o
       left join bookings b on b.order_id = o.id
+      left join refunds r on r.order_id = o.id
      group by o.customer_id
     having extract(year from max(greatest(o.created_at, o.updated_at,
                                           coalesce(b.scheduled_end, o.created_at),
-                                          coalesce(b.updated_at, o.created_at)))
+                                          coalesce(b.updated_at, o.created_at),
+                                          coalesce(r.updated_at, o.created_at)))
                    at time zone 'Asia/Dubai')
            + ${RECORD_YEARS + 1} <= extract(year from $1::timestamptz at time zone 'Asia/Dubai')`;
   const expiredCustomerIds = (

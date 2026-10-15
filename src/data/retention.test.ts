@@ -323,6 +323,55 @@ describe("the seven years count from the latest record, not the first", () => {
     expect(await exists("orders", orderId)).toBe(true);
   });
 
+  /*
+    A refund row points at its order and its notice with on delete restrict,
+    so a purge that forgot it would fail every run and delete nobody.
+  */
+  it("deletes an expired person's refund with the rest, and does not stall on it", async () => {
+    const c = await customer(new Date("2019-03-01T00:00:00Z"));
+    const { orderId, bookingId } = await order(
+      c,
+      new Date("2019-03-01T00:00:00Z"),
+      "refunded",
+      new Date("2019-03-10T00:00:00Z"),
+    );
+    const notice = await db.query<{ id: string }>(
+      `insert into withdrawal_requests (booking_id, full_name, email, statement, refund_due_fils, received_at)
+       values ($1, 'Amina Khan', $2, 'I withdraw.', 149900, '2019-03-02T00:00:00Z') returning id`,
+      [bookingId, `keep${n}@example.com`],
+    );
+    const refund = await db.query<{ id: string }>(
+      `insert into refunds (order_id, withdrawal_request_id, origin, amount_fils, currency, status,
+                            created_at, updated_at)
+       values ($1, $2, 'withdrawal', 149900, 'AED', 'succeeded', '2019-03-02T00:00:00Z',
+               '2019-03-02T00:00:00Z') returning id`,
+      [orderId, notice.rows[0]!.id],
+    );
+    await purgeExpiredPersonalData(runner, NOW);
+    expect(await exists("refunds", refund.rows[0]!.id)).toBe(false);
+    expect(await exists("orders", orderId)).toBe(false);
+    expect(await exists("customers", c)).toBe(false);
+  });
+
+  it("keeps a 2019 order whose refund last changed in 2020 until the end of 2027", async () => {
+    const c = await customer(new Date("2019-12-20T00:00:00Z"));
+    const { orderId } = await order(
+      c,
+      new Date("2019-12-20T00:00:00Z"),
+      "paid",
+      new Date("2019-12-28T00:00:00Z"),
+    );
+    await db.query(
+      `insert into refunds (order_id, origin, amount_fils, currency, status, provider_refund_id,
+                            created_at, updated_at)
+       values ($1, 'processor', 149900, 'AED', 'failed', 're_late_fail', '2019-12-29T00:00:00Z',
+               '2020-01-05T00:00:00Z')`,
+      [orderId],
+    );
+    await purgeExpiredPersonalData(runner, NOW);
+    expect(await exists("orders", orderId)).toBe(true);
+  });
+
   it("keeps an order whose session took place in a later tax year", async () => {
     const c = await customer(new Date("2019-12-30T00:00:00Z"));
     const { orderId } = await order(

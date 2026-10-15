@@ -424,7 +424,35 @@ describe("the withdrawal acknowledgement", () => {
     expect(sent?.bcc).toBe("help@example.com");
     expect(sent?.text).toContain("I, Amina Khan, withdraw from my contract.");
     expect(sent?.text).toContain("AED 1,499");
+    // Nothing sent to the processor yet: the promise, not a claim.
+    expect(sent?.text).toContain("We will refund AED 1,499");
     expect((await rowFor(bookingId, "withdrawal_acknowledgement"))?.status).toBe("sent");
+  });
+
+  it("says the refund has been issued once the processor has it", async () => {
+    const { bookingId, email } = await scheduledBooking();
+    await recordWithdrawal(runner, {
+      bookingId,
+      fullName: "Amina Khan",
+      email,
+      statement: "I, Amina Khan, withdraw from my contract.",
+      refundDueFils: 149900,
+      receivedAt: PAST,
+      ipAddress: null,
+      userAgent: null,
+    });
+    await runner.query(
+      `update refunds set status = 'pending', provider_refund_id = 're_send_issued'
+        where withdrawal_request_id = (select id from withdrawal_requests where booking_id = $1)`,
+      [bookingId],
+    );
+
+    await run();
+
+    const sent = provider.sent.find(
+      (m) => m.to === email && m.subject.startsWith("We have received your withdrawal"),
+    );
+    expect(sent?.text).toContain("We have issued a full refund of AED 1,499");
   });
 
   it("is sent for a booking that never had a time", async () => {

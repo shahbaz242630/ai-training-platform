@@ -62,8 +62,9 @@ export interface StartedCheckout {
  */
 export type PaymentOutcome = "paid" | "unpaid" | "failed";
 
-/** A payment event, already verified and reduced to what this application needs. */
-export interface PaymentEvent {
+/** A checkout event, already verified and reduced to what this application needs. */
+export interface CheckoutEvent {
+  readonly kind: "checkout";
   /** The processor's event id. Persisted, so a duplicate delivery is a no-op. */
   readonly eventId: string;
   readonly type: string;
@@ -87,6 +88,63 @@ export interface PaymentEvent {
    * sends far more event types than any one integration consumes.
    */
   readonly ignorable: boolean;
+}
+
+/**
+ * Where a refund stands, as the processor says.
+ *
+ * `pending` covers everything still in flight. A status the processor adds
+ * later is read as `pending` too, never as an error: an event we cannot store
+ * would be retried for days, and a refund we do not understand yet is one a
+ * person should look at, not one to drop.
+ */
+export type RefundStatus = "pending" | "succeeded" | "failed" | "canceled";
+
+/**
+ * A refund event, verified. Refunds made in the processor's dashboard carry
+ * none of our metadata, so the order is found from the payment instead.
+ */
+export interface RefundEvent {
+  readonly kind: "refund";
+  readonly eventId: string;
+  readonly type: string;
+  readonly occurredAt: Date;
+  readonly ignorable: false;
+  /** Our order id from the refund's metadata; null for a refund made elsewhere. */
+  readonly orderId: string | null;
+  /** Our refunds row id from the metadata; null for a refund made elsewhere. */
+  readonly refundRowId: string | null;
+  readonly providerRefundId: string;
+  /** The payment refunded. Null only for a refund of a bare charge, which is never ours. */
+  readonly paymentIntentId: string | null;
+  readonly amountFils: Fils;
+  readonly currency: string;
+  readonly status: RefundStatus;
+}
+
+export type PaymentEvent = CheckoutEvent | RefundEvent;
+
+export interface RefundPaymentInput {
+  readonly paymentIntentId: string;
+  readonly amountFils: Fils;
+  /**
+   * Derived from our refunds row and its key generation, never random. A
+   * request that may have gone through is repeated with the same key, so the
+   * processor answers with the refund it already made instead of a second one.
+   */
+  readonly idempotencyKey: string;
+  readonly metadata: { readonly orderId: string; readonly refundId: string };
+}
+
+export interface IssuedRefund {
+  readonly providerRefundId: string;
+  readonly status: RefundStatus;
+}
+
+export interface RefundSnapshot extends IssuedRefund {
+  readonly amountFils: Fils;
+  readonly currency: string;
+  readonly paymentIntentId: string | null;
 }
 
 /** Base type, so every payment failure can be caught in one place. */
@@ -119,6 +177,39 @@ export class PaymentNotConfiguredError extends PaymentError {
   }
 }
 
+/** Refusals that mean the money already went back, so asking again would never succeed. */
+const ALREADY_REFUNDED_CODES = new Set(["charge_already_refunded", "amount_too_large"]);
+
+/**
+ * A refund request whose result is not known: the connection dropped, the
+ * request timed out, the processor failed on its side, or another request with
+ * the same key is still running. It may have gone through, so it is repeated
+ * later with the SAME idempotency key, never a new one.
+ */
+export class RefundUnclearError extends PaymentError {
+  constructor(readonly code: string) {
+    super(`The refund request has no clear result (${code})`);
+    this.name = "RefundUnclearError";
+  }
+}
+
+/**
+ * The processor refused the request and made nothing. `code` is its error
+ * code, kept so a person can see why; the message is not kept, since it can
+ * repeat what was sent.
+ */
+export class RefundRefusedError extends PaymentError {
+  constructor(readonly code: string) {
+    super(`The refund was refused (${code})`);
+    this.name = "RefundRefusedError";
+  }
+
+  /** The payment has nothing left to refund: somebody refunded it another way. */
+  get alreadyRefunded(): boolean {
+    return ALREADY_REFUNDED_CODES.has(this.code);
+  }
+}
+
 export interface PaymentProvider {
   /** Create a hosted checkout and return where to send the customer. */
   startCheckout(input: StartCheckoutInput): Promise<StartedCheckout>;
@@ -143,4 +234,13 @@ export interface PaymentProvider {
    * cannot ignore a throw.
    */
   verifyEvent(rawBody: string, signatureHeader: string | null): Promise<PaymentEvent>;
+
+  /**
+   * Refund a payment. Throws RefundUnclearError when the result is unknown and
+   * RefundRefusedError when the processor clearly made nothing.
+   */
+  refundPayment(input: RefundPaymentInput): Promise<IssuedRefund>;
+
+  /** Read a refund as the processor has it now. */
+  getRefund(providerRefundId: string): Promise<RefundSnapshot>;
 }

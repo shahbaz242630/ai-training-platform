@@ -1,7 +1,17 @@
 import { describe, it, expect } from "vitest";
 import { MockPaymentProvider, mockEventBody } from "./mock-provider";
-import { InvalidSignatureError, type StartCheckoutInput } from "./provider";
+import {
+  InvalidSignatureError,
+  type CheckoutEvent,
+  type PaymentEvent,
+  type StartCheckoutInput,
+} from "./provider";
 import { AED } from "@/lib/money";
+
+function asCheckout(event: PaymentEvent): CheckoutEvent {
+  if (event.kind !== "checkout") throw new Error(`expected a checkout event, got ${event.kind}`);
+  return event;
+}
 
 /**
  * The provider CI can actually run.
@@ -80,7 +90,7 @@ describe("MockPaymentProvider.verifyEvent", () => {
 
   it("accepts a correctly signed delivery", async () => {
     const provider = new MockPaymentProvider();
-    const event = await provider.verifyEvent(paid, provider.sign(paid));
+    const event = asCheckout(await provider.verifyEvent(paid, provider.sign(paid)));
 
     expect(event.outcome).toBe("paid");
     expect(event.orderId).toBe("order-1");
@@ -133,7 +143,7 @@ describe("MockPaymentProvider.verifyEvent", () => {
       paymentStatus: "unpaid",
     });
 
-    const event = await provider.verifyEvent(body, provider.sign(body));
+    const event = asCheckout(await provider.verifyEvent(body, provider.sign(body)));
     expect(event.outcome).toBe("unpaid");
   });
 
@@ -146,7 +156,7 @@ describe("MockPaymentProvider.verifyEvent", () => {
       paymentStatus: "paid",
     });
 
-    const event = await provider.verifyEvent(body, provider.sign(body));
+    const event = asCheckout(await provider.verifyEvent(body, provider.sign(body)));
     expect(event.outcome).toBe("paid");
   });
 
@@ -154,7 +164,7 @@ describe("MockPaymentProvider.verifyEvent", () => {
     const provider = new MockPaymentProvider();
     for (const type of ["checkout.session.async_payment_failed", "checkout.session.expired"]) {
       const body = mockEventBody({ id: `evt_${type}`, type, orderId: "order-2" });
-      const event = await provider.verifyEvent(body, provider.sign(body));
+      const event = asCheckout(await provider.verifyEvent(body, provider.sign(body)));
       expect(event.outcome).toBe("failed");
     }
   });
@@ -168,9 +178,78 @@ describe("MockPaymentProvider.verifyEvent", () => {
     const provider = new MockPaymentProvider();
     const body = mockEventBody({ id: "evt_9", type: "customer.subscription.updated" });
 
-    const event = await provider.verifyEvent(body, provider.sign(body));
+    const event = asCheckout(await provider.verifyEvent(body, provider.sign(body)));
     expect(event.ignorable).toBe(true);
     expect(event.orderId).toBeNull();
+  });
+});
+
+describe("MockPaymentProvider refunds", () => {
+  const input = {
+    paymentIntentId: "pi_1",
+    amountFils: 129900,
+    idempotencyKey: "refund:row:0",
+    metadata: { orderId: "order-1", refundId: "row" },
+  };
+
+  it("returns the refund already made for a repeated key, as the processor does", async () => {
+    const provider = new MockPaymentProvider();
+    const first = await provider.refundPayment(input);
+    const again = await provider.refundPayment(input);
+    expect(again).toEqual(first);
+    expect(provider.refundRequests).toHaveLength(2);
+  });
+
+  it("can be told to fail, and moves a refund on when asked", async () => {
+    const provider = new MockPaymentProvider();
+    provider.refundFailures.push(new Error("down"));
+    await expect(provider.refundPayment(input)).rejects.toThrow("down");
+    const made = await provider.refundPayment(input);
+    provider.settleRefund(made.providerRefundId, "succeeded");
+    expect(await provider.getRefund(made.providerRefundId)).toMatchObject({
+      status: "succeeded",
+      amountFils: 129900,
+      paymentIntentId: "pi_1",
+    });
+    await expect(provider.getRefund("re_missing")).rejects.toThrow(/no such refund/);
+  });
+
+  it("ignores a request to move a refund it never made", async () => {
+    const provider = new MockPaymentProvider();
+    provider.settleRefund("re_never", "succeeded");
+    await expect(provider.getRefund("re_never")).rejects.toThrow(/no such refund/);
+  });
+
+  it("fills in a bare refund delivery the way a test would expect", async () => {
+    const provider = new MockPaymentProvider();
+    const body = mockEventBody({ id: "evt_bare", type: "refund.created" });
+    expect(await provider.verifyEvent(body, provider.sign(body))).toMatchObject({
+      kind: "refund",
+      providerRefundId: "re_mock",
+      amountFils: 0,
+      status: "pending",
+      paymentIntentId: null,
+    });
+  });
+
+  it("reduces a refund delivery to a refund event", async () => {
+    const provider = new MockPaymentProvider();
+    const body = mockEventBody({
+      id: "evt_r",
+      type: "refund.updated",
+      providerRefundId: "re_9",
+      paymentIntentId: "pi_9",
+      amountFils: 500,
+      refundStatus: "succeeded",
+    });
+    const event = await provider.verifyEvent(body, provider.sign(body));
+    expect(event).toMatchObject({
+      kind: "refund",
+      providerRefundId: "re_9",
+      paymentIntentId: "pi_9",
+      currency: "AED",
+      status: "succeeded",
+    });
   });
 });
 

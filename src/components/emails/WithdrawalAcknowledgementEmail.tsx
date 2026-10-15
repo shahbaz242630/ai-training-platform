@@ -6,8 +6,8 @@ import { EmailLayout, emailStyles } from "./EmailLayout";
  * UK and EU law asks for it on a durable medium (an email is one) without
  * delay, so it is queued in the same transaction that keeps the notice. It
  * repeats the notice word for word, says when it was received, and states
- * the refund due and when it will arrive, so the customer holds their own
- * record of all three.
+ * the refund due and where it stands, so the customer holds their own record
+ * of all three.
  */
 export interface WithdrawalAcknowledgementEmailProps {
   readonly firstName: string;
@@ -19,8 +19,41 @@ export interface WithdrawalAcknowledgementEmailProps {
   /** e.g. "AED 1,299" */
   readonly refundLabel: string;
   readonly refundDays: number;
+  readonly refund: WithdrawalRefundState;
   readonly companyName: string;
   readonly supportEmail: string;
+}
+
+/**
+ * Where the refund stands when the email goes. "Refunded" only once Stripe
+ * says it succeeded: a refund still on its way can fail (a closed card), and
+ * a durable record should not say something that may turn out untrue.
+ */
+export type WithdrawalRefundState = "succeeded" | "issued" | "owed";
+
+/** What the customer's bank does after that is not ours to promise, so it is said as usual, not as a promise. */
+const BANK_TIMING =
+  "Banks usually take 5 to 10 working days to show it on your statement. If it has not appeared " +
+  "after 10 working days, reply to this email and we will look into it.";
+
+function refundSentence(props: WithdrawalAcknowledgementEmailProps): string {
+  switch (props.refund) {
+    case "succeeded":
+      return (
+        `Your booking is cancelled. We have refunded ${props.refundLabel} to the card you paid ` +
+        `with, at no cost to you. ${BANK_TIMING}`
+      );
+    case "issued":
+      return (
+        `Your booking is cancelled. We have issued a full refund of ${props.refundLabel} to the ` +
+        `card you paid with, at no cost to you. ${BANK_TIMING}`
+      );
+    case "owed":
+      return (
+        `Your booking is cancelled. We will refund ${props.refundLabel} to the card you paid with ` +
+        `within ${props.refundDays} days, at no cost to you.`
+      );
+  }
 }
 
 export function withdrawalAcknowledgementSubject(
@@ -57,10 +90,7 @@ export function WithdrawalAcknowledgementEmail(props: WithdrawalAcknowledgementE
           <strong>Refund:</strong> {props.refundLabel}
         </p>
       </div>
-      <p style={emailStyles.paragraph}>
-        Your booking is cancelled. We will refund {props.refundLabel} to the card you paid with
-        within {props.refundDays} days, at no cost to you.
-      </p>
+      <p style={emailStyles.paragraph}>{refundSentence(props)}</p>
       <p style={emailStyles.muted}>
         If you did not send this, reply to this email straight away and we will look into it.
       </p>

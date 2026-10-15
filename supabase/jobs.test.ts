@@ -59,10 +59,11 @@ function jobsSql(): string {
 describe("scheduled jobs file", () => {
   let db: PGlite;
 
+  // Same allowance as every other in-process Postgres: under a full parallel run, booting one is slow.
   beforeAll(async () => {
     db = new PGlite();
     await db.exec(STAND_INS);
-  });
+  }, 120_000);
 
   afterAll(async () => {
     await db.close();

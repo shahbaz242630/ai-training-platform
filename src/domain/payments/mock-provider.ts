@@ -1,9 +1,13 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import {
   InvalidSignatureError,
+  type IssuedRefund,
   type PaymentEvent,
   type PaymentOutcome,
   type PaymentProvider,
+  type RefundPaymentInput,
+  type RefundSnapshot,
+  type RefundStatus,
   type StartCheckoutInput,
   type StartedCheckout,
 } from "./provider";
@@ -23,6 +27,8 @@ import {
  */
 
 const DEFAULT_SECRET = "mock-webhook-secret";
+
+let refundCounter = 0;
 
 interface RecordedCheckout {
   readonly input: StartCheckoutInput;
@@ -47,8 +53,61 @@ export class MockPaymentProvider implements PaymentProvider {
   /** Every session it was asked to end, in order. */
   readonly expired: string[] = [];
 
+  /** Every refund request that reached the processor, repeats included. */
+  readonly refundRequests: RefundPaymentInput[] = [];
+
+  /*
+    Refunds by idempotency key, for the same reason as checkouts: a repeated
+    key returns the refund already made. A mock that made a second one would
+    hide exactly the bug the key exists to prevent.
+  */
+  private readonly refundsByKey = new Map<string, IssuedRefund>();
+  private readonly refunds = new Map<string, RefundSnapshot>();
+
+  /** Failures to answer the next refund requests with, in order. */
+  readonly refundFailures: Error[] = [];
+
+  /** The status a newly made refund starts in. */
+  refundStatus: RefundStatus = "pending";
+
   constructor(secret: string = DEFAULT_SECRET) {
     this.secret = secret;
+  }
+
+  refundPayment(input: RefundPaymentInput): Promise<IssuedRefund> {
+    this.refundRequests.push(input);
+    const failure = this.refundFailures.shift();
+    if (failure) return Promise.reject(failure);
+
+    const seen = this.refundsByKey.get(input.idempotencyKey);
+    if (seen) return Promise.resolve(seen);
+
+    // Shared by every instance: a real processor never hands out the same refund id twice.
+    refundCounter += 1;
+    const issued: IssuedRefund = {
+      providerRefundId: `re_mock_${refundCounter}`,
+      status: this.refundStatus,
+    };
+    this.refundsByKey.set(input.idempotencyKey, issued);
+    this.refunds.set(issued.providerRefundId, {
+      ...issued,
+      amountFils: input.amountFils,
+      currency: "AED",
+      paymentIntentId: input.paymentIntentId,
+    });
+    return Promise.resolve(issued);
+  }
+
+  /** Move a refund on, as the processor would some time after making it. */
+  settleRefund(providerRefundId: string, status: RefundStatus): void {
+    const refund = this.refunds.get(providerRefundId);
+    if (refund) this.refunds.set(providerRefundId, { ...refund, status });
+  }
+
+  getRefund(providerRefundId: string): Promise<RefundSnapshot> {
+    const refund = this.refunds.get(providerRefundId);
+    if (!refund) return Promise.reject(new Error(`no such refund ${providerRefundId}`));
+    return Promise.resolve(refund);
   }
 
   expireCheckout(checkoutSessionId: string): Promise<void> {
@@ -119,7 +178,13 @@ export interface MockEventBody {
   readonly amountFils?: number;
   readonly currency?: string;
   readonly createdAtIso?: string;
+  /** Refund events only: the refund, and our row id when we made it. */
+  readonly providerRefundId?: string;
+  readonly refundRowId?: string;
+  readonly refundStatus?: RefundStatus;
 }
+
+const REFUND_TYPES = new Set(["refund.created", "refund.updated", "refund.failed"]);
 
 const HANDLED = new Set([
   "checkout.session.completed",
@@ -135,9 +200,28 @@ export function mockEventBody(body: MockEventBody): string {
 
 function parseMockEvent(rawBody: string): PaymentEvent {
   const body = JSON.parse(rawBody) as MockEventBody;
+  const occurredAt = body.createdAtIso ? new Date(body.createdAtIso) : new Date(0);
+
+  if (REFUND_TYPES.has(body.type)) {
+    return {
+      kind: "refund",
+      eventId: body.id,
+      type: body.type,
+      occurredAt,
+      ignorable: false,
+      orderId: body.orderId ?? null,
+      refundRowId: body.refundRowId ?? null,
+      providerRefundId: body.providerRefundId ?? "re_mock",
+      paymentIntentId: body.paymentIntentId ?? null,
+      amountFils: body.amountFils ?? 0,
+      currency: (body.currency ?? "AED").toUpperCase(),
+      status: body.refundStatus ?? "pending",
+    };
+  }
 
   const ignorable = !HANDLED.has(body.type);
   return {
+    kind: "checkout",
     eventId: body.id,
     type: body.type,
     checkoutSessionId: ignorable ? null : (body.checkoutSessionId ?? null),
@@ -147,7 +231,7 @@ function parseMockEvent(rawBody: string): PaymentEvent {
     outcome: ignorable ? "unpaid" : mockOutcome(body),
     amountFils: ignorable ? null : (body.amountFils ?? null),
     currency: ignorable ? null : (body.currency ?? null),
-    occurredAt: body.createdAtIso ? new Date(body.createdAtIso) : new Date(0),
+    occurredAt,
     ignorable,
   };
 }

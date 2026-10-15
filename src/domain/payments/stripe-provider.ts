@@ -5,12 +5,22 @@ import { STRIPE_SUBMIT_MESSAGE, stripeTermsMessage } from "@/config/booking-term
 import {
   InvalidSignatureError,
   PaymentNotConfiguredError,
+  type IssuedRefund,
   type PaymentEvent,
   type PaymentOutcome,
   type PaymentProvider,
+  type RefundPaymentInput,
+  type RefundSnapshot,
   type StartCheckoutInput,
   type StartedCheckout,
 } from "./provider";
+import {
+  REFUND_EVENTS,
+  classifyRefundError,
+  refundStatusOf,
+  toRefundEvent,
+  toRefundSnapshot,
+} from "./stripe-refunds";
 
 /**
  * Stripe behind the payment port.
@@ -61,6 +71,15 @@ const HANDLED_EVENTS = new Set([COMPLETED, ASYNC_SUCCEEDED, ASYNC_FAILED, EXPIRE
  * payment the processor still accepts always has a slot waiting for it.
  */
 const CHECKOUT_SESSION_TTL_MINUTES = 30;
+
+/*
+  How long a refund request may take before it counts as unclear. The sweep
+  runs every five minutes and must not be held by one slow answer; an unclear
+  request is simply repeated later with the same key.
+*/
+const REFUND_TIMEOUT_MS = 15_000;
+/** At most two tries of 15 seconds: well inside the five-minute claim (data/refunds.ts). */
+const REFUND_NETWORK_RETRIES = 1;
 
 /** Our own keys on the Stripe object, so an event can find its order and its slot. */
 const ORDER_ID = "orderId";
@@ -210,11 +229,49 @@ export class StripePaymentProvider implements PaymentProvider {
 
     return toPaymentEvent(event);
   }
+
+  async refundPayment(input: RefundPaymentInput): Promise<IssuedRefund> {
+    let refund: Stripe.Refund;
+    try {
+      refund = await this.stripe.refunds.create(
+        {
+          payment_intent: input.paymentIntentId,
+          // Fils are the minor unit Stripe wants. Always the full amount owed.
+          amount: input.amountFils,
+          reason: "requested_by_customer",
+          metadata: { orderId: input.metadata.orderId, refundId: input.metadata.refundId },
+        },
+        /*
+          A repeated key returns the refund already made, never a second one.
+          One retry inside the SDK, with the same key, set here rather than
+          left to the SDK default: the claim's lease is sized for two timeouts.
+        */
+        {
+          idempotencyKey: input.idempotencyKey,
+          timeout: REFUND_TIMEOUT_MS,
+          maxNetworkRetries: REFUND_NETWORK_RETRIES,
+        },
+      );
+    } catch (error) {
+      throw classifyRefundError(error);
+    }
+    return { providerRefundId: refund.id, status: refundStatusOf(refund.status) };
+  }
+
+  async getRefund(providerRefundId: string): Promise<RefundSnapshot> {
+    const refund = await this.stripe.refunds.retrieve(providerRefundId, undefined, {
+      timeout: REFUND_TIMEOUT_MS,
+    });
+    return toRefundSnapshot(refund);
+  }
 }
 
 /** Stripe shapes in, our shape out. Nothing above this line knows Stripe exists. */
 export function toPaymentEvent(event: Stripe.Event): PaymentEvent {
+  if (REFUND_EVENTS.has(event.type)) return toRefundEvent(event);
+
   const base = {
+    kind: "checkout" as const,
     eventId: event.id,
     type: event.type,
     occurredAt: new Date(event.created * 1000),

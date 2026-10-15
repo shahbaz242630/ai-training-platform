@@ -14,6 +14,7 @@ import { formatAed, type Fils } from "@/lib/money";
 import {
   WithdrawalAcknowledgementEmail,
   withdrawalAcknowledgementSubject,
+  type WithdrawalRefundState,
 } from "./WithdrawalAcknowledgementEmail";
 import { BookingConfirmationEmail, bookingConfirmationSubject } from "./BookingConfirmationEmail";
 import { FollowUpEmail, followUpSubject } from "./FollowUpEmail";
@@ -244,6 +245,11 @@ export interface WithdrawalEmailModel {
   /** The customer's zone, as captured at booking. */
   readonly timeZone: string;
   readonly refundDueFils: Fils;
+  /**
+   * Where the refund stands when the email is sent: succeeded, issued (sent
+   * to Stripe, still on its way), or owed (not sent yet). Owed when absent.
+   */
+  readonly refund?: WithdrawalRefundState;
 }
 
 export async function renderWithdrawalAcknowledgement(
@@ -259,6 +265,7 @@ export async function renderWithdrawalAcknowledgement(
       receivedLabel={describeInstant(model.receivedAt, model.timeZone)}
       refundLabel={formatAed(model.refundDueFils)}
       refundDays={BOOKING_POLICY.withdrawalRefundDays}
+      refund={model.refund ?? "owed"}
       companyName={companyName()}
       supportEmail={supportEmail()}
     />,

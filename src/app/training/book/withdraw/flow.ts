@@ -182,7 +182,9 @@ export async function confirmWithdrawal(
   if (!parsed.ok) return parsed;
 
   return deps.transaction(async (runner) => {
-    const booking = await findBookingForWithdrawal(runner, parsed.reference, parsed.form.email);
+    const booking = await findBookingForWithdrawal(runner, parsed.reference, parsed.form.email, {
+      lock: true,
+    });
     if (booking === null) return { ok: false, message: NOT_FOUND_MESSAGE() };
 
     let refundDueFils: number;
