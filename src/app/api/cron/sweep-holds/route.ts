@@ -10,7 +10,15 @@ import { listCalendarMovesDue, syncCalendarMove } from "@/data/reschedule";
 import { getSchedulingProvider } from "@/domain/scheduling/factory";
 import type { SchedulingProvider } from "@/domain/scheduling/provider";
 import { countPaidButUnscheduled } from "@/data/audit-events";
-import { countRefundsNeedingAttention, refundWorkWaiting } from "@/data/refunds";
+import {
+  listRefundsNeedingAttention,
+  refundWorkWaiting,
+  type RefundNeedingAttention,
+} from "@/data/refunds";
+import { reconcileDeskAlerts, type DeskAlertReport } from "@/data/desk-alerts";
+import { renderRefundNeedsAttention } from "@/components/emails/desk-alerts";
+import { supportEmail } from "@/config/site";
+import { getEmailProvider } from "@/domain/messaging/factory";
 import { issueDueRefunds, refreshPendingRefunds } from "@/data/refund-issuer";
 import { getPaymentProvider } from "@/domain/payments/factory";
 import { purgeExpiredPersonalData, type PurgeReport } from "@/data/retention";
@@ -144,9 +152,8 @@ export async function POST(request: Request): Promise<NextResponse> {
       not gone back, or went back and then failed. Raised until a person
       refunds it by hand and the dashboard refund is recorded.
     */
-    const refundsNeedingAttention = await withTransaction((runner) =>
-      countRefundsNeedingAttention(runner, now),
-    );
+    const attention = await withTransaction((runner) => listRefundsNeedingAttention(runner, now));
+    const refundsNeedingAttention = attention.length;
     if (refundsNeedingAttention > 0) {
       logger.error(
         "REFUNDS NEED A PERSON - a refund owed has failed or is overdue. " +
@@ -154,6 +161,13 @@ export async function POST(request: Request): Promise<NextResponse> {
         { count: refundsNeedingAttention },
       );
     }
+
+    /*
+      And told to a person: an email to the booking desk per refund, again
+      each day while it lasts, closed quietly once it is gone. A log line is
+      read by nobody; this is what makes the alarm reach somebody.
+    */
+    const deskAlerts = await deskAlertsOrReport(attention);
 
     /*
       What the privacy notice says we stop keeping, deleted on schedule. Every
@@ -175,6 +189,7 @@ export async function POST(request: Request): Promise<NextResponse> {
       calendarMoves,
       refunds,
       refundsNeedingAttention,
+      deskAlerts,
       retention,
       // Reported on every run, so the number is visible to whatever calls this
       // rather than only in a log somebody has to go looking for.
@@ -337,6 +352,32 @@ async function refundOrReport(now: Date): Promise<RefundReport> {
       error: (error as Error).name,
     });
     return { error: "refund step failed" };
+  }
+}
+
+/**
+ * The desk alerts for refunds, in their own failure: email being down must
+ * not turn the sweep red. Nothing is recorded as sent unless it went, so a
+ * failure here is simply tried again next run.
+ */
+async function deskAlertsOrReport(
+  attention: readonly RefundNeedingAttention[],
+): Promise<DeskAlertReport | { error: string }> {
+  try {
+    return await reconcileDeskAlerts(
+      "refund_needs_attention",
+      attention.map((refund) => ({
+        subjectKey: `refund:${refund.refundId}`,
+        render: (reminder) => renderRefundNeedsAttention(refund, reminder),
+      })),
+      { email: getEmailProvider, transaction: withTransaction, clock: () => new Date() },
+      supportEmail(),
+    );
+  } catch (error) {
+    logger.error("desk alerts could not be sent; they will be tried again next run", {
+      error: (error as Error).name,
+    });
+    return { error: "desk alerts could not be sent" };
   }
 }
 

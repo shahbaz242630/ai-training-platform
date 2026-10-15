@@ -29,6 +29,8 @@ export interface PurgeReport {
   readonly holdAddresses: number;
   /** Customers whose seven-year record period ended, with everything that was theirs. */
   readonly expiredRecords: number;
+  /** Desk alerts closed more than a year ago. */
+  readonly deskAlerts: number;
 }
 
 /** Deletes the bookings (and what hangs off them) and orders the given order-id query selects. */
@@ -149,11 +151,24 @@ export async function purgeExpiredPersonalData(
     [now],
   );
 
+  /*
+    Desk alerts hold ids only, nothing personal; kept for ever they would only
+    grow. A closed one goes a year after it closed. An open one stays: it is
+    still telling somebody something.
+  */
+  const deskAlerts = await runner.query<{ id: string }>(
+    `delete from desk_alerts
+      where resolved_at is not null and resolved_at < $1::timestamptz - interval '1 year'
+      returning id`,
+    [now],
+  );
+
   return {
     unpaidOrders,
     customers: customers.rows.length,
     intakes: intakes.rows.length,
     holdAddresses: holdAddresses.rows.length,
     expiredRecords: expiredCustomerIds.length,
+    deskAlerts: deskAlerts.rows.length,
   };
 }
