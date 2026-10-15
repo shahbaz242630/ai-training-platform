@@ -1,7 +1,10 @@
 "use server";
 
 import { headers } from "next/headers";
+import { after } from "next/server";
+import { sendQueuedMessageNow } from "@/app/api/cron/send-communications/deliver";
 import { withTransaction } from "@/data/db";
+import { getEmailProvider } from "@/domain/messaging/factory";
 import { recordAudit } from "@/lib/audit";
 import { clientAddressFrom } from "@/lib/client-address";
 import { logger } from "@/lib/logger";
@@ -77,6 +80,31 @@ export async function confirmWithdrawalAction(
           bookingId: result.bookingId,
         },
       );
+      /*
+        The acknowledgement straight away, as the page promises and the law
+        asks, rather than at the next five-minute run. After the response, so
+        the customer is not kept waiting on the email service. It is claimed
+        like any queued message, so the five-minute job cannot send it too, and
+        if this send fails it stays queued for that job to send.
+      */
+      const bookingId = result.bookingId;
+      after(async () => {
+        try {
+          const outcome = await sendQueuedMessageNow({
+            bookingId,
+            templateKey: "withdrawal_acknowledgement",
+            provider: getEmailProvider(),
+            now: new Date(),
+          });
+          logger.info("withdrawal acknowledgement sent straight away", { bookingId, outcome });
+        } catch (error) {
+          // The type only: a provider's or the database's message can echo an address.
+          logger.error("the withdrawal acknowledgement could not be sent straight away", {
+            bookingId,
+            error: (error as Error).name,
+          });
+        }
+      });
     }
     return { ok: true, receipt: result.receipt };
   } catch (error) {

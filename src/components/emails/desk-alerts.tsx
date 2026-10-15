@@ -1,6 +1,6 @@
 import { render } from "@react-email/render";
 import { companyName, supportEmail } from "@/config/site";
-import type { RefundNeedingAttention } from "@/data/refunds";
+import type { RefundNeedingAttention } from "@/data/refund-queries";
 import { formatAed } from "@/lib/money";
 import { EmailLayout, emailStyles } from "./EmailLayout";
 import type { RenderedEmail } from "./templates";

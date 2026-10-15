@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { refundAlertReason, renderRefundNeedsAttention } from "./desk-alerts";
-import type { RefundNeedingAttention } from "@/data/refunds";
+import type { RefundNeedingAttention } from "@/data/refund-queries";
 
 /**
  * The email that tells the booking desk a refund needs a person. Internal,

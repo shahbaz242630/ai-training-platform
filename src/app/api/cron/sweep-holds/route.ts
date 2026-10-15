@@ -14,7 +14,7 @@ import {
   listRefundsNeedingAttention,
   refundWorkWaiting,
   type RefundNeedingAttention,
-} from "@/data/refunds";
+} from "@/data/refund-queries";
 import { reconcileDeskAlerts, type DeskAlertReport } from "@/data/desk-alerts";
 import { renderRefundNeedsAttention } from "@/components/emails/desk-alerts";
 import { supportEmail } from "@/config/site";

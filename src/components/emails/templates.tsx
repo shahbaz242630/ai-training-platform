@@ -19,6 +19,7 @@ import {
 import { BookingConfirmationEmail, bookingConfirmationSubject } from "./BookingConfirmationEmail";
 import { FollowUpEmail, followUpSubject } from "./FollowUpEmail";
 import { ManageLinkEmail, manageLinkSubject } from "./ManageLinkEmail";
+import { RefundIssuedEmail, refundIssuedSubject } from "./RefundIssuedEmail";
 import { PaymentReceivedEmail, paymentReceivedSubject } from "./PaymentReceivedEmail";
 import { ReminderEmail, reminderSubject } from "./ReminderEmail";
 import {
@@ -266,6 +267,26 @@ export async function renderWithdrawalAcknowledgement(
       refundLabel={formatAed(model.refundDueFils)}
       refundDays={BOOKING_POLICY.withdrawalRefundDays}
       refund={model.refund ?? "owed"}
+      companyName={companyName()}
+      supportEmail={supportEmail()}
+    />,
+  );
+}
+
+/** What the refund-issued email states. Not a session email either: the booking is cancelled. */
+export interface RefundIssuedEmailModel {
+  readonly firstName: string;
+  readonly reference: string;
+  readonly amountFils: Fils;
+}
+
+export async function renderRefundIssued(model: RefundIssuedEmailModel): Promise<RenderedEmail> {
+  return rendered(
+    refundIssuedSubject(model),
+    <RefundIssuedEmail
+      firstName={model.firstName}
+      reference={model.reference}
+      refundLabel={formatAed(model.amountFils)}
       companyName={companyName()}
       supportEmail={supportEmail()}
     />,

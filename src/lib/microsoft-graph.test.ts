@@ -431,3 +431,60 @@ describe("list, next links from somewhere else", () => {
     await expect(graph.list({ path: "/users/x/events" })).rejects.toThrow(/next link/i);
   });
 });
+
+/*
+  A request that never answers must not hold whatever is waiting on it: the
+  email claim's lease, a sweep run, a customer's page. Every fetch, token or
+  request, carries a timeout.
+*/
+describe("a request that never answers", () => {
+  /** A fetch that waits until its signal aborts, as a hung connection would. */
+  const hangingFetch = (seen: (AbortSignal | undefined)[]) =>
+    ((_url: string | URL | Request, init?: RequestInit) => {
+      seen.push(init?.signal ?? undefined);
+      return new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(init.signal?.reason));
+      });
+    }) as unknown as typeof fetch;
+
+  it("gives up on a hung token request after the timeout", async () => {
+    const seen: (AbortSignal | undefined)[] = [];
+    const client = new GraphClient({
+      credentials: CREDENTIALS,
+      fetch: hangingFetch(seen),
+      timeoutMs: 20,
+    });
+    await expect(client.request({ method: "GET", path: "/me" })).rejects.toMatchObject({
+      name: "TimeoutError",
+    });
+    expect(seen[0]).toBeInstanceOf(AbortSignal);
+  });
+
+  it("gives up on a hung request after the timeout", async () => {
+    const token = scriptedFetch([{ status: 200, body: { access_token: "t", expires_in: 3600 } }]);
+    const seen: (AbortSignal | undefined)[] = [];
+    let call = 0;
+    const fetchImpl = ((url: string | URL | Request, init?: RequestInit) =>
+      call++ === 0 ? token.impl(url, init) : hangingFetch(seen)(url, init)) as typeof fetch;
+    const client = new GraphClient({ credentials: CREDENTIALS, fetch: fetchImpl, timeoutMs: 20 });
+    await expect(client.request({ method: "GET", path: "/me" })).rejects.toMatchObject({
+      name: "TimeoutError",
+    });
+    expect(seen[0]).toBeInstanceOf(AbortSignal);
+  });
+
+  it("puts a signal on every ordinary request too", async () => {
+    const { impl, calls } = scriptedFetch([
+      { status: 200, body: { access_token: "t", expires_in: 3600 } },
+      { status: 200, body: { ok: true } },
+    ]);
+    await new GraphClient({ credentials: CREDENTIALS, fetch: impl }).request({
+      method: "GET",
+      path: "/me",
+    });
+    expect(calls.map((c) => c.init.signal)).toEqual([
+      expect.any(AbortSignal),
+      expect.any(AbortSignal),
+    ]);
+  });
+});

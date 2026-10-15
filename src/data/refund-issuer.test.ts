@@ -3,7 +3,8 @@ import { join } from "node:path";
 import { PGlite } from "@electric-sql/pglite";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { QueryRunner } from "./db";
-import { countRefundsNeedingAttention, createWithdrawalRefund } from "./refunds";
+import { createWithdrawalRefund } from "./refunds";
+import { countRefundsNeedingAttention } from "./refund-queries";
 import { issueDueRefunds, refreshPendingRefunds, reportRefundEvent } from "./refund-issuer";
 import { MockPaymentProvider } from "@/domain/payments/mock-provider";
 import { RefundRefusedError, RefundUnclearError } from "@/domain/payments/provider";
@@ -415,5 +416,6 @@ describe("a refund stuck at pending", () => {
     expect(reads).toBeGreaterThanOrEqual(35);
     expect((await statusOf(refundId)).status).toBe("pending");
     expect(await countRefundsNeedingAttention(runner, later(80 * 60 + 1))).toBe(baseline + 1);
-  });
+    // Eighty runs of the refresh: well inside a second alone, slower when the whole suite is running.
+  }, 30_000);
 });
