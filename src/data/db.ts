@@ -1,6 +1,7 @@
 import { Pool } from "pg";
 import { serverEnv } from "@/lib/env";
 import { logger } from "@/lib/logger";
+import { normalisePem } from "@/lib/pem";
 import { sanitiseConnectionString } from "@/lib/postgres-url";
 
 /**
@@ -108,7 +109,8 @@ export function databaseTls(
   ca: string | undefined,
   isProduction: boolean,
 ): { ca?: string; rejectUnauthorized: boolean } {
-  if (ca) return { ca, rejectUnauthorized: true };
+  // Hostinger stores the certificate on one line; see lib/pem.
+  if (ca) return { ca: normalisePem(ca), rejectUnauthorized: true };
   if (isProduction) throw new DatabaseTlsNotConfiguredError();
 
   logger.error(
