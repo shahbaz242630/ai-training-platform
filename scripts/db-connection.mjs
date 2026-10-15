@@ -37,6 +37,30 @@ export function sanitiseConnectionString(connectionString) {
   return { connectionString: url.toString(), stripped };
 }
 
+/**
+ * A copy of `src/lib/pem.ts`: the certificate rebuilt from a one-line settings
+ * box (spaces, no breaks, or literal `\n`), each block in canonical PEM form.
+ * A value with no complete block is returned untouched.
+ */
+const PEM_BLOCK = /-----BEGIN ([A-Z0-9 ]+)-----([\s\S]*?)-----END \1-----/g;
+
+export function normalisePem(value) {
+  const unescaped = value.replace(/\\n/g, "\n");
+  const blocks = [...unescaped.matchAll(PEM_BLOCK)];
+  if (blocks.length === 0) return value;
+
+  return blocks
+    .map(([, label, body]) => {
+      const base64 = (body ?? "").replace(/\s+/g, "");
+      const lines = [];
+      for (let start = 0; start < base64.length; start += 64) {
+        lines.push(base64.slice(start, start + 64));
+      }
+      return [`-----BEGIN ${label}-----`, ...lines, `-----END ${label}-----`].join("\n");
+    })
+    .join("\n");
+}
+
 /** A database on this machine, where there is no network path to intercept. */
 const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
 
@@ -49,7 +73,7 @@ const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "::1", "[::1]"]);
  * this machine may still be reached unverified, loudly.
  */
 export function tlsOptions(caCert, warn, host) {
-  if (caCert) return { ca: caCert, rejectUnauthorized: true };
+  if (caCert) return { ca: normalisePem(caCert), rejectUnauthorized: true };
   if (!LOCAL_HOSTS.has(host ?? "")) {
     throw new Error(
       "DATABASE_CA_CERT is not set, so the database certificate cannot be verified; refusing an " +

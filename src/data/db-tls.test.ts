@@ -16,6 +16,10 @@ describe("databaseTls", () => {
     expect(databaseTls(CA, false)).toEqual({ ca: CA, rejectUnauthorized: true });
   });
 
+  it("rebuilds a certificate stored on one line by the hosting settings box", () => {
+    expect(databaseTls(CA.replace(/\n/g, " "), true)).toEqual({ ca: CA, rejectUnauthorized: true });
+  });
+
   it("refuses to connect unauthenticated in production", () => {
     expect(() => databaseTls(undefined, true)).toThrow(DatabaseTlsNotConfiguredError);
     expect(() => databaseTls("", true)).toThrow(/DATABASE_CA_CERT/);

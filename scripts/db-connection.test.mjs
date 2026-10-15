@@ -2,10 +2,43 @@ import { describe, expect, it, vi } from "vitest";
 import {
   SSL_PARAMS,
   connectionOptions,
+  normalisePem,
   sanitiseConnectionString,
   tlsOptions,
 } from "./db-connection.mjs";
 import { sanitiseConnectionString as applicationSanitiser } from "../src/lib/postgres-url";
+import { normalisePem as applicationNormalisePem } from "../src/lib/pem";
+
+/*
+  The certificate normaliser is copied for the same reason, and a drift there
+  would let the migration tool accept a certificate layout the application
+  refuses (or the reverse).
+*/
+describe("normalisePem matches the application's", () => {
+  const pem = `-----BEGIN CERTIFICATE-----\n${"A".repeat(64)}\n${"B".repeat(10)}\n-----END CERTIFICATE-----`;
+  const cases = [
+    pem,
+    pem.replace(/\n/g, " "),
+    pem.replace(/\n/g, ""),
+    pem.replace(/\n/g, "\\n"),
+    `${pem}\r\n${pem.replace(/A/g, "C")}`,
+    "-----BEGIN CERTIFICATE-----",
+    "",
+  ];
+
+  for (const input of cases) {
+    it(`agrees on ${JSON.stringify(input.slice(0, 40))}`, () => {
+      expect(normalisePem(input)).toBe(applicationNormalisePem(input));
+    });
+  }
+
+  it("is what tlsOptions hands the driver", () => {
+    expect(tlsOptions(pem.replace(/\n/g, " "), vi.fn(), "db.example.supabase.co")).toEqual({
+      ca: pem,
+      rejectUnauthorized: true,
+    });
+  });
+});
 
 /**
  * The script copies the application's URL sanitiser because the application
