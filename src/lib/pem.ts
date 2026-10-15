@@ -21,18 +21,15 @@ const PEM_BLOCK = /-----BEGIN ([A-Z0-9 ]+)-----([\s\S]*?)-----END \1-----/g;
 const LINE_LENGTH = 64;
 
 export function normalisePem(value: string): string {
-  const unescaped = value.replace(/\\n/g, "\n");
-  const blocks = [...unescaped.matchAll(PEM_BLOCK)];
-  if (blocks.length === 0) return value;
-
-  return blocks
-    .map(([, label, body]) => {
-      const base64 = (body ?? "").replace(/\s+/g, "");
-      const lines: string[] = [];
-      for (let start = 0; start < base64.length; start += LINE_LENGTH) {
-        lines.push(base64.slice(start, start + LINE_LENGTH));
-      }
-      return [`-----BEGIN ${label}-----`, ...lines, `-----END ${label}-----`].join("\n");
-    })
-    .join("\n");
+  const blocks: string[] = [];
+  value.replace(/\\n/g, "\n").replace(PEM_BLOCK, (_block, label: string, body: string) => {
+    const base64 = body.replace(/\s+/g, "");
+    const lines: string[] = [];
+    for (let start = 0; start < base64.length; start += LINE_LENGTH) {
+      lines.push(base64.slice(start, start + LINE_LENGTH));
+    }
+    blocks.push([`-----BEGIN ${label}-----`, ...lines, `-----END ${label}-----`].join("\n"));
+    return "";
+  });
+  return blocks.length === 0 ? value : blocks.join("\n");
 }

@@ -45,20 +45,17 @@ export function sanitiseConnectionString(connectionString) {
 const PEM_BLOCK = /-----BEGIN ([A-Z0-9 ]+)-----([\s\S]*?)-----END \1-----/g;
 
 export function normalisePem(value) {
-  const unescaped = value.replace(/\\n/g, "\n");
-  const blocks = [...unescaped.matchAll(PEM_BLOCK)];
-  if (blocks.length === 0) return value;
-
-  return blocks
-    .map(([, label, body]) => {
-      const base64 = (body ?? "").replace(/\s+/g, "");
-      const lines = [];
-      for (let start = 0; start < base64.length; start += 64) {
-        lines.push(base64.slice(start, start + 64));
-      }
-      return [`-----BEGIN ${label}-----`, ...lines, `-----END ${label}-----`].join("\n");
-    })
-    .join("\n");
+  const blocks = [];
+  value.replace(/\\n/g, "\n").replace(PEM_BLOCK, (_block, label, body) => {
+    const base64 = body.replace(/\s+/g, "");
+    const lines = [];
+    for (let start = 0; start < base64.length; start += 64) {
+      lines.push(base64.slice(start, start + 64));
+    }
+    blocks.push([`-----BEGIN ${label}-----`, ...lines, `-----END ${label}-----`].join("\n"));
+    return "";
+  });
+  return blocks.length === 0 ? value : blocks.join("\n");
 }
 
 /** A database on this machine, where there is no network path to intercept. */
