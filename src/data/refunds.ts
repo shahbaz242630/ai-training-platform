@@ -1,5 +1,6 @@
 import type { QueryRunner } from "./db";
 import { lockOrder } from "./settlement";
+import { bookingReference } from "@/domain/booking/withdrawal";
 import { transitionPayment, type PaymentStatus } from "@/domain/booking/order";
 import { InvalidTransitionError } from "@/domain/booking/transitions";
 import type { IssuedRefund, RefundEvent, RefundStatus } from "@/domain/payments/provider";
@@ -427,6 +428,20 @@ export async function applyRefundEvent(
   return { result: "applied", orderId, refundId: row.id, status: event.status, orderMove };
 }
 
+/** A refund a person must look at, with what the desk needs to find it and nothing about the customer. */
+export interface RefundNeedingAttention {
+  readonly refundId: string;
+  /** The booking's reference: the withdrawn booking, else the order's first. Null if it has none. */
+  readonly bookingReference: string | null;
+  readonly amountFils: Fils;
+  readonly currency: string;
+  readonly status: RefundRowStatus;
+  /** The processor's error code, or one of ours (e.g. no_payment_intent); never a message. */
+  readonly lastError: string | null;
+  /** The payment to look up in Stripe. */
+  readonly paymentIntentId: string | null;
+}
+
 /**
  * Refunds a person must look at. A failed or cancelled refund counts until
  * the order's succeeded refunds cover it, so one that is finished by hand in
@@ -435,22 +450,55 @@ export async function applyRefundEvent(
  * owed a day after they were written (counted from creation, since retries
  * move the row between due and issuing), and refunds whose status has stood
  * at pending for three days.
+ *
+ * The one place these conditions live: the alarm's count and the desk's
+ * emails are both read from here.
  */
-export async function countRefundsNeedingAttention(
+export async function listRefundsNeedingAttention(
   runner: QueryRunner,
   now: Date,
-): Promise<number> {
-  const result = await runner.query<{ n: number }>(
-    `select count(*)::int as n
-       from refunds r join orders o on o.id = r.order_id
+): Promise<readonly RefundNeedingAttention[]> {
+  const result = await runner.query<{
+    id: string;
+    booking_id: string | null;
+    amount_fils: string | number;
+    currency: string;
+    status: RefundRowStatus;
+    last_error: string | null;
+    stripe_payment_intent_id: string | null;
+  }>(
+    `select r.id, coalesce(w.booking_id,
+                           (select b.id from bookings b where b.order_id = r.order_id
+                             order by b.sequence, b.id limit 1)) as booking_id,
+            r.amount_fils, r.currency, r.status, r.last_error, o.stripe_payment_intent_id
+       from refunds r
+       join orders o on o.id = r.order_id
+       left join withdrawal_requests w on w.id = r.withdrawal_request_id
       where (r.status in ('failed', 'canceled')
              and (select coalesce(sum(s.amount_fils), 0) from refunds s
                    where s.order_id = r.order_id and s.status = 'succeeded') < o.gross_amount_fils)
          or (r.status in ('due', 'issuing') and r.created_at < $1::timestamptz - interval '1 day')
-         or (r.status = 'pending' and r.status_changed_at < $1::timestamptz - interval '3 days')`,
+         or (r.status = 'pending' and r.status_changed_at < $1::timestamptz - interval '3 days')
+      order by r.created_at, r.id`,
     [now],
   );
-  return result.rows[0]?.n ?? 0;
+  return result.rows.map((row) => ({
+    refundId: row.id,
+    bookingReference: row.booking_id === null ? null : bookingReference(row.booking_id),
+    amountFils: Number(row.amount_fils),
+    currency: row.currency,
+    status: row.status,
+    lastError: row.last_error,
+    paymentIntentId: row.stripe_payment_intent_id,
+  }));
+}
+
+/** How many refunds need a person: the length of the list above. */
+export async function countRefundsNeedingAttention(
+  runner: QueryRunner,
+  now: Date,
+): Promise<number> {
+  return (await listRefundsNeedingAttention(runner, now)).length;
 }
 
 /**

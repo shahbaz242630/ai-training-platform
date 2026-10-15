@@ -94,6 +94,7 @@ describe("applying the migrations", () => {
       "bookings",
       "communication_log",
       "customers",
+      "desk_alerts",
       "intakes",
       "orders",
       "refunds",

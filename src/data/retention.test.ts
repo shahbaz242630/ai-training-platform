@@ -256,6 +256,7 @@ it("reports what it removed and is a no-op when run again", async () => {
     intakes: 0,
     holdAddresses: 0,
     expiredRecords: 0,
+    deskAlerts: 0,
   });
 });
 
@@ -382,5 +383,32 @@ describe("the seven years count from the latest record, not the first", () => {
     );
     await purgeExpiredPersonalData(runner, NOW);
     expect(await exists("orders", orderId)).toBe(true);
+  });
+});
+
+/*
+  Desk alerts hold ids only, so nothing personal, but kept for ever they would
+  only grow. A closed one goes a year after it closed; an open one stays.
+*/
+describe("desk alerts", () => {
+  it("are deleted a year after they were closed, and kept while open or recent", async () => {
+    const insert = async (key: string, resolvedAt: Date | null) =>
+      (
+        await db.query<{ id: string }>(
+          `insert into desk_alerts (kind, subject_key, first_raised_at, resolved_at)
+           values ('refund_needs_attention', $1, $2, $3) returning id`,
+          [key, ago(800), resolvedAt],
+        )
+      ).rows[0]!.id;
+    const old = await insert("refund:old", ago(366));
+    const recent = await insert("refund:recent", ago(300));
+    const open = await insert("refund:open", null);
+
+    const report = await purgeExpiredPersonalData(runner, NOW);
+
+    expect(report.deskAlerts).toBeGreaterThanOrEqual(1);
+    expect(await exists("desk_alerts", old)).toBe(false);
+    expect(await exists("desk_alerts", recent)).toBe(true);
+    expect(await exists("desk_alerts", open)).toBe(true);
   });
 });
