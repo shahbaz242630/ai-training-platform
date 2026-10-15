@@ -66,7 +66,7 @@ where exists (select 1 from cron.job where jobname = 'send-communications');
 select cron.schedule(
   'send-communications',
   '*/5 * * * *',
-  $
+  $$
   select net.http_post(
     url     := (select decrypted_secret from vault.decrypted_secrets
                  where name = 'send_communications_url'),
@@ -78,7 +78,7 @@ select cron.schedule(
     body    := '{}'::jsonb,
     timeout_milliseconds := 30000
   );
-  $
+  $$
 );
 
 -- Check it afterwards:
