@@ -93,8 +93,8 @@ export function WithdrawalForm({ initialReference }: { readonly initialReference
           ]}
         />
         <p className="text-ink-soft mt-4 text-[14.5px] leading-relaxed">
-          Your booking is cancelled. We will refund {step.receipt.refundDue} to the card you paid
-          with within 14 days, at no cost to you.{" "}
+          Your booking is cancelled. We are refunding {step.receipt.refundDue} to the card you paid
+          with, at no cost to you.{" "}
           {step.receipt.isNew
             ? "We are emailing you a copy of this confirmation."
             : "We emailed you a confirmation when we received it."}

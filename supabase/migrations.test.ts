@@ -96,6 +96,7 @@ describe("applying the migrations", () => {
       "customers",
       "intakes",
       "orders",
+      "refunds",
       "slot_holds",
       "webhook_events",
       "withdrawal_requests",

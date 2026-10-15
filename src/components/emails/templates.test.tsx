@@ -164,6 +164,42 @@ describe("renderWithdrawalAcknowledgement", () => {
     expect(email.text).toContain("3F9A1C2B");
   });
 
+  /*
+    What the email says about the money follows what Stripe has said: refunded
+    only once the refund succeeded, issued while it is still on its way, and
+    the promise of the next 14 days while nothing has been sent yet.
+  */
+  it("says refunded once the refund has succeeded", async () => {
+    const email = await renderWithdrawalAcknowledgement({ ...withdrawal, refund: "succeeded" });
+    expect(email.text).toContain(
+      "We have refunded AED 1,299 to the card you paid with, at no cost to you.",
+    );
+    expect(email.text).toContain("Banks usually take 5 to 10 working days");
+    expect(email.text).not.toContain("within 14 days");
+  });
+
+  it("says issued while the refund is on its way", async () => {
+    const email = await renderWithdrawalAcknowledgement({ ...withdrawal, refund: "issued" });
+    expect(email.text).toContain(
+      "We have issued a full refund of AED 1,299 to the card you paid with, at no cost to you.",
+    );
+    expect(email.text).toContain("reply to this email and we will look into it");
+    expect(email.text).not.toContain("We have refunded");
+  });
+
+  it("promises the refund within 14 days while none has been sent", async () => {
+    const email = await renderWithdrawalAcknowledgement({ ...withdrawal, refund: "owed" });
+    expect(email.text).toContain("We will refund AED 1,299 to the card you paid with");
+    expect(email.text).not.toMatch(/We have (refunded|issued)/);
+  });
+
+  it("uses no long dashes in any version", async () => {
+    for (const refund of ["succeeded", "issued", "owed"] as const) {
+      const email = await renderWithdrawalAcknowledgement({ ...withdrawal, refund });
+      expect(email.text).not.toMatch(/[–—]/);
+    }
+  });
+
   it("tells the customer what to do if they did not send it", async () => {
     const email = await renderWithdrawalAcknowledgement(withdrawal);
     expect(email.text).toMatch(/did not send this/i);

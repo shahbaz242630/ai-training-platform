@@ -46,6 +46,7 @@ describe("StripePaymentProvider.verifyEvent", () => {
   it("accepts a genuinely signed delivery and reduces it to our shape", async () => {
     const body = eventBody();
     const event = await provider.verifyEvent(body, signedHeader(body));
+    if (event.kind !== "checkout") throw new Error("expected a checkout event");
 
     expect(event.eventId).toBe("evt_test_1");
     expect(event.orderId).toBe("order-1");

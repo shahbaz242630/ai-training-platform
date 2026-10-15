@@ -20,6 +20,7 @@ import {
   type ClaimedCommunication,
   type CommunicationContext,
 } from "@/data/communications";
+import { loadWithdrawalRefund, refundStateForEmail } from "@/data/refunds";
 import { loadWithdrawal } from "@/data/withdrawals";
 import { bookingReference } from "@/domain/booking/withdrawal";
 import { buildCalendarFile } from "@/domain/messaging/calendar-file";
@@ -335,10 +336,17 @@ function manageUrlFor(bookingId: string, sessionStart: Date): string | null {
 /**
  * The acknowledgement of a withdrawal. About the notice, not a session, so it
  * goes whether or not the booking ever had a time. The booking desk gets a
- * blind copy: a person has to take the event off the calendar and refund.
+ * blind copy, so a person sees every withdrawal and can check the refund and
+ * the calendar. What it says about the money follows where the refund stands
+ * at the moment it is sent.
  */
 async function prepareWithdrawalAcknowledgement(context: CommunicationContext): Promise<Prepared> {
-  const withdrawal = await withTransaction((runner) => loadWithdrawal(runner, context.bookingId));
+  const [withdrawal, refund] = await withTransaction((runner) =>
+    Promise.all([
+      loadWithdrawal(runner, context.bookingId),
+      loadWithdrawalRefund(runner, context.bookingId),
+    ]),
+  );
   if (withdrawal === null) return { ok: false, reason: "no_withdrawal_on_record" };
 
   const session = getSessionBySlug(context.sessionSlug);
@@ -352,6 +360,7 @@ async function prepareWithdrawalAcknowledgement(context: CommunicationContext): 
     receivedAt: withdrawal.receivedAt,
     timeZone: context.customerTimezone,
     refundDueFils: withdrawal.refundDueFils,
+    refund: refundStateForEmail(refund),
   });
   return { ok: true, email, bcc: supportEmail() };
 }

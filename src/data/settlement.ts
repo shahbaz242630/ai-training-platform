@@ -92,7 +92,7 @@ function toOrder(row: OrderRow): Order {
  * while the first is still working. Without the lock both read `pending`, both
  * decide to move it to `paid`, and both run the side effects that follow.
  */
-async function lockOrder(runner: QueryRunner, orderId: string): Promise<Order | null> {
+export async function lockOrder(runner: QueryRunner, orderId: string): Promise<Order | null> {
   const result = await runner.query<OrderRow>(`select * from orders where id = $1 for update`, [
     orderId,
   ]);

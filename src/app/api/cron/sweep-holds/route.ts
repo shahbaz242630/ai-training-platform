@@ -10,6 +10,9 @@ import { listCalendarMovesDue, syncCalendarMove } from "@/data/reschedule";
 import { getSchedulingProvider } from "@/domain/scheduling/factory";
 import type { SchedulingProvider } from "@/domain/scheduling/provider";
 import { countPaidButUnscheduled } from "@/data/audit-events";
+import { countRefundsNeedingAttention, refundWorkWaiting } from "@/data/refunds";
+import { issueDueRefunds, refreshPendingRefunds } from "@/data/refund-issuer";
+import { getPaymentProvider } from "@/domain/payments/factory";
 import { purgeExpiredPersonalData, type PurgeReport } from "@/data/retention";
 import { readAppliedSchemaVersion, schemaStatus } from "@/data/schema-version";
 import { recordAudit } from "@/lib/audit";
@@ -130,6 +133,29 @@ export async function POST(request: Request): Promise<NextResponse> {
     const calendarMoves = await applyCalendarMoves();
 
     /*
+      Refunds owed for withdrawals, asked for here rather than on the public
+      form, and refunds Stripe has gone quiet about, read again. In their own
+      failure domain: a processor outage must not turn the whole sweep red.
+    */
+    const refunds = await refundOrReport(now);
+
+    /*
+      The refund alarm, on every run like the one above: money owed that has
+      not gone back, or went back and then failed. Raised until a person
+      refunds it by hand and the dashboard refund is recorded.
+    */
+    const refundsNeedingAttention = await withTransaction((runner) =>
+      countRefundsNeedingAttention(runner, now),
+    );
+    if (refundsNeedingAttention > 0) {
+      logger.error(
+        "REFUNDS NEED A PERSON - a refund owed has failed or is overdue. " +
+          "Refund it by hand in the Stripe dashboard.",
+        { count: refundsNeedingAttention },
+      );
+    }
+
+    /*
       What the privacy notice says we stop keeping, deleted on schedule. Every
       step is keyed on time, so a run with nothing due changes nothing.
     */
@@ -147,6 +173,8 @@ export async function POST(request: Request): Promise<NextResponse> {
       calendarEventsStillBlocking: calendar.failed,
       confirmations,
       calendarMoves,
+      refunds,
+      refundsNeedingAttention,
       retention,
       // Reported on every run, so the number is visible to whatever calls this
       // rather than only in a log somebody has to go looking for.
@@ -268,6 +296,48 @@ async function applyCalendarMoves(): Promise<{ moved: number; missing: number; f
     }
   }
   return counts;
+}
+
+type RefundReport =
+  | (Awaited<ReturnType<typeof issueDueRefunds>> & {
+      readonly refreshed: Awaited<ReturnType<typeof refreshPendingRefunds>>;
+    })
+  | { readonly waiting: false }
+  | { readonly error: string };
+
+/**
+ * The refund step. Asks first whether there is anything to do, so a run with
+ * no refunds never needs payments configured.
+ */
+async function refundOrReport(now: Date): Promise<RefundReport> {
+  try {
+    if (!(await withTransaction((runner) => refundWorkWaiting(runner, now)))) {
+      return { waiting: false };
+    }
+    let provider;
+    try {
+      provider = getPaymentProvider();
+    } catch (error) {
+      logger.error("payments are not configured, so refunds owed must wait", {
+        error: (error as Error).name,
+      });
+      return { error: "payments not configured" };
+    }
+    // A fresh clock for every claim and record, not this run's start.
+    const deps = { provider, transaction: withTransaction, clock: () => new Date() };
+    const issued = await issueDueRefunds(deps);
+    const refreshed = await refreshPendingRefunds(deps);
+    return { ...issued, refreshed };
+  } catch (error) {
+    /*
+      The name only. A processor error's message can repeat what was sent,
+      and nothing about a customer's payment belongs in the log.
+    */
+    logger.error("the refund step failed; it will run again next time", {
+      error: (error as Error).name,
+    });
+    return { error: "refund step failed" };
+  }
 }
 
 /**

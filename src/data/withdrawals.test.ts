@@ -216,6 +216,52 @@ describe("recordWithdrawal", () => {
   });
 });
 
+describe("the refund a withdrawal is owed", () => {
+  const refundsFor = async (bookingId: string) =>
+    (
+      await db.query<{ status: string; amount_fils: string | number; origin: string }>(
+        `select r.status, r.amount_fils, r.origin
+           from refunds r join withdrawal_requests w on w.id = r.withdrawal_request_id
+          where w.booking_id = $1`,
+        [bookingId],
+      )
+    ).rows.map((r) => ({ ...r, amount_fils: Number(r.amount_fils) }));
+
+  it("is written with the notice, in full, due for the sweep to send", async () => {
+    const s = await seed();
+    await recordWithdrawal(runner, input(s));
+    expect(await refundsFor(s.bookingId)).toEqual([
+      { status: "due", amount_fils: 149900, origin: "withdrawal" },
+    ]);
+  });
+
+  it("is written once, however often the notice is confirmed", async () => {
+    const s = await seed();
+    await recordWithdrawal(runner, input(s));
+    await recordWithdrawal(runner, input(s, { receivedAt: new Date("2026-10-07T09:05:00Z") }));
+    expect(await refundsFor(s.bookingId)).toHaveLength(1);
+  });
+
+  // The notice is kept either way; money goes back only for a booking this notice closed.
+  it("is not written when the booking was no longer open to cancel", async () => {
+    const s = await seed({ status: "completed" });
+    await recordWithdrawal(runner, input(s));
+    expect(await refundsFor(s.bookingId)).toEqual([]);
+  });
+
+  it("is not written when nothing is due", async () => {
+    const s = await seed();
+    await recordWithdrawal(runner, input(s, { refundDueFils: 0 }));
+    expect(await refundsFor(s.bookingId)).toEqual([]);
+  });
+
+  it("can lock the order while the notice is decided", async () => {
+    const s = await seed();
+    const found = await findBookingForWithdrawal(runner, s.reference, s.email, { lock: true });
+    expect(found?.bookingId).toBe(s.bookingId);
+  });
+});
+
 describe("the withdrawn session's time", () => {
   it("goes back on sale: the hold that kept it is released", async () => {
     const s = await seed();

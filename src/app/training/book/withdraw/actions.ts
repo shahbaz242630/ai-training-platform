@@ -71,9 +71,12 @@ export async function confirmWithdrawalAction(
         metadata: { reason: "customer_withdrawal" },
       });
       // No name or email here: the booking id is enough to find everything.
-      logger.warn("withdrawal received: refund by hand and check the calendar event has gone", {
-        bookingId: result.bookingId,
-      });
+      logger.warn(
+        "withdrawal received: the refund is issued automatically; check the calendar event has gone",
+        {
+          bookingId: result.bookingId,
+        },
+      );
     }
     return { ok: true, receipt: result.receipt };
   } catch (error) {

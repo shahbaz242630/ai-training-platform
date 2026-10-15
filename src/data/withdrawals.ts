@@ -1,5 +1,6 @@
 import type { QueryRunner } from "./db";
 import { cancelQueuedCommunications, queueForBooking } from "./communications";
+import { createWithdrawalRefund } from "./refunds";
 import { releaseConvertedHoldForLostSlot } from "./slot-holds";
 import type { BookingStatus } from "@/domain/booking/booking";
 import type { Fils } from "@/lib/money";
@@ -37,6 +38,12 @@ export async function findBookingForWithdrawal(
   runner: QueryRunner,
   reference: string,
   email: string,
+  /*
+    The confirm step locks the order: a refund event moving it on between the
+    decision and the notice being kept would otherwise go unseen. The look-up
+    step writes nothing and takes no lock.
+  */
+  options: { readonly lock?: boolean } = {},
 ): Promise<BookingForWithdrawal | null> {
   const result = await runner.query<{
     id: string;
@@ -61,7 +68,7 @@ export async function findBookingForWithdrawal(
        left join withdrawal_requests w on w.booking_id = b.id
       where upper(left(b.id::text, 8)) = $1
         and c.email = lower($2)
-      limit 2`,
+      limit 2${options.lock ? " for update of o" : ""}`,
     [reference, email.trim()],
   );
   // Two bookings for one person sharing a reference is vanishingly unlikely;
@@ -113,13 +120,17 @@ export async function recordWithdrawal(
   runner: QueryRunner,
   input: WithdrawalInput,
 ): Promise<WithdrawalRecorded> {
-  const inserted = await runner.query<{ received_at: Date; refund_due_fils: string | number }>(
+  const inserted = await runner.query<{
+    id: string;
+    received_at: Date;
+    refund_due_fils: string | number;
+  }>(
     `insert into withdrawal_requests
        (booking_id, full_name, email, statement, refund_due_fils, received_at,
         ip_address, user_agent)
      values ($1, $2, lower($3), $4, $5, $6, $7, $8)
      on conflict (booking_id) do nothing
-     returning received_at, refund_due_fils`,
+     returning id, received_at, refund_due_fils`,
     [
       input.bookingId,
       input.fullName.trim(),
@@ -162,11 +173,26 @@ export async function recordWithdrawal(
     like any other released hold.
   */
   const slot = cancelled.rows[0];
-  if (slot && slot.scheduled_start !== null && slot.scheduled_end !== null) {
+  if (slot?.scheduled_start && slot.scheduled_end) {
     await releaseConvertedHoldForLostSlot(runner, {
       orderId: slot.order_id,
       slotStart: slot.scheduled_start,
       slotEnd: slot.scheduled_end,
+    });
+  }
+  /*
+    The refund the law says is owed, in full, written with the notice so one
+    cannot exist without the other. Only when this notice closed the booking:
+    a booking that had already finished or been cancelled keeps its notice as
+    evidence, and a person decides what, if anything, goes back. The sweep
+    asks the processor for it; nothing here talks to the network.
+  */
+  if (slot && input.refundDueFils > 0) {
+    await createWithdrawalRefund(runner, {
+      orderId: slot.order_id,
+      withdrawalRequestId: created.id,
+      amountFils: input.refundDueFils,
+      now: input.receivedAt,
     });
   }
   await cancelQueuedCommunications(runner, input.bookingId);

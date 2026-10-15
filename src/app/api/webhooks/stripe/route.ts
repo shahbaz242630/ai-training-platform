@@ -13,6 +13,7 @@ import { clientAddressFrom } from "@/lib/client-address";
 import { createEvidenceBudget } from "@/lib/evidence-budget";
 import { logger } from "@/lib/logger";
 import { readTextWithin } from "@/lib/read-body";
+import { handleRefundEvent } from "./refund-event";
 
 /*
   Stripe's events are a few kilobytes. The body has to be read before the
@@ -119,6 +120,9 @@ export async function POST(request: Request): Promise<NextResponse> {
   if (event.ignorable) {
     return NextResponse.json({ ok: true, ignored: event.type });
   }
+
+  // Refunds find their order their own way, so they are handled before the guards below.
+  if (event.kind === "refund") return handleRefundEvent(event);
 
   /*
     The order id arrives in processor metadata, so it is external input like
