@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { refundAlertReason, renderRefundNeedsAttention } from "./desk-alerts";
+import {
+  refundAlertReason,
+  renderCalendarEventChanged,
+  renderRefundNeedsAttention,
+} from "./desk-alerts";
+import { supportEmail } from "@/config/site";
+import type { CalendarProblem } from "@/data/calendar-watch";
 import type { RefundNeedingAttention } from "@/data/refund-queries";
 
 /**
@@ -79,5 +85,74 @@ describe("refundAlertReason", () => {
     // Nothing claims the payment provider was contacted: it may never have been.
     expect(reason("due", null)).not.toMatch(/provider|reached/);
     expect(reason("pending", null)).toMatch(/pending in Stripe for over 3 days/);
+  });
+});
+
+describe("renderCalendarEventChanged", () => {
+  const booked = {
+    start: new Date("2026-10-20T15:00:00Z"),
+    end: new Date("2026-10-20T16:30:00Z"),
+  };
+  const gone: CalendarProblem = {
+    bookingId: "3f9a1c2b-0000-4000-8000-000000000001",
+    kind: "gone",
+    booked,
+  };
+  const moved: CalendarProblem = {
+    bookingId: "3f9a1c2b-0000-4000-8000-000000000001",
+    kind: "moved",
+    booked,
+    calendar: {
+      start: new Date("2026-10-20T17:00:00Z"),
+      end: new Date("2026-10-20T18:30:00Z"),
+    },
+  };
+
+  it("names the booking and the booked time in Dubai in the subject", async () => {
+    expect((await renderCalendarEventChanged(gone, false)).subject).toBe(
+      "Session missing from the calendar: booking 3F9A1C2B, Tue 20 Oct, 19:00 Dubai time",
+    );
+    expect((await renderCalendarEventChanged(moved, false)).subject).toBe(
+      "Session moved in the calendar only: booking 3F9A1C2B, Tue 20 Oct, 19:00 Dubai time",
+    );
+  });
+
+  it("marks a reminder as one", async () => {
+    expect((await renderCalendarEventChanged(gone, true)).subject).toMatch(
+      /^Reminder: Session missing from the calendar: /,
+    );
+  });
+
+  it("tells the desk to restore a deleted event, not to make a new one", async () => {
+    const { text } = await renderCalendarEventChanged(gone, false);
+    expect(text).toContain(
+      "The Outlook event for this booked session has been deleted or cancelled.",
+    );
+    expect(text).toContain("The customer has not been told");
+    expect(text).toContain("The time stays blocked, so nobody else can book it.");
+    expect(text).toContain("restore the event from Deleted Items in Outlook");
+    expect(text).toContain("Do not make a new event");
+    expect(text).toContain("If the session cannot go ahead, contact the customer");
+  });
+
+  it("says plainly that moving the event did not move the booking, with both times", async () => {
+    const { text } = await renderCalendarEventChanged(moved, false);
+    expect(text).toContain(
+      "Moving the event in Outlook does not move the booking, and the customer has not been told.",
+    );
+    expect(text).toContain("Tue 20 Oct, 19:00 Dubai time");
+    expect(text).toContain("Tue 20 Oct, 21:00 Dubai time");
+    expect(text).toContain("Manage my booking link");
+  });
+
+  it("carries the booking reference and nothing about the customer", async () => {
+    for (const problem of [gone, moved]) {
+      const { text, html } = await renderCalendarEventChanged(problem, false);
+      expect(text).toContain("3F9A1C2B");
+      // No email address at all, but the desk's own in the shared footer.
+      expect(`${text}${html}`.replaceAll(supportEmail(), "")).not.toMatch(
+        /[\w.+-]+@[\w-]+\.[\w.-]+/,
+      );
+    }
   });
 });

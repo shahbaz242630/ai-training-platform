@@ -442,3 +442,37 @@ describe("keeping data no longer than the privacy notice says", () => {
     expect(left.rows).toHaveLength(0);
   });
 });
+
+describe("the Outlook watch", () => {
+  it("is reported in the answer, and a calendar outage leaves the sweep green", async () => {
+    state.calendarDown = true;
+    await db.query(`delete from bookings where status = 'confirmed'`);
+    const quiet = await run();
+    expect(quiet.status).toBe(200);
+    // Nothing confirmed is upcoming, so the watch needs no calendar at all.
+    expect(quiet.body.calendarWatch).toMatchObject({ checked: 0 });
+
+    counter += 1;
+    const customer = await db.query<{ id: string }>(
+      `insert into customers (first_name, last_name, email, timezone)
+       values ('Amina', 'Khan', $1, 'Asia/Dubai') returning id`,
+      [`watch${counter}@example.com`],
+    );
+    const order = await db.query<{ id: string }>(
+      `insert into orders (customer_id, order_type, session_slug, gross_amount_fils, payment_status)
+       values ($1, 'single', 'claude-claude-code', 149900, 'paid') returning id`,
+      [customer.rows[0]?.id],
+    );
+    const slot = nextSlot();
+    await db.query(
+      `insert into bookings (order_id, session_slug, sequence, status, scheduled_start,
+                             scheduled_end, customer_timezone, calendar_event_id)
+       values ($1, 'claude-claude-code', 1, 'confirmed', $2, $3, 'Asia/Dubai', 'evt_watch')`,
+      [order.rows[0]?.id, slot.start, slot.end],
+    );
+
+    const down = await run();
+    expect(down.status).toBe(200);
+    expect(down.body.calendarWatch).toEqual({ error: "calendar not configured" });
+  });
+});

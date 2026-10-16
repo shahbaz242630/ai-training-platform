@@ -404,6 +404,45 @@ describe("releaseSlot, cancelEvent and getEvent", () => {
     expect(await graph.getEvent("evt_2")).toBeNull();
   });
 
+  it("lists the events in a window, every page, in UTC, cancelled ones included", async () => {
+    const from = new Date("2026-09-12T00:00:00.000Z");
+    const to = new Date("2026-09-13T00:00:00.000Z");
+    const { graph, graphCalls } = provider([
+      view([graphEvent({ id: "evt_1", showAs: "busy" })], "https://graph.microsoft.com/next"),
+      view([graphEvent({ id: "evt_2", showAs: "busy", isCancelled: true })]),
+    ]);
+
+    const events = await graph.eventsBetween(from, to);
+
+    expect(events.map((e) => [e.externalId, e.status])).toEqual([
+      ["evt_1", "confirmed"],
+      ["evt_2", "cancelled"],
+    ]);
+    const first = new URL(graphCalls()[0]!.url);
+    expect(first.pathname).toBe(`/v1.0/users/${encodeURIComponent(MAILBOX)}/calendarView`);
+    expect(first.searchParams.get("startDateTime")).toBe(from.toISOString());
+    expect(first.searchParams.get("endDateTime")).toBe(to.toISOString());
+    expect(graphCalls()[0]!.headers).toMatchObject({ Prefer: 'outlook.timezone="UTC"' });
+    expect(graphCalls()[1]!.url).toBe("https://graph.microsoft.com/next");
+  });
+
+  it("never asks the list read for an event's subject or body, which name the customer", async () => {
+    const { graph, graphCalls } = provider([view([])]);
+    await graph.eventsBetween(SATURDAY_10.start, SATURDAY_10.end);
+    const fields = new URL(graphCalls()[0]!.url).searchParams.get("$select")?.split(",") ?? [];
+    expect(fields).toEqual(expect.arrayContaining(["id", "start", "end", "isCancelled"]));
+    expect(fields).not.toContain("subject");
+    expect(fields).not.toContain("body");
+    expect(fields).not.toContain("bodyPreview");
+  });
+
+  it("lets a list read failure through rather than answer with no events", async () => {
+    const { graph } = provider([
+      { status: 404, body: { error: { code: "ErrorInvalidUser", message: "no mailbox" } } },
+    ]);
+    await expect(graph.eventsBetween(SATURDAY_10.start, SATURDAY_10.end)).rejects.toThrow();
+  });
+
   it("parses the seven fractional digits Graph sends", async () => {
     const { graph } = provider([
       {

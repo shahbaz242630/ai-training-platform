@@ -60,7 +60,15 @@ interface GraphEvent {
 
 const EVENT_FIELDS = "id,start,end,showAs,isCancelled,isOnlineMeeting,onlineMeeting";
 const VIEW_FIELDS = "id,start,end,showAs,isCancelled";
-/** Ask for UTC back, so what we parse is what we sent. */
+/**
+ * Ask for UTC back, so what we parse is what we sent.
+ *
+ * Deliberately NOT `IdType="ImmutableId"`. The Outlook watch relies on the
+ * default id changing when an event moves folder: an event deleted in
+ * Outlook goes to Deleted Items and its stored id stops resolving, which is
+ * how the watch sees it has gone (spike S1, 2026-10-16). Immutable ids would
+ * keep resolving from Deleted Items and silently hide every deletion.
+ */
 const PREFER_UTC = { Prefer: 'outlook.timezone="UTC"' };
 /** What counts as taken. `free` is a calendar entry that deliberately does not block. */
 const BLOCKING = new Set(["busy", "tentative", "oof", "workingElsewhere"]);
@@ -216,9 +224,25 @@ export class GraphSchedulingProvider implements SchedulingProvider {
     return event === null ? null : toExternalEvent(event);
   }
 
+  async eventsBetween(from: Date, to: Date): Promise<readonly ExternalEvent[]> {
+    return (await this.viewBetween(from, to)).map(toExternalEvent);
+  }
+
   /** Everything that blocks time in the window, as plain intervals. */
   private async busyBetween(from: Date, to: Date): Promise<Interval[]> {
-    const events = await this.client.list<GraphEvent>({
+    const events = await this.viewBetween(from, to);
+    return events
+      .filter((event) => !event.isCancelled && BLOCKING.has(event.showAs ?? "busy"))
+      .map((event) => ({ start: parseGraphTime(event.start), end: parseGraphTime(event.end) }));
+  }
+
+  /**
+   * The calendar view: every event overlapping the window, every page. Only
+   * the fields in VIEW_FIELDS, never the subject or body, which name the
+   * customer once a session is booked.
+   */
+  private viewBetween(from: Date, to: Date): Promise<GraphEvent[]> {
+    return this.client.list<GraphEvent>({
       path: this.path("/calendarView"),
       query: {
         startDateTime: from.toISOString(),
@@ -228,10 +252,6 @@ export class GraphSchedulingProvider implements SchedulingProvider {
       },
       headers: PREFER_UTC,
     });
-
-    return events
-      .filter((event) => !event.isCancelled && BLOCKING.has(event.showAs ?? "busy"))
-      .map((event) => ({ start: parseGraphTime(event.start), end: parseGraphTime(event.end) }));
   }
 
   private async readEvent(externalId: string): Promise<GraphEvent | null> {
