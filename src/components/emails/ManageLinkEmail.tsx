@@ -6,7 +6,8 @@ import { EmailLayout, emailStyles } from "./EmailLayout";
  * the owner of the inbox ever sees it, which is what makes the links safe.
  */
 export interface ManageLinkEmailProps {
-  readonly firstName: string;
+  /** Null when the bookings were given under different names: greet nobody by the wrong one. */
+  readonly firstName: string | null;
   readonly bookings: ReadonlyArray<{
     readonly sessionTitle: string;
     /** e.g. "Thursday, 10 September 2026 at 19:00 (Asia/Dubai)". */
@@ -30,7 +31,11 @@ export function ManageLinkEmail(props: ManageLinkEmailProps) {
       companyName={props.companyName}
       supportEmail={props.supportEmail}
     >
-      <h1 style={emailStyles.heading}>Manage your booking, {props.firstName}.</h1>
+      <h1 style={emailStyles.heading}>
+        {props.firstName === null
+          ? "Manage your booking."
+          : `Manage your booking, ${props.firstName}.`}
+      </h1>
       <p style={emailStyles.paragraph}>
         You asked for a link to manage your booking. Each link below works for {props.linkMinutes}{" "}
         minutes.

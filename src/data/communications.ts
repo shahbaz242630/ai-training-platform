@@ -218,12 +218,16 @@ export async function loadCommunicationContext(
   }>(
     `select b.id as booking_id, b.status, b.session_slug, b.scheduled_start, b.scheduled_end,
             b.meeting_url, b.reschedule_count, b.customer_timezone,
-            c.email, c.first_name, c.marketing_consent, c.marketing_consent_confirmed_at,
+            c.email, coalesce(i.first_name, c.first_name) as first_name,
+            c.marketing_consent, c.marketing_consent_confirmed_at,
             c.unsubscribed_at, o.gross_amount_fils,
             k.terms_version, k.key_terms, k.express_request_text
        from bookings b
        join orders o on o.id = b.order_id
        join customers c on c.id = o.customer_id
+       -- The name given for this booking: the customer row holds whichever
+       -- name the email's latest paid booking gave.
+       left join intakes i on i.id = o.intake_id
        left join booking_consents k on k.order_id = o.id
       where b.id = $1`,
     [bookingId],

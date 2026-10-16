@@ -109,8 +109,10 @@ export async function sendManageLinks(
   if (!deps.mayEmail(request.email)) return "inbox_limit";
 
   const expiresAt = addMinutes(deps.now, LINK_MINUTES);
+  // One inbox can hold bookings given under different names (a shared address).
+  const oneName = bookings.every((b) => b.firstName === first.firstName);
   const email = await renderManageLinkEmail({
-    firstName: first.firstName,
+    firstName: oneName ? first.firstName : null,
     linkMinutes: LINK_MINUTES,
     bookings: bookings.map((b) => ({
       sessionTitle: b.sessionTitle,

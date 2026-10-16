@@ -28,10 +28,13 @@ export async function findUpcomingBookingsForEmail(
     customer_timezone: string;
     first_name: string;
   }>(
-    `select b.id, b.session_slug, b.scheduled_start, b.customer_timezone, c.first_name
+    `select b.id, b.session_slug, b.scheduled_start, b.customer_timezone,
+            coalesce(i.first_name, c.first_name) as first_name
        from bookings b
        join orders o on o.id = b.order_id
        join customers c on c.id = o.customer_id
+       -- The name given for this booking, not the email's latest one.
+       left join intakes i on i.id = o.intake_id
       where c.email = lower($1)
         and o.payment_status = 'paid'
         and b.status in ('scheduled', 'confirmed')

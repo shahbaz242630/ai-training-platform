@@ -85,7 +85,7 @@ const REFUSALS: Record<RescheduleRefusal | "not_found", () => string> = {
   too_late: () =>
     "Your session starts in less than 24 hours, so it can no longer be moved. It goes ahead at the booked time.",
   not_movable: () =>
-    `This booking cannot be moved online. Please ${contactLine()} and we will help.`,
+    `This booking cannot be moved. If you think this is a mistake, please ${contactLine()}.`,
   not_found: LINK_MESSAGE,
   outside_window: () => TIME_GONE,
   same_time: () => "That is the time you already have. Please choose a different one.",

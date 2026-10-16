@@ -53,7 +53,8 @@ export function BookingConfirmationEmail(props: BookingConfirmationEmailProps) {
         Have the tools you want to work with open and signed in, and bring one real task from your
         own work. We will spend the time on that, not on slides.
       </p>
-      {props.rights.manageUrl ? (
+      {/* Once the move is used, BookingRights below says the time is final. */}
+      {props.rights.moved ? null : props.rights.manageUrl ? (
         <p style={emailStyles.muted}>
           Need a different time? You can move your session once, free, up to{" "}
           {props.rights.moveNoticeHours} hours before it starts:{" "}
@@ -61,8 +62,8 @@ export function BookingConfirmationEmail(props: BookingConfirmationEmailProps) {
         </p>
       ) : (
         <p style={emailStyles.muted}>
-          Need a different time? Reply to this email at least {props.rights.moveNoticeHours} hours
-          before it starts and we will help.
+          Need a different time? You can move your session once, free, up to{" "}
+          {props.rights.moveNoticeHours} hours before it starts: reply to this email.
         </p>
       )}
       <BookingRights {...props.rights} />

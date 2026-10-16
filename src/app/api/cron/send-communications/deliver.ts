@@ -208,6 +208,7 @@ async function prepareSessionEmail(
         row.templateKey === "booking_confirmation" && context.rescheduleCount === 0
           ? manageUrlFor(context.bookingId, context.scheduledStart)
           : null,
+      moved: context.rescheduleCount > 0,
     });
     if (row.templateKey === "payment_receipt") {
       // The terms exactly as agreed, as a fixed copy: a web page can change later.

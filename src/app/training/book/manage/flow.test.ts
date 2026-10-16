@@ -46,7 +46,7 @@ afterAll(async () => {
 
 const transaction = <T>(work: (r: QueryRunner) => Promise<T>): Promise<T> => work(runner);
 
-async function seed(over: { rescheduleCount?: number } = {}) {
+async function seed(over: { rescheduleCount?: number; status?: string } = {}) {
   n += 1;
   const customer = await db.query<{ id: string }>(
     `insert into customers (first_name, last_name, email, timezone)
@@ -69,9 +69,16 @@ async function seed(over: { rescheduleCount?: number } = {}) {
   const booking = await db.query<{ id: string }>(
     `insert into bookings (order_id, session_slug, sequence, status, scheduled_start,
                            scheduled_end, customer_timezone, calendar_event_id, reschedule_count)
-     values ($1, 'claude-claude-code', 1, 'confirmed', $2, $3, 'Asia/Dubai', $4, $5)
+     values ($1, 'claude-claude-code', 1, $6, $2, $3, 'Asia/Dubai', $4, $5)
      returning id`,
-    [order.rows[0]!.id, start, end, `evt_m${n}`, over.rescheduleCount ?? 0],
+    [
+      order.rows[0]!.id,
+      start,
+      end,
+      `evt_m${n}`,
+      over.rescheduleCount ?? 0,
+      over.status ?? "confirmed",
+    ],
   );
   const bookingId = booking.rows[0]!.id;
   return { bookingId, start, token: createManageToken({ bookingId, expiresAt: start }, SECRET) };
@@ -149,6 +156,15 @@ describe("loadManageView", () => {
     const s = await seed();
     const result = await loadManageView(s.token, deps(addMinutes(s.start, -60), []));
     if (result.ok) expect(result.view.notMovable).toContain("less than 24 hours");
+  });
+
+  it("says a cancelled booking cannot be moved, without offering another way to move it", async () => {
+    const s = await seed({ status: "cancelled" });
+    const result = await loadManageView(s.token, deps(addDays(s.start, -5), []));
+    expect(result).toMatchObject({ ok: true, view: { days: null } });
+    if (!result.ok) return;
+    expect(result.view.notMovable).toContain("This booking cannot be moved.");
+    expect(result.view.notMovable).not.toMatch(/online|we will help/);
   });
 
   it("refuses a link that is not valid", async () => {

@@ -56,6 +56,11 @@ export interface SessionEmailModel {
   readonly nextSessionTitle: string | null;
   /** The customer's own link to move the session; only while a move is still available. */
   readonly manageUrl?: string | null;
+  /**
+   * The one move is used. An email queued before the move still goes out
+   * afterwards, so it must not offer the move again.
+   */
+  readonly moved?: boolean;
 }
 
 export interface AgreementModel {
@@ -118,6 +123,7 @@ export async function renderTemplate(
     cancellationDays: BOOKING_POLICY.cancellationDays,
     moveNoticeHours: BOOKING_POLICY.moveNoticeHours,
     findBookingUrl: `${clientEnv.NEXT_PUBLIC_SITE_URL}${TRAINING_BASE}/book/manage`,
+    moved: model.moved ?? false,
   };
 
   /*
@@ -207,7 +213,7 @@ export async function renderTemplate(
 
 /** The "Manage my booking" email: one link per upcoming booking, each valid for a short time. */
 export interface ManageLinkEmailModel {
-  readonly firstName: string;
+  readonly firstName: string | null;
   readonly bookings: ReadonlyArray<{
     readonly sessionTitle: string;
     readonly start: Date;
