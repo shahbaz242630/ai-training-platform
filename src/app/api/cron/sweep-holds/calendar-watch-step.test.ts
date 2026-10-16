@@ -138,6 +138,7 @@ describe("when the calendar matches", () => {
       checked: 1,
       gone: 0,
       moved: 0,
+      adopted: 0,
       deskAlerts: { raised: 0, reminded: 0, resolved: 0, failed: 0 },
     });
     expect(mail.sent).toEqual([]);
@@ -176,6 +177,32 @@ describe("when an event was deleted or moved", () => {
     expect(report).toMatchObject({ gone: 0, deskAlerts: { resolved: 1 } });
     expect(await openAlerts()).toEqual([]);
     expect(mail.sent).toHaveLength(1);
+  });
+
+  it("moves the booking onto the restored event, so a withdrawal or a move reaches it", async () => {
+    const b = await confirmedBooking();
+    const restored = eventFor(b, { externalId: "evt-restored-new-id" });
+    const report = await watchCalendar(deps(() => calendarOf([restored])));
+    expect(report).toMatchObject({ gone: 0, adopted: 1 });
+    const row = await db.query<{ calendar_event_id: string }>(
+      `select calendar_event_id from bookings where id = $1`,
+      [b.id],
+    );
+    expect(row.rows[0]?.calendar_event_id).toBe("evt-restored-new-id");
+  });
+
+  it("says 'moved', not 'missing', when the restored event is then dragged", async () => {
+    const b = await confirmedBooking();
+    const restored = eventFor(b, { externalId: "evt-restored-new-id" });
+    await watchCalendar(deps(() => calendarOf([restored])));
+    const dragged = {
+      ...restored,
+      start: new Date(b.start.getTime() + 2 * 60 * 60_000),
+      end: new Date(b.end.getTime() + 2 * 60 * 60_000),
+    };
+    const report = await watchCalendar(deps(() => calendarOf([dragged])));
+    expect(report).toMatchObject({ gone: 0, moved: 1 });
+    expect(mail.sent[0]?.subject).toMatch(/^Session moved in the calendar only: /);
   });
 });
 
@@ -279,6 +306,7 @@ describe("with nothing to watch", () => {
       checked: 0,
       gone: 0,
       moved: 0,
+      adopted: 0,
       deskAlerts: { raised: 0, reminded: 0, resolved: 1, failed: 0 },
     });
     expect(await openAlerts()).toEqual([]);

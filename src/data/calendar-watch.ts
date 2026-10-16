@@ -37,6 +37,24 @@ export type CalendarProblem =
       readonly calendar: Interval;
     };
 
+/**
+ * A booking's event restored from Deleted Items, under the new id it came
+ * back with. The booking and its hold still carry the old id, and everything
+ * that acts on the event (a withdrawal deleting it, a move, this watch) goes
+ * by that id; left there, a withdrawal would delete nothing and leave the
+ * restored meeting on the calendar (staging, 2026-10-16).
+ */
+export interface RestoredEvent {
+  readonly bookingId: string;
+  readonly fromId: string;
+  readonly toId: string;
+}
+
+export interface CalendarFindings {
+  readonly problems: CalendarProblem[];
+  readonly restored: RestoredEvent[];
+}
+
 /** At most this many single-event reads a run; the rest count as gone, the safe direction. */
 export const MAX_FOLLOW_UPS_PER_RUN = 20;
 
@@ -120,6 +138,37 @@ export async function anyBookingChanged(
   });
 }
 
+/**
+ * Point each booking, and its own hold, at the event it was restored as.
+ * Only where both still carry the id the calendar was read against and the
+ * booking is still confirmed: a booking withdrawn, moved or given another
+ * event meanwhile is left alone. Returns how many bookings followed.
+ */
+export async function adoptRestoredEvents(
+  runner: QueryRunner,
+  restored: readonly RestoredEvent[],
+  now: Date,
+): Promise<number> {
+  let adopted = 0;
+  for (const r of restored) {
+    const booking = await runner.query<{ order_id: string }>(
+      `update bookings set calendar_event_id = $3, updated_at = $4
+        where id = $1 and status = 'confirmed' and calendar_event_id = $2
+        returning order_id`,
+      [r.bookingId, r.fromId, r.toId, now],
+    );
+    const orderId = booking.rows[0]?.order_id;
+    if (orderId === undefined) continue;
+    await runner.query(
+      `update slot_holds set calendar_event_id = $3
+        where order_id = $1 and calendar_event_id = $2`,
+      [orderId, r.fromId, r.toId],
+    );
+    adopted += 1;
+  }
+  return adopted;
+}
+
 /** Compared at whole seconds: a time typed in Outlook carries none, Graph sends seven digits. */
 const seconds = (instant: Date) => Math.floor(instant.getTime() / 1000);
 
@@ -136,8 +185,8 @@ function sameTimes(a: Interval, b: Interval): boolean {
 export async function findCalendarProblems(
   bookings: readonly WatchedBooking[],
   calendar: Pick<SchedulingProvider, "eventsBetween" | "getEvent">,
-): Promise<CalendarProblem[]> {
-  if (bookings.length === 0) return [];
+): Promise<CalendarFindings> {
+  if (bookings.length === 0) return { problems: [], restored: [] };
   const from = new Date(Math.min(...bookings.map((b) => b.start.getTime())));
   const to = new Date(Math.max(...bookings.map((b) => b.end.getTime())));
   const inView = await calendar.eventsBetween(from, to);
@@ -152,6 +201,7 @@ export async function findCalendarProblems(
   };
 
   const problems: CalendarProblem[] = [];
+  const restored: RestoredEvent[] = [];
   for (const booking of bookings) {
     const booked = { start: booking.start, end: booking.end };
     const gone = { bookingId: booking.bookingId, kind: "gone", booked } as const;
@@ -175,9 +225,16 @@ export async function findCalendarProblems(
     }
 
     // Deleted, or cancelled. Restored from Deleted Items, it is at the booked times with the same Teams link.
-    if (!(await restoredElsewhere(booking, inView, storedIds, read))) problems.push(gone);
+    const restoredAs = await restoredElsewhere(booking, inView, storedIds, read);
+    if (restoredAs === null) problems.push(gone);
+    else
+      restored.push({
+        bookingId: booking.bookingId,
+        fromId: booking.calendarEventId,
+        toId: restoredAs,
+      });
   }
-  return problems;
+  return { problems, restored };
 }
 
 function movedTo(booking: WatchedBooking, event: ExternalEvent): CalendarProblem {
@@ -189,23 +246,23 @@ function movedTo(booking: WatchedBooking, event: ExternalEvent): CalendarProblem
   };
 }
 
-/** Whether a live event at the booked times, under another id, carries the booking's Teams link. */
+/** The id of a live event at the booked times, under another id, carrying the booking's Teams link. */
 async function restoredElsewhere(
   booking: WatchedBooking,
   inView: readonly ExternalEvent[],
   storedIds: ReadonlySet<string>,
   read: (id: string) => Promise<ExternalEvent | null | "over_budget">,
-): Promise<boolean> {
-  if (booking.meetingUrl === null) return false;
+): Promise<string | null> {
+  if (booking.meetingUrl === null) return null;
   const candidates = inView.filter(
     (e) => e.status !== "cancelled" && !storedIds.has(e.externalId) && sameTimes(e, booking),
   );
   for (const candidate of candidates) {
     const full = await read(candidate.externalId);
-    if (full === "over_budget") return false;
-    if (full !== null && full.meetingUrl === booking.meetingUrl) return true;
+    if (full === "over_budget") return null;
+    if (full !== null && full.meetingUrl === booking.meetingUrl) return candidate.externalId;
   }
-  return false;
+  return null;
 }
 
 /**

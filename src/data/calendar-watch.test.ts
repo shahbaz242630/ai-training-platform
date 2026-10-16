@@ -64,10 +64,13 @@ function calendar(events: readonly ExternalEvent[]) {
   };
 }
 
+const problemsOf = async (...args: Parameters<typeof findCalendarProblems>) =>
+  (await findCalendarProblems(...args)).problems;
+
 describe("a booking whose event still matches", () => {
   it("is fine, and costs one list read and no follow-up", async () => {
     const cal = calendar([event("evt-a")]);
-    expect(await findCalendarProblems([booking()], cal)).toEqual([]);
+    expect(await problemsOf([booking()], cal)).toEqual([]);
     expect(cal.eventsBetween).toHaveBeenCalledTimes(1);
     expect(cal.reads).toEqual([]);
   });
@@ -79,24 +82,37 @@ describe("a booking whose event still matches", () => {
         end: new Date(A.end.getTime() + 999),
       }),
     ]);
-    expect(await findCalendarProblems([booking()], cal)).toEqual([]);
+    expect(await problemsOf([booking()], cal)).toEqual([]);
   });
 
   it("is fine after a restore from Deleted Items: new id, same times, same Teams link", async () => {
     const cal = calendar([event("evt-restored")]);
-    expect(await findCalendarProblems([booking()], cal)).toEqual([]);
+    expect(await problemsOf([booking()], cal)).toEqual([]);
     expect(cal.reads).toEqual(["evt-a", "evt-restored"]);
+  });
+
+  it("names the restored event, so the booking can follow it to its new id", async () => {
+    const cal = calendar([event("evt-restored")]);
+    expect(await findCalendarProblems([booking()], cal)).toEqual({
+      problems: [],
+      restored: [{ bookingId: "b-1", fromId: "evt-a", toId: "evt-restored" }],
+    });
+  });
+
+  it("names nothing restored when the event never left", async () => {
+    const cal = calendar([event("evt-a")]);
+    expect((await findCalendarProblems([booking()], cal)).restored).toEqual([]);
   });
 
   it("asks nothing of the calendar when there is nothing to watch", async () => {
     const cal = calendar([]);
-    expect(await findCalendarProblems([], cal)).toEqual([]);
+    expect(await problemsOf([], cal)).toEqual([]);
     expect(cal.eventsBetween).not.toHaveBeenCalled();
   });
 
   it("reads the window from the earliest start to the latest end, a session in progress included", async () => {
     const cal = calendar([event("evt-a"), event("evt-b", LATER)]);
-    await findCalendarProblems(
+    await problemsOf(
       [booking(), booking({ bookingId: "b-2", calendarEventId: "evt-b", ...LATER })],
       cal,
     );
@@ -107,35 +123,35 @@ describe("a booking whose event still matches", () => {
 describe("a booking whose event was deleted or cancelled", () => {
   it("is gone when the stored id no longer resolves", async () => {
     const cal = calendar([]);
-    expect(await findCalendarProblems([booking()], cal)).toEqual([
+    expect(await problemsOf([booking()], cal)).toEqual([
       { bookingId: "b-1", kind: "gone", booked: A },
     ]);
   });
 
   it("is gone when the event is cancelled", async () => {
     const cal = calendar([event("evt-a", { status: "cancelled", meetingUrl: null })]);
-    expect(await findCalendarProblems([booking()], cal)).toEqual([
+    expect(await problemsOf([booking()], cal)).toEqual([
       { bookingId: "b-1", kind: "gone", booked: A },
     ]);
   });
 
   it("is still gone when a hand-made event sits at the same time with another Teams link", async () => {
     const cal = calendar([event("evt-new", { meetingUrl: "https://teams.example/meet/other" })]);
-    expect(await findCalendarProblems([booking()], cal)).toEqual([
+    expect(await problemsOf([booking()], cal)).toEqual([
       { bookingId: "b-1", kind: "gone", booked: A },
     ]);
   });
 
   it("is still gone when a personal event with no Teams link sits at the same time", async () => {
     const cal = calendar([event("evt-personal", { meetingUrl: null })]);
-    expect(await findCalendarProblems([booking()], cal)).toEqual([
+    expect(await problemsOf([booking()], cal)).toEqual([
       { bookingId: "b-1", kind: "gone", booked: A },
     ]);
   });
 
   it("never matches by link when the booking has no link on record", async () => {
     const cal = calendar([event("evt-restored")]);
-    expect(await findCalendarProblems([booking({ meetingUrl: null })], cal)).toEqual([
+    expect(await problemsOf([booking({ meetingUrl: null })], cal)).toEqual([
       { bookingId: "b-1", kind: "gone", booked: A },
     ]);
   });
@@ -143,7 +159,7 @@ describe("a booking whose event was deleted or cancelled", () => {
   it("does not take another booking's own event as a restore", async () => {
     // Two bookings cannot share a time, but a stored id is never a restore candidate for another booking.
     const cal = calendar([event("evt-b")]);
-    const problems = await findCalendarProblems(
+    const problems = await problemsOf(
       [booking(), booking({ bookingId: "b-2", calendarEventId: "evt-b", meetingUrl: LINK })],
       cal,
     );
@@ -158,7 +174,7 @@ describe("a booking whose event was moved by hand", () => {
       end: new Date("2026-10-20T17:30:00Z"),
     };
     const cal = calendar([event("evt-a", shifted), event("evt-b", LATER)]);
-    const problems = await findCalendarProblems(
+    const problems = await problemsOf(
       [booking(), booking({ bookingId: "b-2", calendarEventId: "evt-b", ...LATER })],
       cal,
     );
@@ -171,7 +187,7 @@ describe("a booking whose event was moved by hand", () => {
       end: new Date("2026-10-10T16:30:00Z"),
     };
     const cal = calendar([event("evt-a", earlier)]);
-    expect(await findCalendarProblems([booking()], cal)).toEqual([
+    expect(await problemsOf([booking()], cal)).toEqual([
       { bookingId: "b-1", kind: "moved", booked: A, calendar: earlier },
     ]);
     expect(cal.reads).toEqual(["evt-a"]);
@@ -180,7 +196,7 @@ describe("a booking whose event was moved by hand", () => {
   it("is moved when only its end changed", async () => {
     const longer = { start: A.start, end: new Date("2026-10-20T17:00:00Z") };
     const cal = calendar([event("evt-a", longer)]);
-    expect(await findCalendarProblems([booking()], cal)).toEqual([
+    expect(await problemsOf([booking()], cal)).toEqual([
       { bookingId: "b-1", kind: "moved", booked: A, calendar: longer },
     ]);
   });
@@ -190,13 +206,13 @@ describe("failures are failures, never an answer", () => {
   it("lets a list read failure through", async () => {
     const cal = calendar([event("evt-a")]);
     cal.eventsBetween.mockRejectedValueOnce(new Error("Graph 503"));
-    await expect(findCalendarProblems([booking()], cal)).rejects.toThrow("Graph 503");
+    await expect(problemsOf([booking()], cal)).rejects.toThrow("Graph 503");
   });
 
   it("lets a follow-up failure through: a 401, 403 or 500 is not 'gone'", async () => {
     const cal = calendar([]);
     cal.getEvent.mockRejectedValueOnce(new Error("Graph 403"));
-    await expect(findCalendarProblems([booking()], cal)).rejects.toThrow("Graph 403");
+    await expect(problemsOf([booking()], cal)).rejects.toThrow("Graph 403");
   });
 
   it(`stops reading after ${MAX_FOLLOW_UPS_PER_RUN} follow-ups and counts the rest as gone`, async () => {
@@ -209,7 +225,7 @@ describe("failures are failures, never an answer", () => {
       }),
     );
     const cal = calendar([]);
-    const problems = await findCalendarProblems(many, cal);
+    const problems = await problemsOf(many, cal);
     expect(cal.reads).toHaveLength(MAX_FOLLOW_UPS_PER_RUN);
     expect(problems).toHaveLength(many.length);
     expect(problems.every((p) => p.kind === "gone")).toBe(true);

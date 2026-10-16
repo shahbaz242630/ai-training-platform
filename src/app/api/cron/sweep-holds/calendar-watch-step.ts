@@ -1,9 +1,11 @@
 import {
+  adoptRestoredEvents,
   anyBookingChanged,
   findCalendarProblems,
   listWatchedBookings,
   looksMisconfigured,
   type CalendarProblem,
+  type RestoredEvent,
 } from "@/data/calendar-watch";
 import {
   reconcileDeskAlerts,
@@ -52,6 +54,8 @@ export type CalendarWatchReport =
       readonly checked: number;
       readonly gone: number;
       readonly moved: number;
+      /** Bookings moved onto their event's new id after a restore from Deleted Items. */
+      readonly adopted: number;
       readonly deskAlerts: DeskAlertReport;
     }
   | { readonly skipped: string }
@@ -81,6 +85,7 @@ export async function watchCalendar(deps: CalendarWatchDeps): Promise<CalendarWa
     const bookings = await deps.transaction((runner) => listWatchedBookings(runner, deps.clock()));
 
     let problems: CalendarProblem[] = [];
+    let restored: RestoredEvent[] = [];
     if (bookings.length > 0) {
       let calendar;
       try {
@@ -92,10 +97,10 @@ export async function watchCalendar(deps: CalendarWatchDeps): Promise<CalendarWa
         return { error: "calendar not configured" };
       }
       try {
-        problems = await withDeadline(
+        ({ problems, restored } = await withDeadline(
           findCalendarProblems(bookings, calendar),
           deps.deadlineMs ?? CALENDAR_WATCH_DEADLINE_MS,
-        );
+        ));
       } catch (error) {
         // The name only: a Graph error's message can repeat what was asked.
         logger.error("the Outlook watch could not read the calendar; it will run again", {
@@ -137,7 +142,14 @@ export async function watchCalendar(deps: CalendarWatchDeps): Promise<CalendarWa
       { email: deps.email, transaction: deps.transaction, clock: deps.clock },
       deps.deskAddress,
     );
-    return { checked: bookings.length, gone, moved: problems.length - gone, deskAlerts };
+
+    // A restored event has a new id. The booking and its hold follow it, or a
+    // withdrawal would delete the old id (already gone) and leave the meeting.
+    const adopted =
+      restored.length === 0
+        ? 0
+        : await deps.transaction((runner) => adoptRestoredEvents(runner, restored, deps.clock()));
+    return { checked: bookings.length, gone, moved: problems.length - gone, adopted, deskAlerts };
   } catch (error) {
     logger.error("the Outlook watch failed; it will run again next time", {
       error: (error as Error).name,

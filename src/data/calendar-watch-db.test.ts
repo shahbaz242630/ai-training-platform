@@ -3,7 +3,12 @@ import { join } from "node:path";
 import { PGlite } from "@electric-sql/pglite";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { QueryRunner } from "./db";
-import { anyBookingChanged, listWatchedBookings, type WatchedBooking } from "./calendar-watch";
+import {
+  adoptRestoredEvents,
+  anyBookingChanged,
+  listWatchedBookings,
+  type WatchedBooking,
+} from "./calendar-watch";
 
 /**
  * The Outlook watch, the part that reads the database: which bookings are
@@ -152,6 +157,75 @@ describe("a booking that changed during the check", () => {
     const before = await listWatchedBookings(runner, NOW);
     expect(await anyBookingChanged(runner, before)).toBe(false);
     expect(await anyBookingChanged(runner, [])).toBe(false);
+  });
+});
+
+/** The booking's own hold, as checkout leaves it: converted, carrying the same event id. */
+async function insertHoldFor(bookingId: string, status = "converted"): Promise<string> {
+  const result = await db.query<{ id: string }>(
+    `insert into slot_holds (slot_start, slot_end, order_id, calendar_event_id, expires_at, status)
+     select scheduled_start, scheduled_end, order_id, calendar_event_id, scheduled_start, $2
+       from bookings where id = $1
+     returning id`,
+    [bookingId, status],
+  );
+  return result.rows[0]!.id;
+}
+
+async function eventIdOf(table: "bookings" | "slot_holds", id: string) {
+  const result = await db.query<{ calendar_event_id: string | null }>(
+    `select calendar_event_id from ${table} where id = $1`,
+    [id],
+  );
+  return result.rows[0]?.calendar_event_id;
+}
+
+describe("a booking whose event was restored from Deleted Items", () => {
+  beforeEach(async () => {
+    await db.query(`delete from slot_holds`);
+  });
+
+  it("follows the event to its new id, booking and hold together", async () => {
+    const id = await insertBooking({ eventId: "evt-old" });
+    const hold = await insertHoldFor(id);
+    const adopted = await adoptRestoredEvents(
+      runner,
+      [{ bookingId: id, fromId: "evt-old", toId: "evt-new" }],
+      NOW,
+    );
+    expect(adopted).toBe(1);
+    expect(await eventIdOf("bookings", id)).toBe("evt-new");
+    expect(await eventIdOf("slot_holds", hold)).toBe("evt-new");
+  });
+
+  it("leaves a booking alone that changed since the calendar was read", async () => {
+    const changes = [
+      `update bookings set calendar_event_id = 'evt-other' where id = $1`,
+      `update bookings set status = 'cancelled' where id = $1`,
+    ];
+    for (const change of changes) {
+      await db.query(`delete from slot_holds`);
+      await db.query(`delete from bookings`);
+      const id = await insertBooking({ eventId: "evt-old" });
+      const hold = await insertHoldFor(id);
+      await db.query(change, [id]);
+      const adopted = await adoptRestoredEvents(
+        runner,
+        [{ bookingId: id, fromId: "evt-old", toId: "evt-new" }],
+        NOW,
+      );
+      expect(adopted).toBe(0);
+      expect(await eventIdOf("slot_holds", hold)).toBe("evt-old");
+    }
+  });
+
+  it("touches no other order's hold", async () => {
+    const id = await insertBooking({ eventId: "evt-old" });
+    const other = await insertBooking({ eventId: "evt-old" });
+    const otherHold = await insertHoldFor(other);
+    await adoptRestoredEvents(runner, [{ bookingId: id, fromId: "evt-old", toId: "evt-new" }], NOW);
+    expect(await eventIdOf("bookings", other)).toBe("evt-old");
+    expect(await eventIdOf("slot_holds", otherHold)).toBe("evt-old");
   });
 });
 
