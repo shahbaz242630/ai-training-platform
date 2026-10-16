@@ -75,6 +75,37 @@ describe("renderTemplate", () => {
     expect(soon.text).toContain("https://teams.microsoft.com/l/meetup-join/example");
   });
 
+  it("never offers another time: the 24-hour reminder lands as the free move closes", async () => {
+    const day = await renderTemplate("reminder_24h", model);
+    const soon = await renderTemplate("reminder_3h", model);
+
+    expect(day.text).toContain("Have your tools open and one real task ready.");
+    for (const email of [day, soon]) {
+      for (const body of [email.text, email.html]) {
+        expect(body).not.toMatch(/another time|come up|reschedul|rearrang|move your session/i);
+      }
+    }
+  });
+
+  it("offers no move once the one move is used, even in an email queued before it", async () => {
+    for (const key of ["payment_receipt", "booking_confirmation"] as const) {
+      const email = await renderTemplate(key, { ...model, manageUrl: null, moved: true });
+      expect(email.text).toContain("Your session has been moved once, so its time is final.");
+      for (const body of [email.text, email.html]) {
+        expect(body).not.toMatch(/move your session once|different time|reschedul/i);
+      }
+    }
+  });
+
+  it("states the one free move even when the confirmation has no reschedule link", async () => {
+    const email = await renderTemplate("booking_confirmation", { ...model, manageUrl: null });
+
+    expect(email.text).toContain(
+      "Need a different time? You can move your session once, free, up to 24 hours before it starts: reply to this email.",
+    );
+    expect(email.text).not.toContain("we will help");
+  });
+
   it("renders the follow-up, naming the next session only when there is one", async () => {
     const withNext = await renderTemplate("follow_up", model);
     expect(withNext.subject).toBe("After your session: Claude, Claude Code & Advanced Workflows");

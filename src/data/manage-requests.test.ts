@@ -74,6 +74,28 @@ describe("findUpcomingBookingsForEmail", () => {
     expect(found[0]).toMatchObject({ firstName: "Amina", customerTimezone: "Asia/Dubai" });
   });
 
+  it("greets by the name given for each booking, not the email's later name", async () => {
+    const c = await customer("upcoming5@example.com");
+    const id = await booking(c, day());
+    const intake = await db.query<{ id: string }>(
+      `insert into intakes (customer_id, primary_goal, first_name, last_name)
+       values ($1, 'A goal', 'Sara', 'Ali') returning id`,
+      [c],
+    );
+    await db.query(
+      `update orders set intake_id = $1 where id = (select order_id from bookings where id = $2)`,
+      [intake.rows[0]!.id, id],
+    );
+    await db.query(`update customers set first_name = 'Watch' where id = $1`, [c]);
+
+    const found = await findUpcomingBookingsForEmail(runner, {
+      email: "upcoming5@example.com",
+      reference: null,
+      now: NOW,
+    });
+    expect(found[0]?.firstName).toBe("Sara");
+  });
+
   it("leaves out past, cancelled and unpaid-for bookings", async () => {
     const c = await customer("upcoming2@example.com");
     await booking(c, addDays(NOW, -1));

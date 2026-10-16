@@ -44,7 +44,7 @@ export function ReminderEmail(props: ReminderEmailProps) {
       <p style={emailStyles.paragraph}>
         {soon
           ? "If the link does not open for you, reply to this email straight away and we will send another way in."
-          : "Have your tools open and one real task ready. If something has come up, reply now and we will find another time."}
+          : "Have your tools open and one real task ready."}
       </p>
     </EmailLayout>
   );

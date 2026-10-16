@@ -96,10 +96,13 @@ export async function loadBookingForConfirmation(
     `select b.id, b.order_id, b.session_slug, b.sequence, b.status, b.scheduled_start,
             b.scheduled_end, b.customer_timezone, b.scheduler_external_id, b.calendar_event_id,
             b.meeting_url, b.created_at, b.updated_at,
-            o.payment_status, c.first_name, c.last_name, c.email
+            o.payment_status, coalesce(i.first_name, c.first_name) as first_name,
+            coalesce(i.last_name, c.last_name) as last_name, c.email
        from bookings b
        join orders o on o.id = b.order_id
        join customers c on c.id = o.customer_id
+       -- The name given for this booking, not the email's latest one.
+       left join intakes i on i.id = o.intake_id
       where b.id = $1`,
     [bookingId],
   );

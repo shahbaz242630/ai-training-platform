@@ -132,6 +132,38 @@ describe("sendManageLinks", () => {
     expect(readManageToken(token, addMinutes(NOW, LINK_MINUTES), SECRET)).toBeNull();
   });
 
+  it("greets nobody by name when one inbox holds bookings under different names", async () => {
+    const c = await bookedCustomer();
+    const d = deps();
+    expect(await sendManageLinks({ email: c.email, reference: null }, d)).toBe("sent");
+    // Headings come out of the plain-text renderer in capitals.
+    expect(d.sent[0]?.text).toMatch(/manage your booking, amina\./i);
+
+    // A second paid booking on the same inbox, given under another person's name.
+    const order = await db.query<{ id: string }>(
+      `with i as (
+         insert into intakes (customer_id, primary_goal, first_name, last_name)
+         select id, 'A goal', 'Omar', 'Ali' from customers where email = $1 returning id, customer_id)
+       insert into orders (customer_id, order_type, session_slug, gross_amount_fils,
+                           payment_status, intake_id)
+       select customer_id, 'single', 'claude-claude-code', 149900, 'paid', id from i
+       returning id`,
+      [c.email],
+    );
+    const start = addDays(NOW, 200);
+    await db.query(
+      `insert into bookings (order_id, session_slug, sequence, status, scheduled_start,
+                             scheduled_end, customer_timezone)
+       values ($1, 'claude-claude-code', 1, 'confirmed', $2, $3, 'Asia/Dubai')`,
+      [order.rows[0]!.id, start, addMinutes(start, 90)],
+    );
+
+    const again = deps();
+    expect(await sendManageLinks({ email: c.email, reference: null }, again)).toBe("sent");
+    expect(again.sent[0]?.text).toMatch(/manage your booking\./i);
+    expect(again.sent[0]?.text).not.toMatch(/amina|omar/i);
+  });
+
   it("sends nothing at all for an address with no upcoming booking", async () => {
     const d = deps();
     expect(await sendManageLinks({ email: "nobody@example.com", reference: null }, d)).toBe(

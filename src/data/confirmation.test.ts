@@ -306,6 +306,26 @@ describe("lookups", () => {
       customerEmail: `confirm${counter}@example.com`,
     });
   });
+
+  it("names the person given for this booking, not the email's later name", async () => {
+    const { orderId, bookingId } = await scheduledBooking();
+    const intake = await db.query<{ id: string }>(
+      `insert into intakes (customer_id, primary_goal, first_name, last_name)
+       select customer_id, 'A goal', 'Sara', 'Ali' from orders where id = $1 returning id`,
+      [orderId],
+    );
+    await db.query(`update orders set intake_id = $1 where id = $2`, [intake.rows[0]?.id, orderId]);
+    await db.query(
+      `update customers set first_name = 'Watch', last_name = 'Test'
+        where id = (select customer_id from orders where id = $1)`,
+      [orderId],
+    );
+
+    expect(await loadBookingForConfirmation(runner, bookingId)).toMatchObject({
+      customerFirstName: "Sara",
+      customerLastName: "Ali",
+    });
+  });
 });
 
 describe("edges", () => {

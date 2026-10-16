@@ -567,7 +567,23 @@ describe("moving a session", () => {
     await run();
 
     expect(provider.sent[0]?.html).not.toContain("/book/manage?t=");
-    expect(provider.sent[0]?.text).toContain("Reply to this email");
+    expect(provider.sent[0]?.text).toContain("hours before it starts: reply to this email.");
+  });
+
+  it("offers no move in a confirmation sent after the customer has already moved", async () => {
+    const { bookingId } = await scheduledBooking({ meetingUrl: "https://teams.example/join" });
+    await queueForBooking(runner, bookingId, [
+      { templateKey: "booking_confirmation", scheduledFor: PAST },
+    ]);
+    // The move lands before the send run reaches the queued confirmation.
+    await db.query("update bookings set reschedule_count = 1 where id = $1", [bookingId]);
+
+    await run();
+
+    const sent = provider.sent[0];
+    expect(sent?.html).not.toContain("/book/manage?t=");
+    expect(sent?.text).toContain("Your session has been moved once, so its time is final.");
+    expect(sent?.text).not.toMatch(/move your session once|different time/i);
   });
 
   it("sends the moved session's details, a desk copy and a calendar file that replaces the first", async () => {

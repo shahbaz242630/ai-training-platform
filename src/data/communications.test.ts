@@ -198,6 +198,31 @@ describe("loadCommunicationContext", () => {
     expect(context?.scheduledEnd).toBeInstanceOf(Date);
   });
 
+  it("greets by the name given for this booking, not one given later on another", async () => {
+    const { orderId, bookingId, customerId } = await scheduledBooking();
+    const intake = await db.query<{ id: string }>(
+      `insert into intakes (customer_id, primary_goal, first_name, last_name)
+       values ($1, 'A goal', 'Sara', 'Ali') returning id`,
+      [customerId],
+    );
+    await db.query(`update orders set intake_id = $1 where id = $2`, [intake.rows[0]?.id, orderId]);
+    // A later paid booking on the same email refreshes the shared customer record.
+    await db.query(`update customers set first_name = 'Watch' where id = $1`, [customerId]);
+
+    expect((await loadCommunicationContext(runner, bookingId))?.firstName).toBe("Sara");
+  });
+
+  it("falls back to the customer's name when the booking's own details carry none", async () => {
+    const { orderId, bookingId, customerId } = await scheduledBooking();
+    const intake = await db.query<{ id: string }>(
+      `insert into intakes (customer_id, primary_goal) values ($1, 'A goal') returning id`,
+      [customerId],
+    );
+    await db.query(`update orders set intake_id = $1 where id = $2`, [intake.rows[0]?.id, orderId]);
+
+    expect((await loadCommunicationContext(runner, bookingId))?.firstName).toBe("Amina");
+  });
+
   it("is null for a booking that does not exist", async () => {
     expect(
       await loadCommunicationContext(runner, "00000000-0000-4000-8000-000000000000"),
