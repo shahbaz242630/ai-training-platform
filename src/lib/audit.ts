@@ -23,6 +23,7 @@ export type AuditAction =
   | "booking.hold_released"
   | "booking.confirmed"
   | "booking.rescheduled"
+  | "booking.manage_link_sent"
   | "booking.cancelled"
   | "booking.completed"
   | "booking.no_show"

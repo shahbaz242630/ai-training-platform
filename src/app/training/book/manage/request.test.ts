@@ -1,10 +1,11 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { PGlite } from "@electric-sql/pglite";
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from "vitest";
 import type { QueryRunner } from "@/data/db";
 import { bookingReference } from "@/domain/booking/withdrawal";
 import type { EmailMessage } from "@/domain/messaging/provider";
+import { resetAuditSink, setAuditSink, type AuditEvent } from "@/lib/audit";
 import { readManageToken } from "@/lib/manage-link";
 import { addDays, addMinutes } from "@/lib/time";
 import {
@@ -117,6 +118,18 @@ describe("parseManageRequest", () => {
 });
 
 describe("sendManageLinks", () => {
+  // Every send writes the audit trail; here it is captured, never the database's.
+  let audits: AuditEvent[] = [];
+  beforeEach(() => {
+    audits = [];
+    setAuditSink((event) => {
+      audits.push(event);
+    });
+  });
+  afterEach(() => {
+    resetAuditSink();
+  });
+
   it("emails the address a one-hour link to its upcoming booking", async () => {
     const c = await bookedCustomer();
     const d = deps();
@@ -158,10 +171,44 @@ describe("sendManageLinks", () => {
       [order.rows[0]!.id, start, addMinutes(start, 90)],
     );
 
+    audits.length = 0;
     const again = deps();
     expect(await sendManageLinks({ email: c.email, reference: null }, again)).toBe("sent");
     expect(again.sent[0]?.text).toMatch(/manage your booking\./i);
     expect(again.sent[0]?.text).not.toMatch(/amina|omar/i);
+    // One audit line per booking the email carried a link for.
+    expect(audits.map((a) => a.action)).toEqual([
+      "booking.manage_link_sent",
+      "booking.manage_link_sent",
+    ]);
+  });
+
+  it("records each booking a link was sent for, without the address, and nothing when unsent", async () => {
+    const c = await bookedCustomer();
+    expect(await sendManageLinks({ email: c.email, reference: null }, deps())).toBe("sent");
+    expect(audits).toEqual([
+      expect.objectContaining({
+        action: "booking.manage_link_sent",
+        actor: { kind: "system", process: "manage-my-booking" },
+        subject: `booking:${c.bookingId}`,
+        metadata: { linkMinutes: LINK_MINUTES },
+      }),
+    ]);
+    expect(JSON.stringify(audits)).not.toContain(c.email);
+
+    audits.length = 0;
+    const failing = {
+      ...deps(),
+      send: () =>
+        Promise.resolve({
+          ok: false as const,
+          code: "network",
+          message: "down",
+          retryable: true,
+        }),
+    };
+    expect(await sendManageLinks({ email: c.email, reference: null }, failing)).toBe("not_sent");
+    expect(audits).toEqual([]);
   });
 
   it("sends nothing at all for an address with no upcoming booking", async () => {
