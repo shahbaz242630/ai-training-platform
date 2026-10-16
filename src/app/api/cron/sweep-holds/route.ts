@@ -24,6 +24,7 @@ import { getPaymentProvider } from "@/domain/payments/factory";
 import { purgeExpiredPersonalData, type PurgeReport } from "@/data/retention";
 import { readAppliedSchemaVersion, schemaStatus } from "@/data/schema-version";
 import { recordAudit } from "@/lib/audit";
+import { watchCalendar } from "./calendar-watch-step";
 import { authoriseCronRequest } from "@/lib/cron-auth";
 import { serverEnv } from "@/lib/env";
 import { logger } from "@/lib/logger";
@@ -141,6 +142,19 @@ export async function POST(request: Request): Promise<NextResponse> {
     const calendarMoves = await applyCalendarMoves();
 
     /*
+      The Outlook watch: a booked session whose event was deleted or moved by
+      hand, told to the desk. After the moves above, so a move that just
+      reached the calendar is not reported. Alert only, in its own failure.
+    */
+    const calendarWatch = await watchCalendar({
+      transaction: withTransaction,
+      calendar: getSchedulingProvider,
+      email: getEmailProvider,
+      clock: () => new Date(),
+      deskAddress: supportEmail(),
+    });
+
+    /*
       Refunds owed for withdrawals, asked for here rather than on the public
       form, and refunds Stripe has gone quiet about, read again. In their own
       failure domain: a processor outage must not turn the whole sweep red.
@@ -185,6 +199,7 @@ export async function POST(request: Request): Promise<NextResponse> {
       expired: expired.length,
       calendarEventsReleased: calendar.released,
       calendarEventsStillBlocking: calendar.failed,
+      calendarWatch,
       confirmations,
       calendarMoves,
       refunds,

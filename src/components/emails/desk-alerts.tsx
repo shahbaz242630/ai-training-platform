@@ -1,7 +1,10 @@
 import { render } from "@react-email/render";
 import { companyName, supportEmail } from "@/config/site";
+import type { CalendarProblem } from "@/data/calendar-watch";
 import type { RefundNeedingAttention } from "@/data/refund-queries";
+import { bookingReference } from "@/domain/booking/withdrawal";
 import { formatAed } from "@/lib/money";
+import { GST_TIMEZONE } from "@/lib/time";
 import { EmailLayout, emailStyles } from "./EmailLayout";
 import type { RenderedEmail } from "./templates";
 
@@ -128,6 +131,117 @@ export async function renderRefundNeedsAttention(
   );
   return {
     subject: refundNeedsAttentionSubject(refund, reminder),
+    html: await render(element),
+    text: await render(element, { plainText: true }),
+  };
+}
+
+/** "Tue 20 Oct, 19:00 Dubai time": the desk works in Dubai time. */
+function dubaiTime(instant: Date): string {
+  const day = new Intl.DateTimeFormat("en-GB", {
+    timeZone: GST_TIMEZONE,
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+  }).format(instant);
+  const time = new Intl.DateTimeFormat("en-GB", {
+    timeZone: GST_TIMEZONE,
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).format(instant);
+  return `${day.replace(",", "")}, ${time} Dubai time`;
+}
+
+const CANNOT_GO_AHEAD =
+  "If the session cannot go ahead, contact the customer from the knowledgecentre@ inbox.";
+
+function calendarAlertText(problem: CalendarProblem): readonly string[] {
+  if (problem.kind === "gone") {
+    return [
+      "The Outlook event for this booked session has been deleted or cancelled. The customer has " +
+        "not been told: they still expect the session at the time below and still get their " +
+        "reminders. The time stays blocked, so nobody else can book it.",
+      "To fix: restore the event from Deleted Items in Outlook. Do not make a new event: the " +
+        "customer's join link belongs to the original one. This alert stops by itself within 5 " +
+        "minutes of the restore, or once the session time has passed.",
+    ];
+  }
+  return [
+    "The Outlook event for this booked session now shows a different time from the one the " +
+      "customer booked. Moving the event in Outlook does not move the booking, and the customer " +
+      "has not been told.",
+    "To fix: move the event back to the booked time. If the session really has to move, ask the " +
+      "customer to use the Manage my booking link in their emails. This alert stops by itself " +
+      "once the calendar matches the booking.",
+  ];
+}
+
+export function calendarEventChangedSubject(problem: CalendarProblem, reminder: boolean): string {
+  const what =
+    problem.kind === "gone"
+      ? "Session missing from the calendar"
+      : "Session moved in the calendar only";
+  const base = `${what}: booking ${bookingReference(problem.bookingId)}, ${dubaiTime(problem.booked.start)}`;
+  return reminder ? `Reminder: ${base}` : base;
+}
+
+interface CalendarEventChangedEmailProps {
+  readonly problem: CalendarProblem;
+  readonly reminder: boolean;
+  readonly companyName: string;
+  readonly supportEmail: string;
+}
+
+function CalendarEventChangedEmail({
+  problem,
+  reminder,
+  ...layout
+}: CalendarEventChangedEmailProps) {
+  const [what, fix] = calendarAlertText(problem);
+  const heading =
+    problem.kind === "gone"
+      ? "A booked session is missing from the calendar"
+      : "A booked session was moved in the calendar only";
+  return (
+    <EmailLayout preview={what ?? heading} {...layout}>
+      <h1 style={emailStyles.heading}>
+        {reminder ? `Still needs you: ${heading.toLowerCase()}` : heading}
+      </h1>
+      <p style={emailStyles.paragraph}>{what}</p>
+      <div style={{ margin: "0 0 20px" }}>
+        <p style={emailStyles.detail}>
+          <strong>Booking reference:</strong> {bookingReference(problem.bookingId)}
+        </p>
+        <p style={emailStyles.detail}>
+          <strong>Booked:</strong> {dubaiTime(problem.booked.start)}
+        </p>
+        {problem.kind === "moved" ? (
+          <p style={emailStyles.detail}>
+            <strong>Calendar shows:</strong> {dubaiTime(problem.calendar.start)}
+          </p>
+        ) : null}
+      </div>
+      <p style={emailStyles.paragraph}>{fix}</p>
+      <p style={emailStyles.muted}>{CANNOT_GO_AHEAD} Nothing has been changed for the customer.</p>
+    </EmailLayout>
+  );
+}
+
+export async function renderCalendarEventChanged(
+  problem: CalendarProblem,
+  reminder: boolean,
+): Promise<RenderedEmail> {
+  const element = (
+    <CalendarEventChangedEmail
+      problem={problem}
+      reminder={reminder}
+      companyName={companyName()}
+      supportEmail={supportEmail()}
+    />
+  );
+  return {
+    subject: calendarEventChangedSubject(problem, reminder),
     html: await render(element),
     text: await render(element, { plainText: true }),
   };

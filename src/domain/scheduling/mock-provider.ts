@@ -129,6 +129,15 @@ export class MockSchedulingProvider implements SchedulingProvider {
     return Promise.resolve(this.events.get(externalId) ?? null);
   }
 
+  /** Like the real calendar view: overlapping the window, cancelled included, no join link. */
+  eventsBetween(from: Date, to: Date): Promise<readonly ExternalEvent[]> {
+    return Promise.resolve(
+      [...this.events.values()]
+        .filter((event) => event.start < to && event.end > from)
+        .map((event) => ({ ...event, meetingUrl: null })),
+    );
+  }
+
   /** Test and development helper. Not part of the port. */
   listEvents(): readonly ExternalEvent[] {
     return [...this.events.values()];

@@ -154,4 +154,12 @@ export interface SchedulingProvider {
 
   /** Read an event back, for reconciling our state against the calendar. */
   getEvent(externalId: string): Promise<ExternalEvent | null>;
+
+  /**
+   * Every event overlapping the window, cancelled ones included, for the
+   * Outlook watch. One read, however many sessions are booked. The join link
+   * is NOT carried (Microsoft's calendar view leaves it out, spike S1
+   * 2026-10-16): read an event by its id when the link matters.
+   */
+  eventsBetween(from: Date, to: Date): Promise<readonly ExternalEvent[]>;
 }

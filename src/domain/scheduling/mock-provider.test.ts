@@ -379,6 +379,23 @@ describe("getEvent and listEvents", () => {
     expect(await scheduler.getEvent("absent")).toBeNull();
   });
 
+  it("lists the events overlapping a window, cancelled ones included", async () => {
+    const outside = {
+      start: addDays(FIRST_SATURDAY_SLOT.start, 3),
+      end: addDays(FIRST_SATURDAY_SLOT.end, 3),
+    };
+    const scheduler = provider([
+      seedEvent(),
+      seedEvent({ externalId: "seed_cancelled", status: "cancelled" }),
+      seedEvent({ externalId: "seed_outside", ...outside }),
+    ]);
+    const events = await scheduler.eventsBetween(
+      FIRST_SATURDAY_SLOT.start,
+      addDays(FIRST_SATURDAY_SLOT.start, 1),
+    );
+    expect(events.map((e) => e.externalId).toSorted()).toEqual(["seed_1", "seed_cancelled"]);
+  });
+
   it("lists everything it is holding", async () => {
     const scheduler = provider([seedEvent()]);
     expect(scheduler.listEvents()).toHaveLength(1);
