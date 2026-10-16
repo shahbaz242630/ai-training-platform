@@ -48,10 +48,22 @@ export async function insertAuditEvent(runner: QueryRunner, event: AuditEvent): 
  * previously detectable only by reading a single `console.error` line on the
  * host's stdout, which means in practice it was not detectable at all.
  *
- * Counted rather than listed, because the caller is a scheduled job that
- * should alert on the number and never log customer records on a timer.
+ * Listed with ids, the session and the amount only - what the desk alert needs
+ * to point a person at the payment - and never anything about the customer:
+ * the caller is a scheduled job, and nothing on a timer reads customer records.
  */
-export async function countPaidButUnscheduled(runner: QueryRunner): Promise<number> {
+export interface PaidButUnscheduled {
+  readonly orderId: string;
+  /** Null when settlement never wrote the booking row. */
+  readonly bookingId: string | null;
+  readonly sessionSlug: string | null;
+  readonly amountFils: number;
+  readonly paymentIntentId: string | null;
+}
+
+export async function listPaidButUnscheduled(
+  runner: QueryRunner,
+): Promise<readonly PaidButUnscheduled[]> {
   /*
     A LEFT JOIN, and the difference matters.
 
@@ -62,12 +74,30 @@ export async function countPaidButUnscheduled(runner: QueryRunner): Promise<numb
     the slot permanently blocked, the money taken, and nothing pointing at it.
     The one case with no other trace was the one the alarm could not see.
   */
-  const result = await runner.query<{ n: number }>(
-    `select count(*)::int as n
+  const result = await runner.query<{
+    order_id: string;
+    booking_id: string | null;
+    session_slug: string | null;
+    gross_amount_fils: string | number;
+    stripe_payment_intent_id: string | null;
+  }>(
+    // One row per order: the desk alert is keyed by it.
+    `select distinct on (o.id)
+            o.id as order_id, b.id as booking_id, o.session_slug, o.gross_amount_fils,
+            o.stripe_payment_intent_id
        from orders o
        left join bookings b on b.order_id = o.id
-      where o.payment_status = 'paid'
-        and (b.id is null or b.status = 'awaiting_schedule')`,
+      -- Partly refunded still counts: a goodwill part-refund leaves the
+      -- customer owed a session. Only a full refund settles it.
+      where o.payment_status in ('paid', 'partially_refunded')
+        and (b.id is null or b.status = 'awaiting_schedule')
+      order by o.id, b.sequence`,
   );
-  return result.rows[0]?.n ?? 0;
+  return result.rows.map((row) => ({
+    orderId: row.order_id,
+    bookingId: row.booking_id,
+    sessionSlug: row.session_slug,
+    amountFils: Number(row.gross_amount_fils),
+    paymentIntentId: row.stripe_payment_intent_id,
+  }));
 }

@@ -9,14 +9,17 @@ import { confirmBookingOnCalendar, listBookingsAwaitingConfirmation } from "@/da
 import { listCalendarMovesDue, syncCalendarMove } from "@/data/reschedule";
 import { getSchedulingProvider } from "@/domain/scheduling/factory";
 import type { SchedulingProvider } from "@/domain/scheduling/provider";
-import { countPaidButUnscheduled } from "@/data/audit-events";
+import { listPaidButUnscheduled, type PaidButUnscheduled } from "@/data/audit-events";
 import {
   listRefundsNeedingAttention,
   refundWorkWaiting,
   type RefundNeedingAttention,
 } from "@/data/refund-queries";
 import { reconcileDeskAlerts, type DeskAlertReport } from "@/data/desk-alerts";
-import { renderRefundNeedsAttention } from "@/components/emails/desk-alerts";
+import {
+  renderPaidBookingNeedsTime,
+  renderRefundNeedsAttention,
+} from "@/components/emails/desk-alerts";
 import { supportEmail } from "@/config/site";
 import { getEmailProvider } from "@/domain/messaging/factory";
 import { issueDueRefunds, refreshPendingRefunds } from "@/data/refund-issuer";
@@ -93,7 +96,8 @@ export async function POST(request: Request): Promise<NextResponse> {
       knew. This job already runs every five minutes; asking the question here
       costs one indexed count and turns a missed line into a standing alarm.
     */
-    const paidButUnscheduled = await withTransaction((runner) => countPaidButUnscheduled(runner));
+    const waitingForTime = await withTransaction((runner) => listPaidButUnscheduled(runner));
+    const paidButUnscheduled = waitingForTime.length;
 
     if (paidButUnscheduled > 0) {
       logger.error(
@@ -183,6 +187,9 @@ export async function POST(request: Request): Promise<NextResponse> {
     */
     const deskAlerts = await deskAlertsOrReport(attention);
 
+    // The same for a customer who has paid and has no session time (KC B8).
+    const paidBookingAlerts = await paidBookingAlertsOrReport(waitingForTime);
+
     /*
       What the privacy notice says we stop keeping, deleted on schedule. Every
       step is keyed on time, so a run with nothing due changes nothing.
@@ -209,6 +216,7 @@ export async function POST(request: Request): Promise<NextResponse> {
       // Reported on every run, so the number is visible to whatever calls this
       // rather than only in a log somebody has to go looking for.
       paidButUnscheduled,
+      paidBookingAlerts,
       schema,
     });
   } catch (error) {
@@ -391,6 +399,31 @@ async function deskAlertsOrReport(
   } catch (error) {
     logger.error("desk alerts could not be sent; they will be tried again next run", {
       error: (error as Error).name,
+      // A database error's name is just "error"; its code (e.g. 23514) says which.
+      code: (error as { code?: unknown }).code ?? null,
+    });
+    return { error: "desk alerts could not be sent" };
+  }
+}
+
+/** The paid-but-no-time alerts, in their own failure for the same reason. Keyed by order. */
+async function paidBookingAlertsOrReport(
+  waiting: readonly PaidButUnscheduled[],
+): Promise<DeskAlertReport | { error: string }> {
+  try {
+    return await reconcileDeskAlerts(
+      "paid_booking_needs_time",
+      waiting.map((problem) => ({
+        subjectKey: `order:${problem.orderId}`,
+        render: (reminder) => renderPaidBookingNeedsTime(problem, reminder),
+      })),
+      { email: getEmailProvider, transaction: withTransaction, clock: () => new Date() },
+      supportEmail(),
+    );
+  } catch (error) {
+    logger.error("paid-booking desk alerts could not be sent; they will be tried again next run", {
+      error: (error as Error).name,
+      code: (error as { code?: unknown }).code ?? null,
     });
     return { error: "desk alerts could not be sent" };
   }

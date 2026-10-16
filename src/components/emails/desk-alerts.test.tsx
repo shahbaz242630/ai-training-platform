@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 import {
   refundAlertReason,
   renderCalendarEventChanged,
+  renderPaidBookingNeedsTime,
   renderRefundNeedsAttention,
 } from "./desk-alerts";
 import { supportEmail } from "@/config/site";
+import type { PaidButUnscheduled } from "@/data/audit-events";
 import type { CalendarProblem } from "@/data/calendar-watch";
 import type { RefundNeedingAttention } from "@/data/refund-queries";
 
@@ -154,5 +156,52 @@ describe("renderCalendarEventChanged", () => {
         /[\w.+-]+@[\w-]+\.[\w.-]+/,
       );
     }
+  });
+});
+
+describe("renderPaidBookingNeedsTime", () => {
+  const waiting: PaidButUnscheduled = {
+    orderId: "00000000-0000-4000-8000-0000000000aa",
+    bookingId: "3f9a1c2b-0000-4000-8000-000000000001",
+    sessionSlug: "claude-claude-code",
+    amountFils: 149_900,
+    paymentIntentId: "pi_3Lost",
+  };
+
+  it("names the booking and the amount in the subject, and marks a reminder", async () => {
+    expect((await renderPaidBookingNeedsTime(waiting, false)).subject).toBe(
+      "Paid, no session time: booking 3F9A1C2B, AED 1,499",
+    );
+    expect((await renderPaidBookingNeedsTime(waiting, true)).subject).toBe(
+      "Reminder: Paid, no session time: booking 3F9A1C2B, AED 1,499",
+    );
+  });
+
+  it("says what happened, what to do, how it ends, and which payment to look at", async () => {
+    const email = await renderPaidBookingNeedsTime(waiting, false);
+    expect(email.text).toContain("Claude, Claude Code & Advanced Workflows");
+    expect(email.text).toContain("has no time on the calendar");
+    expect(email.text).toContain("has not had a confirmation");
+    expect(email.text).toContain("offer a new time or a full refund");
+    expect(email.text).toContain("Do not charge again.");
+    expect(email.text).toContain("stops by itself once the payment is refunded in full in Stripe");
+    expect(email.text).toContain("pi_3Lost");
+  });
+
+  it("carries nothing about the customer and no long dashes", async () => {
+    const email = await renderPaidBookingNeedsTime(waiting, false);
+    for (const part of [email.subject, email.text, email.html]) {
+      expect(part).not.toMatch(/[–—]/);
+      expect(part.replaceAll(supportEmail(), "")).not.toMatch(/[\w.+-]+@[\w-]+\.[\w.-]+/);
+    }
+  });
+
+  it("still makes sense with no booking row and no payment id", async () => {
+    const email = await renderPaidBookingNeedsTime(
+      { ...waiting, bookingId: null, sessionSlug: null, paymentIntentId: null },
+      false,
+    );
+    expect(email.subject).toBe("Paid, no session time: booking unknown, AED 1,499");
+    expect(email.text).toContain("no payment on record");
   });
 });

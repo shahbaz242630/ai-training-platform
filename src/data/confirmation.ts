@@ -11,6 +11,7 @@ import {
 import type { PaymentStatus } from "@/domain/booking/order";
 import { messagesOnConfirmation } from "@/domain/messaging/schedule";
 import {
+  EventNotFoundError,
   SchedulingError,
   SlotUnavailableError,
   type SchedulingProvider,
@@ -207,7 +208,12 @@ export async function confirmBookingOnCalendar(
     }
     event = await provider.confirmSlot(eventId, attendee);
   } catch (error) {
-    if (error instanceof SlotUnavailableError) {
+    /*
+      Cancelled, or deleted in Outlook: a deleted event goes to Deleted Items
+      and its id stops resolving, so it reads as not found. Either way the
+      held time is gone, and retrying can never bring it back.
+    */
+    if (error instanceof SlotUnavailableError || error instanceof EventNotFoundError) {
       await returnToWaiting(transaction, booking, now);
       return "slot_lost";
     }

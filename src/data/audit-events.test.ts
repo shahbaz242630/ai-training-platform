@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { PGlite } from "@electric-sql/pglite";
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { countPaidButUnscheduled, insertAuditEvent } from "./audit-events";
+import { insertAuditEvent, listPaidButUnscheduled } from "./audit-events";
 import type { QueryRunner } from "./db";
 import type { AuditEvent } from "@/lib/audit";
 
@@ -151,56 +151,83 @@ describe("the audit trail is append-only", () => {
   The standing alarm for the one state that needs a human: money taken, no
   session booked.
 */
-describe("countPaidButUnscheduled", () => {
-  const makeOrder = async (paymentStatus: string, bookingStatus: string) => {
+describe("listPaidButUnscheduled", () => {
+  const makeOrder = async (
+    paymentStatus: string,
+    bookingStatus: string | null,
+    paymentIntentId: string | null = null,
+  ) => {
     const customer = await db.query<{ id: string }>(
       `insert into customers (first_name, last_name, email, timezone)
        values ('A', 'K', $1, 'Asia/Dubai') returning id`,
       [`${randomUUID()}@example.com`],
     );
     const order = await db.query<{ id: string }>(
-      `insert into orders (customer_id, order_type, session_slug, gross_amount_fils, payment_status)
-       values ($1, 'single', 'ai-foundations', 129900, $2) returning id`,
-      [customer.rows[0]?.id, paymentStatus],
+      `insert into orders (customer_id, order_type, session_slug, gross_amount_fils, payment_status,
+                           stripe_payment_intent_id)
+       values ($1, 'single', 'ai-foundations', 129900, $2, $3) returning id`,
+      [customer.rows[0]?.id, paymentStatus, paymentIntentId],
     );
-    const orderId = order.rows[0]?.id;
-    await db.query(
+    const orderId = order.rows[0]?.id ?? "";
+    if (bookingStatus === null) return { orderId, bookingId: null };
+    const booking = await db.query<{ id: string }>(
       `insert into bookings (order_id, session_slug, sequence, status, scheduled_start, scheduled_end, customer_timezone)
-       values ($1, 'ai-foundations', 1, $2, $3, $4, 'Asia/Dubai')`,
+       values ($1, 'ai-foundations', 1, $2, $3, $4, 'Asia/Dubai') returning id`,
       [orderId, bookingStatus, new Date("2028-01-10T10:00:00Z"), new Date("2028-01-10T11:30:00Z")],
     );
-    return orderId;
+    return { orderId, bookingId: booking.rows[0]?.id ?? null };
   };
+  const listedIds = async () => (await listPaidButUnscheduled(runner)).map((p) => p.orderId);
 
-  it("counts nothing when every paid order is scheduled", async () => {
+  it("lists nothing when every paid order is scheduled", async () => {
     await makeOrder("paid", "scheduled");
-    expect(await countPaidButUnscheduled(runner)).toBe(0);
+    expect(await listPaidButUnscheduled(runner)).toEqual([]);
   });
 
   /* THE one. Money taken, customer in no calendar. */
-  it("counts a paid order whose booking is still waiting", async () => {
-    await makeOrder("paid", "awaiting_schedule");
-    expect(await countPaidButUnscheduled(runner)).toBe(1);
+  it("lists a paid order whose booking is still waiting, with what the desk needs to act", async () => {
+    const { orderId, bookingId } = await makeOrder("paid", "awaiting_schedule", "pi_3Waiting");
+    expect(await listPaidButUnscheduled(runner)).toContainEqual({
+      orderId,
+      bookingId,
+      sessionSlug: "ai-foundations",
+      amountFils: 129900,
+      paymentIntentId: "pi_3Waiting",
+    });
+  });
+
+  it("lists a paid order with no booking at all", async () => {
+    const { orderId } = await makeOrder("paid", null);
+    expect(await listPaidButUnscheduled(runner)).toContainEqual(
+      expect.objectContaining({ orderId, bookingId: null }),
+    );
   });
 
   /*
     An unpaid order waiting to be scheduled is the NORMAL state between
-    starting checkout and paying. Counting it would make the alarm fire
-    constantly and be ignored, which is the same as having no alarm.
+    starting checkout and paying. Listing it would make the alarm fire
+    constantly and be ignored, which is the same as having no alarm. A
+    refunded order is settled the other way: the customer has their money.
   */
-  it("ignores a pending order that is waiting, because that is normal", async () => {
-    // Measured either side rather than against a fixed number, so the
-    // assertion says what it means - this order must not move the count - and
-    // does not silently depend on what earlier tests left behind.
-    const before = await countPaidButUnscheduled(runner);
-    await makeOrder("pending", "awaiting_schedule");
-    expect(await countPaidButUnscheduled(runner)).toBe(before);
+  it("ignores pending, failed and refunded orders that are waiting", async () => {
+    for (const status of ["pending", "failed", "refunded"]) {
+      const { orderId } = await makeOrder(status, "awaiting_schedule");
+      expect(await listedIds()).not.toContain(orderId);
+    }
   });
 
-  it("ignores a failed order that never got scheduled", async () => {
-    const before = await countPaidButUnscheduled(runner);
-    await makeOrder("failed", "awaiting_schedule");
-    expect(await countPaidButUnscheduled(runner)).toBe(before);
+  /*
+    A goodwill part-refund while a new time is arranged must not close the
+    alert: the customer still has no session (KC B8 review).
+  */
+  it("still lists a partly refunded order that is waiting", async () => {
+    const { orderId } = await makeOrder("partially_refunded", "awaiting_schedule");
+    expect(await listedIds()).toContain(orderId);
+  });
+
+  it("ignores a paid order whose booking was cancelled (a withdrawal)", async () => {
+    const { orderId } = await makeOrder("paid", "cancelled");
+    expect(await listedIds()).not.toContain(orderId);
   });
 });
 

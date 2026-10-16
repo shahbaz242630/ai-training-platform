@@ -246,6 +246,50 @@ describe("confirmBookingOnCalendar", () => {
     expect(await holdStatus(otherHold.rows[0]?.id ?? "")).toBe("converted");
   });
 
+  /*
+    Deleted in Outlook is not cancelled: the event goes to Deleted Items and
+    its stored id stops resolving (404, proven live on team@ in the s97
+    spike). Before this, that surfaced as "not found", nothing caught it, and
+    the sweep retried a paid booking every five minutes for ever.
+  */
+  it("treats a hold deleted in Outlook as a lost slot, not an error to retry", async () => {
+    const provider = calendar();
+    const { bookingId, orderId, start } = await scheduledBooking();
+    const end = new Date(start.getTime() + 90 * 60_000);
+    const held = await provider.holdSlot({
+      slot: { start, end },
+      subject: "x",
+      attendeeName: "A",
+      attendeeEmail: "a@example.com",
+    });
+    await provider.releaseSlot(held.externalId);
+    await db.query("update bookings set calendar_event_id = $2 where id = $1", [
+      bookingId,
+      held.externalId,
+    ]);
+    const hold = await db.query<{ id: string }>(
+      `insert into slot_holds (slot_start, slot_end, order_id, calendar_event_id, expires_at, status)
+       values ($1, $2, $3, $4, $5, 'converted') returning id`,
+      [start, end, orderId, held.externalId, NOW],
+    );
+
+    const outcome = await confirmBookingOnCalendar({ bookingId, provider, now: NOW, transaction });
+
+    expect(outcome).toBe("slot_lost");
+    expect(await bookingRow(bookingId)).toEqual({
+      status: "awaiting_schedule",
+      meeting_url: null,
+      calendar_event_id: null,
+    });
+    expect(await queuedFor(bookingId)).toEqual([]);
+    // The lost time is back on sale.
+    const status = await db.query<{ status: string }>(
+      "select status from slot_holds where id = $1",
+      [hold.rows[0]?.id],
+    );
+    expect(status.rows[0]?.status).toBe("released");
+  });
+
   it("refuses an order that is not paid, whatever the booking says", async () => {
     const { bookingId } = await scheduledBooking({ paid: false });
     expect(
