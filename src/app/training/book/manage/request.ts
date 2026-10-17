@@ -7,6 +7,7 @@ import { getSessionBySlug } from "@/config/sessions";
 import { findUpcomingBookingsForEmail } from "@/data/manage-requests";
 import { bookingReference, normaliseReference } from "@/domain/booking/withdrawal";
 import type { EmailMessage, SendResult } from "@/domain/messaging/provider";
+import { recordAudit } from "@/lib/audit";
 import { createManageToken } from "@/lib/manage-link";
 import { addMinutes } from "@/lib/time";
 import type { FlowResult, TransactionRunner } from "./flow";
@@ -135,5 +136,16 @@ export async function sendManageLinks(
     text: email.text,
     idempotencyKey: `manage-link:${randomUUID()}`,
   });
-  return result.ok ? "sent" : "not_sent";
+  if (!result.ok) return "not_sent";
+
+  // One line per booking a working link went out for. No address: the booking id finds it.
+  for (const b of bookings) {
+    await recordAudit({
+      action: "booking.manage_link_sent",
+      actor: { kind: "system", process: "manage-my-booking" },
+      subject: `booking:${b.bookingId}`,
+      metadata: { linkMinutes: LINK_MINUTES },
+    });
+  }
+  return "sent";
 }
