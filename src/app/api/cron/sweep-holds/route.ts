@@ -17,10 +17,11 @@ import {
 } from "@/data/refund-queries";
 import { reconcileDeskAlerts, type DeskAlertReport } from "@/data/desk-alerts";
 import {
+  CHOOSE_TIME_LINK_DAYS,
   renderPaidBookingNeedsTime,
   renderRefundNeedsAttention,
 } from "@/components/emails/desk-alerts";
-import { supportEmail } from "@/config/site";
+import { TRAINING_BASE, supportEmail } from "@/config/site";
 import { getEmailProvider } from "@/domain/messaging/factory";
 import { issueDueRefunds, refreshPendingRefunds } from "@/data/refund-issuer";
 import { getPaymentProvider } from "@/domain/payments/factory";
@@ -29,8 +30,10 @@ import { readAppliedSchemaVersion, schemaStatus } from "@/data/schema-version";
 import { recordAudit } from "@/lib/audit";
 import { watchCalendar } from "./calendar-watch-step";
 import { authoriseCronRequest } from "@/lib/cron-auth";
-import { serverEnv } from "@/lib/env";
+import { clientEnv, serverEnv } from "@/lib/env";
 import { logger } from "@/lib/logger";
+import { createManageToken } from "@/lib/manage-link";
+import { addDays } from "@/lib/time";
 
 /**
  * Release the slots nobody paid for.
@@ -415,7 +418,8 @@ async function paidBookingAlertsOrReport(
       "paid_booking_needs_time",
       waiting.map((problem) => ({
         subjectKey: `order:${problem.orderId}`,
-        render: (reminder) => renderPaidBookingNeedsTime(problem, reminder),
+        render: (reminder) =>
+          renderPaidBookingNeedsTime(problem, reminder, chooseTimeUrlFor(problem, new Date())),
       })),
       { email: getEmailProvider, transaction: withTransaction, clock: () => new Date() },
       supportEmail(),
@@ -427,6 +431,23 @@ async function paidBookingAlertsOrReport(
     });
     return { error: "desk alerts could not be sent" };
   }
+}
+
+/**
+ * The customer's link to choose a new time, for the desk to forward: the
+ * Manage my booking page, which offers a paid booking that lost its time any
+ * open time. Made fresh for every send. Null when there is no booking to give
+ * a time to, the order is part-refunded (only a fully paid order confirms),
+ * or no signing secret is set.
+ */
+function chooseTimeUrlFor(problem: PaidButUnscheduled, now: Date): string | null {
+  const secret = serverEnv().MANAGE_LINK_SECRET;
+  if (!secret || problem.bookingId === null || !problem.fullyPaid) return null;
+  const token = createManageToken(
+    { bookingId: problem.bookingId, expiresAt: addDays(now, CHOOSE_TIME_LINK_DAYS) },
+    secret,
+  );
+  return `${clientEnv.NEXT_PUBLIC_SITE_URL}${TRAINING_BASE}/book/manage?t=${token}`;
 }
 
 /**

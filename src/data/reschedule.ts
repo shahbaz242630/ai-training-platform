@@ -176,6 +176,8 @@ export interface BookingForManage {
   readonly scheduledEnd: Date | null;
   readonly rescheduleCount: number;
   readonly customerTimezone: string;
+  /** Exactly paid. Only then can a booking that lost its time be given a new one. */
+  readonly orderPaid: boolean;
 }
 
 /** What the manage page shows and decides with. Null for an unknown booking. */
@@ -190,9 +192,13 @@ export async function loadBookingForManage(
     scheduled_end: Date | null;
     reschedule_count: number;
     customer_timezone: string;
+    payment_status: string;
   }>(
-    `select status, session_slug, scheduled_start, scheduled_end, reschedule_count, customer_timezone
-       from bookings where id = $1`,
+    `select b.status, b.session_slug, b.scheduled_start, b.scheduled_end, b.reschedule_count,
+            b.customer_timezone, o.payment_status
+       from bookings b
+       join orders o on o.id = b.order_id
+      where b.id = $1`,
     [bookingId],
   );
   const row = result.rows[0];
@@ -204,6 +210,7 @@ export async function loadBookingForManage(
         scheduledEnd: row.scheduled_end,
         rescheduleCount: row.reschedule_count,
         customerTimezone: row.customer_timezone,
+        orderPaid: row.payment_status === "paid",
       }
     : null;
 }

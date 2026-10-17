@@ -9,6 +9,7 @@ import { RefundUnclearError } from "@/domain/payments/provider";
 import { MockSchedulingProvider } from "@/domain/scheduling/mock-provider";
 import { resetAuditSink, setAuditSink } from "@/lib/audit";
 import { resetLogSink, setLogSink, type LogRecord } from "@/lib/logger";
+import { readManageToken } from "@/lib/manage-link";
 
 /**
  * The sweep's refund step, from the outside: a withdrawal's refund is asked
@@ -23,7 +24,10 @@ let payments = new MockPaymentProvider();
 let db: PGlite;
 
 vi.mock("@/lib/env", () => ({
-  serverEnv: () => ({ CRON_SECRET: "sweep-secret-long-enough-for-the-minimum-length" }),
+  serverEnv: () => ({
+    CRON_SECRET: "sweep-secret-long-enough-for-the-minimum-length",
+    MANAGE_LINK_SECRET: "m".repeat(40),
+  }),
   clientEnv: { NEXT_PUBLIC_SITE_ENV: "development", NEXT_PUBLIC_SITE_URL: "http://localhost:3000" },
 }));
 
@@ -228,9 +232,9 @@ describe("the desk is told", () => {
       [customer.rows[0]!.id],
     );
     const orderId = order.rows[0]!.id;
-    await db.query(
+    const booking = await db.query<{ id: string }>(
       `insert into bookings (order_id, session_slug, sequence, status, customer_timezone)
-       values ($1, 'ai-foundations', 1, 'awaiting_schedule', 'Asia/Dubai')`,
+       values ($1, 'ai-foundations', 1, 'awaiting_schedule', 'Asia/Dubai') returning id`,
       [orderId],
     );
 
@@ -246,6 +250,11 @@ describe("the desk is told", () => {
     expect(mail.current.sent[0]?.subject).toMatch(/^Paid, no session time: booking /);
     expect(mail.current.sent[0]?.text).toContain("pi_waiting");
     expect(mail.current.sent[0]?.text).not.toMatch(/Amina|Khan|sweepwaiting/);
+    // The customer's own link to choose a new time, for the desk to forward.
+    const link = /http:\/\/localhost:3000\/training\/book\/manage\?t=(\S+)/.exec(
+      mail.current.sent[0]?.text ?? "",
+    );
+    expect(readManageToken(link?.[1] ?? "", new Date(), "m".repeat(40))).toBe(booking.rows[0]!.id);
 
     const second = await run();
     expect(second.body.paidBookingAlerts).toMatchObject({ raised: 0, resolved: 0 });

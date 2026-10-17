@@ -59,6 +59,8 @@ export interface PaidButUnscheduled {
   readonly sessionSlug: string | null;
   readonly amountFils: number;
   readonly paymentIntentId: string | null;
+  /** Only a fully paid order can be given a new time from a link; a part-refunded one is by hand. */
+  readonly fullyPaid: boolean;
 }
 
 export async function listPaidButUnscheduled(
@@ -80,11 +82,12 @@ export async function listPaidButUnscheduled(
     session_slug: string | null;
     gross_amount_fils: string | number;
     stripe_payment_intent_id: string | null;
+    payment_status: string;
   }>(
     // One row per order: the desk alert is keyed by it.
     `select distinct on (o.id)
             o.id as order_id, b.id as booking_id, o.session_slug, o.gross_amount_fils,
-            o.stripe_payment_intent_id
+            o.stripe_payment_intent_id, o.payment_status
        from orders o
        left join bookings b on b.order_id = o.id
       -- Partly refunded still counts: a goodwill part-refund leaves the
@@ -99,5 +102,6 @@ export async function listPaidButUnscheduled(
     sessionSlug: row.session_slug,
     amountFils: Number(row.gross_amount_fils),
     paymentIntentId: row.stripe_payment_intent_id,
+    fullyPaid: row.payment_status === "paid",
   }));
 }

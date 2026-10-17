@@ -10,7 +10,7 @@ import { clientEnv, serverEnv } from "@/lib/env";
 import { logger } from "@/lib/logger";
 import { createRateLimiter } from "@/lib/rate-limit";
 import { offeredSlots } from "../[slug]/availability";
-import { MESSAGES, confirmMove, type FlowResult } from "./flow";
+import { MESSAGES, confirmMove, confirmNewTime, type FlowResult, type ManageDeps } from "./flow";
 import { REQUEST_RECEIVED, parseManageRequest, sendManageLinks } from "./request";
 
 /*
@@ -22,6 +22,25 @@ const limiter = createRateLimiter({ limit: 10, windowMs: 60_000 });
 
 export async function moveBookingAction(
   input: unknown,
+): Promise<FlowResult<{ readonly newTime: string }>> {
+  return guarded("moving a booking failed", (deps) =>
+    confirmMove(input, { ...deps, calendar: getSchedulingProvider() }),
+  );
+}
+
+/** A new time for a paid booking whose own was lost on our side. Never counts as a move. */
+export async function chooseNewTimeAction(
+  input: unknown,
+): Promise<FlowResult<{ readonly newTime: string }>> {
+  return guarded("choosing a new time failed", (deps) =>
+    confirmNewTime(input, { ...deps, calendar: getSchedulingProvider() }),
+  );
+}
+
+/** The rate limit, the secret and the catch-all, shared by both ways of setting a time. */
+async function guarded(
+  failure: string,
+  run: (deps: ManageDeps) => Promise<FlowResult<{ readonly newTime: string }>>,
 ): Promise<FlowResult<{ readonly newTime: string }>> {
   const address = clientAddressFrom((await headers()).get("x-forwarded-for"));
   const rate = limiter.check(address, new Date());
@@ -39,15 +58,14 @@ export async function moveBookingAction(
   }
 
   try {
-    return await confirmMove(input, {
+    return await run({
       transaction: withTransaction,
       now: new Date(),
       secret,
       offered: offeredSlots,
-      calendar: getSchedulingProvider(),
     });
   } catch (error) {
-    logger.error("moving a booking failed", { error: (error as Error).message });
+    logger.error(failure, { error: (error as Error).message });
     return { ok: false, message: MESSAGES.BROKEN };
   }
 }

@@ -193,6 +193,7 @@ describe("listPaidButUnscheduled", () => {
       sessionSlug: "ai-foundations",
       amountFils: 129900,
       paymentIntentId: "pi_3Waiting",
+      fullyPaid: true,
     });
   });
 
@@ -223,6 +224,9 @@ describe("listPaidButUnscheduled", () => {
   it("still lists a partly refunded order that is waiting", async () => {
     const { orderId } = await makeOrder("partially_refunded", "awaiting_schedule");
     expect(await listedIds()).toContain(orderId);
+    // Listed, but not fully paid: no choose-a-time link, since only a paid order confirms.
+    const listed = (await listPaidButUnscheduled(runner)).find((w) => w.orderId === orderId);
+    expect(listed?.fullyPaid).toBe(false);
   });
 
   it("ignores a paid order whose booking was cancelled (a withdrawal)", async () => {

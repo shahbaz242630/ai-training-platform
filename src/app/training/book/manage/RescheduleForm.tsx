@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { BOOKING_POLICY, TRAINING_BASE } from "@/config/site";
-import { moveBookingAction } from "./actions";
+import { chooseNewTimeAction, moveBookingAction } from "./actions";
 import type { ManageView } from "./flow";
 
 /** The other thing a UK or EU customer may want to do here: the withdrawal page, prefilled. */
@@ -24,7 +24,8 @@ function WithdrawNote({ reference }: { readonly reference: string }) {
 /**
  * Pick a new time, then confirm. Nothing here decides anything: the server
  * checks the link, the policy and that the time is still open when the
- * customer confirms.
+ * customer confirms. The same form gives a time to a paid booking whose own
+ * was lost on our side ("choose"), which is not a move.
  */
 
 const PRIMARY =
@@ -41,17 +42,34 @@ export function RescheduleForm({
   const [error, setError] = useState<string | null>(null);
   const [movedTo, setMovedTo] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  const choosing = view.mode === "choose";
 
   const facts = (
     <Facts
       rows={[
         ["Session", view.sessionTitle],
-        [movedTo ? "Was" : "Time", view.sessionTime],
-        ...(movedTo ? ([["Now", movedTo]] as const) : []),
+        ...(movedTo && choosing
+          ? ([["Time", movedTo]] as const)
+          : ([
+              [movedTo ? "Was" : "Time", view.sessionTime],
+              ...(movedTo ? ([["Now", movedTo]] as const) : []),
+            ] as const)),
         ["Booking reference", view.reference],
       ]}
     />
   );
+
+  if (movedTo && choosing) {
+    return (
+      <Card title="Your session is booked">
+        {facts}
+        <p className="text-ink-soft mt-4 text-[14.5px] leading-relaxed">
+          We are emailing you the details, with the joining link and a file to add it to your
+          calendar.
+        </p>
+      </Card>
+    );
+  }
 
   if (movedTo) {
     return (
@@ -76,25 +94,37 @@ export function RescheduleForm({
   }
 
   function confirm() {
-    if (chosen === null) return setError("Please choose a new time.");
+    if (chosen === null)
+      return setError(choosing ? "Please choose a time." : "Please choose a new time.");
     setError(null);
+    const action = choosing ? chooseNewTimeAction : moveBookingAction;
     startTransition(async () => {
-      const result = await moveBookingAction({ token, slotStart: chosen });
+      const result = await action({ token, slotStart: chosen });
       if (!result.ok) return setError(result.message);
       setMovedTo(result.newTime);
     });
   }
 
   return (
-    <Card title="Move your session">
+    <Card title={choosing ? "Choose your session time" : "Move your session"}>
       {facts}
+      {choosing ? (
+        <p className="text-ink-soft mt-4 text-[14.5px] leading-relaxed">
+          We are sorry: the time you booked was lost on our side. Please choose a new one, at no
+          cost.
+        </p>
+      ) : null}
       {view.days.length === 0 ? (
         <p className="text-ink-soft mt-4 text-[14.5px] leading-relaxed">
-          There are no open times to move to right now. Please check again later.
+          {choosing
+            ? "There are no open times right now. Please check again later."
+            : "There are no open times to move to right now. Please check again later."}
         </p>
       ) : (
         <fieldset className="mt-5">
-          <legend className="text-ink text-[13.5px] font-medium">Choose a new time</legend>
+          <legend className="text-ink text-[13.5px] font-medium">
+            {choosing ? "Choose a time" : "Choose a new time"}
+          </legend>
           <div className="mt-2 max-h-[360px] space-y-4 overflow-y-auto pr-1">
             {view.days.map((day) => (
               <div key={day.label}>
@@ -137,12 +167,20 @@ export function RescheduleForm({
       ) : null}
       {view.days.length > 0 ? (
         <button type="button" onClick={confirm} disabled={pending} className={PRIMARY}>
-          {pending ? "Moving…" : "Reschedule my session"}
+          {choosing
+            ? pending
+              ? "Booking…"
+              : "Book this time"
+            : pending
+              ? "Moving…"
+              : "Reschedule my session"}
         </button>
       ) : null}
-      <p className="text-ink-muted mt-3 text-[12.5px] leading-normal">
-        You can move a booking once. After that, the new time is final.
-      </p>
+      {choosing ? null : (
+        <p className="text-ink-muted mt-3 text-[12.5px] leading-normal">
+          You can move a booking once. After that, the new time is final.
+        </p>
+      )}
       <WithdrawNote reference={view.reference} />
     </Card>
   );

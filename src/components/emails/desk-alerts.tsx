@@ -252,7 +252,9 @@ export async function renderCalendarEventChanged(
 /*
   Paid, with no session time: the held time was lost before the booking was
   confirmed (cancelled or deleted in Outlook), or the payment landed after the
-  hold expired. Until this alert, only a log line said so.
+  hold expired. Until this alert, only a log line said so. It carries the
+  customer's own link to choose a new time, for the desk to forward: a link
+  to the booking, still nothing about who the customer is.
 */
 function paidBookingReference(problem: PaidButUnscheduled): string {
   return problem.bookingId === null ? "unknown" : bookingReference(problem.bookingId);
@@ -266,6 +268,7 @@ export function paidBookingNeedsTimeSubject(problem: PaidButUnscheduled, reminde
 interface PaidBookingNeedsTimeEmailProps {
   readonly problem: PaidButUnscheduled;
   readonly reminder: boolean;
+  readonly chooseTimeUrl: string | null;
   readonly companyName: string;
   readonly supportEmail: string;
 }
@@ -273,6 +276,7 @@ interface PaidBookingNeedsTimeEmailProps {
 function PaidBookingNeedsTimeEmail({
   problem,
   reminder,
+  chooseTimeUrl,
   ...layout
 }: PaidBookingNeedsTimeEmailProps) {
   const session =
@@ -300,27 +304,61 @@ function PaidBookingNeedsTimeEmail({
           <strong>Payment id:</strong> {problem.paymentIntentId ?? "no payment on record"}
         </p>
       </div>
-      <p style={emailStyles.paragraph}>
-        To fix: find the customer in Stripe by the payment id, write to them from the
-        knowledgecentre@ inbox, apologise, and offer a new time or a full refund. Do not charge
-        again.
-      </p>
-      <p style={emailStyles.muted}>
-        This alert stops by itself once the payment is refunded in full in Stripe. A new time cannot
-        be set from the booking system yet, so until then it comes back once a day.
-      </p>
+      {chooseTimeUrl ? (
+        <>
+          <p style={emailStyles.paragraph}>
+            To fix: find the customer in Stripe by the payment id and write to them from the
+            knowledgecentre@ inbox. Apologise, and offer them a new time or a full refund. For a new
+            time, send them this link: they choose any open time themselves, free, and it does not
+            use up their one move. Any goodwill part refund comes after they have chosen: a
+            part-refunded booking cannot be given a time from the link. Do not charge again.
+          </p>
+          <p style={emailStyles.detail}>
+            <a href={chooseTimeUrl}>{chooseTimeUrl}</a>
+          </p>
+          <p style={emailStyles.muted}>
+            The link works for {CHOOSE_TIME_LINK_DAYS} days; each reminder carries a fresh one. This
+            alert stops by itself once the customer has chosen a time, or once the payment is
+            refunded in full in Stripe. Until then it comes back once a day.
+          </p>
+        </>
+      ) : (
+        <>
+          <p style={emailStyles.paragraph}>
+            To fix: find the customer in Stripe by the payment id, write to them from the
+            knowledgecentre@ inbox, apologise, and offer a full refund. Do not charge again.
+          </p>
+          <p style={emailStyles.muted}>
+            {problem.fullyPaid
+              ? "A new time cannot be offered from a link for this one. "
+              : "This order has been partly refunded, so a new time cannot be offered from a link. "}
+            This alert stops by itself once the payment is refunded in full in Stripe. Until then it
+            comes back once a day.
+          </p>
+        </>
+      )}
     </EmailLayout>
   );
 }
 
+/** How long the customer's choose-a-time link in a desk alert works. */
+export const CHOOSE_TIME_LINK_DAYS = 7;
+
+/**
+ * `chooseTimeUrl` is the customer's own link to pick a new time, made fresh
+ * for each send. Null when there is no booking to give a time to, the order
+ * is part-refunded (only a fully paid order confirms), or no secret is set.
+ */
 export async function renderPaidBookingNeedsTime(
   problem: PaidButUnscheduled,
   reminder: boolean,
+  chooseTimeUrl: string | null,
 ): Promise<RenderedEmail> {
   const element = (
     <PaidBookingNeedsTimeEmail
       problem={problem}
       reminder={reminder}
+      chooseTimeUrl={chooseTimeUrl}
       companyName={companyName()}
       supportEmail={supportEmail()}
     />
