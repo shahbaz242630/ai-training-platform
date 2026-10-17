@@ -11,6 +11,7 @@ import {
 import type { PaymentStatus } from "@/domain/booking/order";
 import { messagesOnConfirmation } from "@/domain/messaging/schedule";
 import {
+  EventNotFoundError,
   SchedulingError,
   SlotUnavailableError,
   type SchedulingProvider,
@@ -193,21 +194,44 @@ export async function confirmBookingOnCalendar(
     let eventId = booking.calendarEventId;
     if (eventId === null) {
       /*
-        Nothing was blocked at checkout - the calendar was unreachable then.
-        Block it now, then confirm. The booking id is the idempotency key, so
-        a repeat of this path cannot leave two events behind.
+        Nothing was blocked at checkout - the calendar was unreachable then -
+        or this is a new time chosen after the old one was lost. Block it now,
+        then confirm. The booking and its start are the idempotency key, so a
+        repeat of this path cannot leave two events behind, and a new time
+        never meets the key of the event that was lost.
       */
       const held = await provider.holdSlot({
         slot,
         subject,
         ...attendee,
-        holdReference: `booking:${booking.id}`,
+        holdReference: `booking:${booking.id}:${slot.start.getTime()}`,
       });
       eventId = held.externalId;
+      /*
+        The paid hold for this time learns its event, as a checkout hold does.
+        Whatever later releases the hold - a withdrawal, or the calendar
+        refusing the time below - the release sweep then deletes the event
+        too. Without it, a cancelled session stayed on the coach's calendar
+        with the customer's invite still live.
+      */
+      const created = eventId;
+      await transaction((runner) =>
+        runner.query(
+          `update slot_holds set calendar_event_id = $4
+            where order_id = $1 and status = 'converted' and slot_start = $2 and slot_end = $3
+              and calendar_event_id is null`,
+          [booking.orderId, slot.start, slot.end, created],
+        ),
+      );
     }
     event = await provider.confirmSlot(eventId, attendee);
   } catch (error) {
-    if (error instanceof SlotUnavailableError) {
+    /*
+      Cancelled, or deleted in Outlook: a deleted event goes to Deleted Items
+      and its id stops resolving, so it reads as not found. Either way the
+      held time is gone, and retrying can never bring it back.
+    */
+    if (error instanceof SlotUnavailableError || error instanceof EventNotFoundError) {
       await returnToWaiting(transaction, booking, now);
       return "slot_lost";
     }

@@ -9,6 +9,7 @@ import { RefundUnclearError } from "@/domain/payments/provider";
 import { MockSchedulingProvider } from "@/domain/scheduling/mock-provider";
 import { resetAuditSink, setAuditSink } from "@/lib/audit";
 import { resetLogSink, setLogSink, type LogRecord } from "@/lib/logger";
+import { readManageToken } from "@/lib/manage-link";
 
 /**
  * The sweep's refund step, from the outside: a withdrawal's refund is asked
@@ -23,7 +24,10 @@ let payments = new MockPaymentProvider();
 let db: PGlite;
 
 vi.mock("@/lib/env", () => ({
-  serverEnv: () => ({ CRON_SECRET: "sweep-secret-long-enough-for-the-minimum-length" }),
+  serverEnv: () => ({
+    CRON_SECRET: "sweep-secret-long-enough-for-the-minimum-length",
+    MANAGE_LINK_SECRET: "m".repeat(40),
+  }),
   clientEnv: { NEXT_PUBLIC_SITE_ENV: "development", NEXT_PUBLIC_SITE_URL: "http://localhost:3000" },
 }));
 
@@ -123,6 +127,12 @@ async function refundOwed(): Promise<{ refundId: string; orderId: string }> {
     [customer.rows[0]!.id, `pi_sweep_${n}`],
   );
   const orderId = order.rows[0]!.id;
+  // Withdrawn: its booking is cancelled, so it is not a paid booking waiting for a time.
+  await db.query(
+    `insert into bookings (order_id, session_slug, sequence, status, customer_timezone)
+     values ($1, 'ai-foundations', 1, 'cancelled', 'Europe/London')`,
+    [orderId],
+  );
   const refund = await db.query<{ id: string }>(
     `insert into refunds (order_id, origin, amount_fils, currency, status)
      values ($1, 'processor', 129900, 'AED', 'due') returning id`,
@@ -201,5 +211,59 @@ describe("the desk is told", () => {
     expect(result.status).toBe(200);
     expect(result.body.deskAlerts).toEqual({ error: "desk alerts could not be sent" });
     expect(result.body.retention).toBeDefined();
+  });
+
+  /*
+    Paid, with no session time (KC B8): before, only a log line every five
+    minutes. Now the desk hears once, and the alert closes by itself once
+    the payment is refunded.
+  */
+  it("by one email when a customer has paid and has no session time, closed once refunded", async () => {
+    n += 1;
+    const customer = await db.query<{ id: string }>(
+      `insert into customers (first_name, last_name, email, timezone)
+       values ('Amina', 'Khan', $1, 'Asia/Dubai') returning id`,
+      [`sweepwaiting${n}@example.com`],
+    );
+    const order = await db.query<{ id: string }>(
+      `insert into orders (customer_id, order_type, session_slug, gross_amount_fils, payment_status,
+                           stripe_payment_intent_id)
+       values ($1, 'single', 'ai-foundations', 129900, 'paid', 'pi_waiting') returning id`,
+      [customer.rows[0]!.id],
+    );
+    const orderId = order.rows[0]!.id;
+    const booking = await db.query<{ id: string }>(
+      `insert into bookings (order_id, session_slug, sequence, status, customer_timezone)
+       values ($1, 'ai-foundations', 1, 'awaiting_schedule', 'Asia/Dubai') returning id`,
+      [orderId],
+    );
+
+    const first = await run();
+    expect(first.body.paidButUnscheduled).toBe(1);
+    expect(first.body.paidBookingAlerts).toEqual({
+      raised: 1,
+      reminded: 0,
+      resolved: 0,
+      failed: 0,
+    });
+    expect(mail.current.sent.map((m) => m.to)).toEqual(["desk@example.com"]);
+    expect(mail.current.sent[0]?.subject).toMatch(/^Paid, no session time: booking /);
+    expect(mail.current.sent[0]?.text).toContain("pi_waiting");
+    expect(mail.current.sent[0]?.text).not.toMatch(/Amina|Khan|sweepwaiting/);
+    // The customer's own link to choose a new time, for the desk to forward.
+    const link = /http:\/\/localhost:3000\/training\/book\/manage\?t=(\S+)/.exec(
+      mail.current.sent[0]?.text ?? "",
+    );
+    expect(readManageToken(link?.[1] ?? "", new Date(), "m".repeat(40))).toBe(booking.rows[0]!.id);
+
+    const second = await run();
+    expect(second.body.paidBookingAlerts).toMatchObject({ raised: 0, resolved: 0 });
+    expect(mail.current.sent).toHaveLength(1);
+
+    await db.query(`update orders set payment_status = 'refunded' where id = $1`, [orderId]);
+    const third = await run();
+    expect(third.body.paidButUnscheduled).toBe(0);
+    expect(third.body.paidBookingAlerts).toMatchObject({ raised: 0, resolved: 1 });
+    expect(mail.current.sent).toHaveLength(1);
   });
 });

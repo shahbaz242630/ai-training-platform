@@ -9,15 +9,19 @@ import { confirmBookingOnCalendar, listBookingsAwaitingConfirmation } from "@/da
 import { listCalendarMovesDue, syncCalendarMove } from "@/data/reschedule";
 import { getSchedulingProvider } from "@/domain/scheduling/factory";
 import type { SchedulingProvider } from "@/domain/scheduling/provider";
-import { countPaidButUnscheduled } from "@/data/audit-events";
+import { listPaidButUnscheduled, type PaidButUnscheduled } from "@/data/audit-events";
 import {
   listRefundsNeedingAttention,
   refundWorkWaiting,
   type RefundNeedingAttention,
 } from "@/data/refund-queries";
 import { reconcileDeskAlerts, type DeskAlertReport } from "@/data/desk-alerts";
-import { renderRefundNeedsAttention } from "@/components/emails/desk-alerts";
-import { supportEmail } from "@/config/site";
+import {
+  CHOOSE_TIME_LINK_DAYS,
+  renderPaidBookingNeedsTime,
+  renderRefundNeedsAttention,
+} from "@/components/emails/desk-alerts";
+import { TRAINING_BASE, supportEmail } from "@/config/site";
 import { getEmailProvider } from "@/domain/messaging/factory";
 import { issueDueRefunds, refreshPendingRefunds } from "@/data/refund-issuer";
 import { getPaymentProvider } from "@/domain/payments/factory";
@@ -26,8 +30,10 @@ import { readAppliedSchemaVersion, schemaStatus } from "@/data/schema-version";
 import { recordAudit } from "@/lib/audit";
 import { watchCalendar } from "./calendar-watch-step";
 import { authoriseCronRequest } from "@/lib/cron-auth";
-import { serverEnv } from "@/lib/env";
+import { clientEnv, serverEnv } from "@/lib/env";
 import { logger } from "@/lib/logger";
+import { createManageToken } from "@/lib/manage-link";
+import { addDays } from "@/lib/time";
 
 /**
  * Release the slots nobody paid for.
@@ -93,7 +99,8 @@ export async function POST(request: Request): Promise<NextResponse> {
       knew. This job already runs every five minutes; asking the question here
       costs one indexed count and turns a missed line into a standing alarm.
     */
-    const paidButUnscheduled = await withTransaction((runner) => countPaidButUnscheduled(runner));
+    const waitingForTime = await withTransaction((runner) => listPaidButUnscheduled(runner));
+    const paidButUnscheduled = waitingForTime.length;
 
     if (paidButUnscheduled > 0) {
       logger.error(
@@ -183,6 +190,9 @@ export async function POST(request: Request): Promise<NextResponse> {
     */
     const deskAlerts = await deskAlertsOrReport(attention);
 
+    // The same for a customer who has paid and has no session time (KC B8).
+    const paidBookingAlerts = await paidBookingAlertsOrReport(waitingForTime);
+
     /*
       What the privacy notice says we stop keeping, deleted on schedule. Every
       step is keyed on time, so a run with nothing due changes nothing.
@@ -209,6 +219,7 @@ export async function POST(request: Request): Promise<NextResponse> {
       // Reported on every run, so the number is visible to whatever calls this
       // rather than only in a log somebody has to go looking for.
       paidButUnscheduled,
+      paidBookingAlerts,
       schema,
     });
   } catch (error) {
@@ -391,9 +402,52 @@ async function deskAlertsOrReport(
   } catch (error) {
     logger.error("desk alerts could not be sent; they will be tried again next run", {
       error: (error as Error).name,
+      // A database error's name is just "error"; its code (e.g. 23514) says which.
+      code: (error as { code?: unknown }).code ?? null,
     });
     return { error: "desk alerts could not be sent" };
   }
+}
+
+/** The paid-but-no-time alerts, in their own failure for the same reason. Keyed by order. */
+async function paidBookingAlertsOrReport(
+  waiting: readonly PaidButUnscheduled[],
+): Promise<DeskAlertReport | { error: string }> {
+  try {
+    return await reconcileDeskAlerts(
+      "paid_booking_needs_time",
+      waiting.map((problem) => ({
+        subjectKey: `order:${problem.orderId}`,
+        render: (reminder) =>
+          renderPaidBookingNeedsTime(problem, reminder, chooseTimeUrlFor(problem, new Date())),
+      })),
+      { email: getEmailProvider, transaction: withTransaction, clock: () => new Date() },
+      supportEmail(),
+    );
+  } catch (error) {
+    logger.error("paid-booking desk alerts could not be sent; they will be tried again next run", {
+      error: (error as Error).name,
+      code: (error as { code?: unknown }).code ?? null,
+    });
+    return { error: "desk alerts could not be sent" };
+  }
+}
+
+/**
+ * The customer's link to choose a new time, for the desk to forward: the
+ * Manage my booking page, which offers a paid booking that lost its time any
+ * open time. Made fresh for every send. Null when there is no booking to give
+ * a time to, the order is part-refunded (only a fully paid order confirms),
+ * or no signing secret is set.
+ */
+function chooseTimeUrlFor(problem: PaidButUnscheduled, now: Date): string | null {
+  const secret = serverEnv().MANAGE_LINK_SECRET;
+  if (!secret || problem.bookingId === null || !problem.fullyPaid) return null;
+  const token = createManageToken(
+    { bookingId: problem.bookingId, expiresAt: addDays(now, CHOOSE_TIME_LINK_DAYS) },
+    secret,
+  );
+  return `${clientEnv.NEXT_PUBLIC_SITE_URL}${TRAINING_BASE}/book/manage?t=${token}`;
 }
 
 /**

@@ -436,6 +436,27 @@ describe("releaseSlot, cancelEvent and getEvent", () => {
     expect(fields).not.toContain("bodyPreview");
   });
 
+  /*
+    Only Graph's "item not found" means the event is gone (deleted in
+    Outlook: proven live, s97 spike S1). A 404 for a wrong or removed mailbox
+    is our misconfiguration: read as "gone", it would release paid bookings'
+    times and report sessions missing, so it stays an error to retry.
+  */
+  it("treats a 404 that is not a missing item as an error, never as a gone event", async () => {
+    for (const code of ["ErrorInvalidUser", "ResourceNotFound", "MailboxNotEnabledForRESTAPI"]) {
+      const noMailbox = { status: 404, body: { error: { code, message: "x" } } };
+      const { graph } = provider([noMailbox, noMailbox, noMailbox, noMailbox, noMailbox]);
+      const notGone = (p: Promise<unknown>) =>
+        expect(p).rejects.not.toBeInstanceOf(EventNotFoundError);
+
+      await notGone(graph.confirmSlot("evt_1", ATTENDEE));
+      await expect(graph.getEvent("evt_1")).rejects.toThrow();
+      await expect(graph.releaseSlot("evt_1")).rejects.toThrow();
+      await notGone(graph.cancelEvent("evt_1"));
+      await notGone(graph.moveEvent("evt_1", SATURDAY_10));
+    }
+  });
+
   it("lets a list read failure through rather than answer with no events", async () => {
     const { graph } = provider([
       { status: 404, body: { error: { code: "ErrorInvalidUser", message: "no mailbox" } } },

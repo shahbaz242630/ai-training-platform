@@ -1,5 +1,7 @@
 import { render } from "@react-email/render";
 import { companyName, supportEmail } from "@/config/site";
+import { getSessionBySlug } from "@/config/sessions";
+import type { PaidButUnscheduled } from "@/data/audit-events";
 import type { CalendarProblem } from "@/data/calendar-watch";
 import type { RefundNeedingAttention } from "@/data/refund-queries";
 import { bookingReference } from "@/domain/booking/withdrawal";
@@ -242,6 +244,127 @@ export async function renderCalendarEventChanged(
   );
   return {
     subject: calendarEventChangedSubject(problem, reminder),
+    html: await render(element),
+    text: await render(element, { plainText: true }),
+  };
+}
+
+/*
+  Paid, with no session time: the held time was lost before the booking was
+  confirmed (cancelled or deleted in Outlook), or the payment landed after the
+  hold expired. Until this alert, only a log line said so. It carries the
+  customer's own link to choose a new time, for the desk to forward: a link
+  to the booking, still nothing about who the customer is.
+*/
+function paidBookingReference(problem: PaidButUnscheduled): string {
+  return problem.bookingId === null ? "unknown" : bookingReference(problem.bookingId);
+}
+
+export function paidBookingNeedsTimeSubject(problem: PaidButUnscheduled, reminder: boolean) {
+  const base = `Paid, no session time: booking ${paidBookingReference(problem)}, ${formatAed(problem.amountFils)}`;
+  return reminder ? `Reminder: ${base}` : base;
+}
+
+interface PaidBookingNeedsTimeEmailProps {
+  readonly problem: PaidButUnscheduled;
+  readonly reminder: boolean;
+  readonly chooseTimeUrl: string | null;
+  readonly companyName: string;
+  readonly supportEmail: string;
+}
+
+function PaidBookingNeedsTimeEmail({
+  problem,
+  reminder,
+  chooseTimeUrl,
+  ...layout
+}: PaidBookingNeedsTimeEmailProps) {
+  const session =
+    (problem.sessionSlug === null ? undefined : getSessionBySlug(problem.sessionSlug))?.title ??
+    "a session";
+  const what =
+    `A customer has paid for ${session}, but the booking has no time on the calendar: the held ` +
+    "time was lost before the booking was confirmed, or the payment arrived after the hold had " +
+    "expired. The customer has not had a confirmation and has not been told.";
+  const heading = "A customer has paid and has no session time";
+  return (
+    <EmailLayout preview={what} {...layout}>
+      <h1 style={emailStyles.heading}>
+        {reminder ? `Still needs you: ${heading.toLowerCase()}` : heading}
+      </h1>
+      <p style={emailStyles.paragraph}>{what}</p>
+      <div style={{ margin: "0 0 20px" }}>
+        <p style={emailStyles.detail}>
+          <strong>Booking reference:</strong> {paidBookingReference(problem)}
+        </p>
+        <p style={emailStyles.detail}>
+          <strong>Amount:</strong> {formatAed(problem.amountFils)}
+        </p>
+        <p style={emailStyles.detail}>
+          <strong>Payment id:</strong> {problem.paymentIntentId ?? "no payment on record"}
+        </p>
+      </div>
+      {chooseTimeUrl ? (
+        <>
+          <p style={emailStyles.paragraph}>
+            To fix: find the customer in Stripe by the payment id and write to them from the
+            knowledgecentre@ inbox. Apologise, and offer them a new time or a full refund. For a new
+            time, send them this link: they choose any open time themselves, free, and it does not
+            use up their one move. Any goodwill part refund comes after they have chosen: a
+            part-refunded booking cannot be given a time from the link. Do not charge again.
+          </p>
+          <p style={emailStyles.detail}>
+            <a href={chooseTimeUrl}>{chooseTimeUrl}</a>
+          </p>
+          <p style={emailStyles.muted}>
+            The link works for {CHOOSE_TIME_LINK_DAYS} days; each reminder carries a fresh one. This
+            alert stops by itself once the customer has chosen a time, or once the payment is
+            refunded in full in Stripe. Until then it comes back once a day.
+          </p>
+        </>
+      ) : (
+        <>
+          <p style={emailStyles.paragraph}>
+            To fix: find the customer in Stripe by the payment id, write to them from the
+            knowledgecentre@ inbox, apologise, and offer a full refund. Do not charge again.
+          </p>
+          <p style={emailStyles.muted}>
+            {problem.fullyPaid
+              ? "A new time cannot be offered from a link for this one. "
+              : "This order has been partly refunded, so a new time cannot be offered from a link. "}
+            This alert stops by itself once the payment is refunded in full in Stripe. Until then it
+            comes back once a day.
+          </p>
+        </>
+      )}
+    </EmailLayout>
+  );
+}
+
+/** How long the customer's choose-a-time link in a desk alert works. */
+export const CHOOSE_TIME_LINK_DAYS = 7;
+
+/**
+ * `chooseTimeUrl` is the customer's own link to pick a new time, made fresh
+ * for each send. Null when there is no booking to give a time to, the order
+ * is part-refunded (only a fully paid order confirms), or no secret is set.
+ */
+export async function renderPaidBookingNeedsTime(
+  problem: PaidButUnscheduled,
+  reminder: boolean,
+  chooseTimeUrl: string | null,
+): Promise<RenderedEmail> {
+  const element = (
+    <PaidBookingNeedsTimeEmail
+      problem={problem}
+      reminder={reminder}
+      chooseTimeUrl={chooseTimeUrl}
+      companyName={companyName()}
+      supportEmail={supportEmail()}
+    />
+  );
+  return {
+    subject: paidBookingNeedsTimeSubject(problem, reminder),
     html: await render(element),
     text: await render(element, { plainText: true }),
   };

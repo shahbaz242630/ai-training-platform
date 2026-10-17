@@ -27,6 +27,7 @@ export type AuditAction =
   | "booking.cancelled"
   | "booking.completed"
   | "booking.no_show"
+  | "booking.time_chosen_after_loss"
   | "webhook.received"
   | "webhook.duplicate_ignored"
   | "webhook.signature_rejected"

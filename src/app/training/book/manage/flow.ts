@@ -1,6 +1,9 @@
 import { z } from "zod";
 import { contactLine } from "@/components/ui/ContactLink";
 import { getSessionBySlug } from "@/config/sessions";
+import { BOOKING_POLICY } from "@/config/site";
+import { scheduleWaitingBooking } from "@/data/choose-time";
+import { confirmBookingOnCalendar } from "@/data/confirmation";
 import type { QueryRunner } from "@/data/db";
 import {
   isMoveCollision,
@@ -24,7 +27,7 @@ import {
 } from "@/domain/scheduling/slot-presentation";
 import { logger } from "@/lib/logger";
 import { readManageToken } from "@/lib/manage-link";
-import { addMinutes } from "@/lib/time";
+import { addDays, addMinutes } from "@/lib/time";
 
 /** Shared with the sweep, so one search finds every instance. */
 export const MISSING_EVENT_ALARM =
@@ -66,6 +69,11 @@ export interface ManageView {
   readonly sessionTitle: string;
   /** e.g. "Thursday, 10 September 2026 at 19:00 (Asia/Dubai)". */
   readonly sessionTime: string;
+  /**
+   * "move": a confirmed session, moved under the policy. "choose": a paid
+   * booking whose time was lost on our side, given a new one (never a move).
+   */
+  readonly mode: "move" | "choose";
   /** Present when the booking can be moved: the times it can move to, by day. */
   readonly days: readonly PresentedDay[] | null;
   /** Present when it cannot: why, in words for the customer. */
@@ -103,6 +111,20 @@ export async function loadManageView(
   // A link to a booking that no longer exists reads like any other dead link: ask for a new one.
   if (!booking) return { ok: false, message: LINK_MESSAGE() };
   const session = getSessionBySlug(booking.sessionSlug);
+  if (session && booking.status === "awaiting_schedule" && booking.orderPaid) {
+    const slots = await choosableSlots(session.durationMinutes, deps);
+    return {
+      ok: true,
+      view: {
+        reference: bookingReference(bookingId),
+        sessionTitle: session.title,
+        sessionTime: NO_TIME_YET,
+        mode: "choose",
+        days: presentSlots(slots, booking.customerTimezone),
+        notMovable: null,
+      },
+    };
+  }
   if (!session || !booking.scheduledStart) {
     return { ok: false, message: REFUSALS.not_movable() };
   }
@@ -111,6 +133,7 @@ export async function loadManageView(
     reference: bookingReference(bookingId),
     sessionTitle: session.title,
     sessionTime: describeInstant(booking.scheduledStart, booking.customerTimezone),
+    mode: "move" as const,
   };
 
   // Asked with a placeholder time: everything but the new slot is known now.
@@ -208,6 +231,102 @@ export async function confirmMove(
   }
 
   return { ok: true, newTime: describeInstant(outcome.start, booking.customerTimezone) };
+}
+
+export const NO_TIME_YET = "Not chosen yet";
+
+const ALREADY_SET = () =>
+  `This booking already has its new time, and we have emailed you the details. If something has gone wrong, please ${contactLine()}.`;
+
+/**
+ * A new time for a paid booking whose own was lost on our side (KC B8): the
+ * link the desk sends opens the same page, and the customer picks any open
+ * time. Decided again on the server, as a move is. It is not a move, so the
+ * customer's one free move is still theirs afterwards.
+ *
+ * The booking is scheduled in one transaction, then confirmed on the calendar
+ * the way every booking is: event, meeting link, confirmation email,
+ * reminders. If the calendar is unreachable the sweep confirms it later; if
+ * the calendar refuses the time, the booking goes back to waiting and the
+ * customer is asked to choose another.
+ */
+export async function confirmNewTime(
+  input: unknown,
+  deps: ManageDeps & { readonly calendar: SchedulingProvider },
+): Promise<FlowResult<{ readonly newTime: string }>> {
+  const parsed = moveFormSchema.safeParse(input);
+  if (!parsed.success) return { ok: false, message: TIME_GONE };
+
+  const bookingId = readManageToken(parsed.data.token, deps.now, deps.secret);
+  if (bookingId === null) return { ok: false, message: LINK_MESSAGE() };
+
+  const booking = await deps.transaction((runner) => loadBookingForManage(runner, bookingId));
+  const session = booking ? getSessionBySlug(booking.sessionSlug) : undefined;
+  if (!booking || !session || !booking.orderPaid) {
+    return { ok: false, message: REFUSALS.not_movable() };
+  }
+  if (booking.status === "scheduled" || booking.status === "confirmed") {
+    return { ok: false, message: ALREADY_SET() };
+  }
+  if (booking.status !== "awaiting_schedule") return { ok: false, message: REFUSALS.not_movable() };
+
+  const start = new Date(parsed.data.slotStart);
+  const offered = await choosableSlots(session.durationMinutes, deps);
+  if (!offered.some((slot) => slot.start.getTime() === start.getTime())) {
+    return { ok: false, message: TIME_GONE };
+  }
+
+  const attempt = () =>
+    deps.transaction((runner) =>
+      scheduleWaitingBooking(runner, {
+        bookingId,
+        newSlot: { start, end: addMinutes(start, session.durationMinutes) },
+        now: deps.now,
+      }),
+    );
+  let outcome;
+  try {
+    // A deadlock or serialization failure is "try once more", as for a move.
+    outcome = await attempt().catch((error: unknown) => {
+      if (isRetryableContention(error)) return attempt();
+      throw error;
+    });
+  } catch (error) {
+    if (isMoveCollision(error) || isRetryableContention(error)) {
+      return { ok: false, message: TAKEN };
+    }
+    throw error;
+  }
+  if (outcome.kind === "refused") {
+    return {
+      ok: false,
+      message: outcome.reason === "not_waiting" ? ALREADY_SET() : REFUSALS.not_movable(),
+    };
+  }
+
+  try {
+    const confirmed = await confirmBookingOnCalendar({
+      bookingId,
+      provider: deps.calendar,
+      now: deps.now,
+      transaction: deps.transaction,
+    });
+    // Back to waiting, its hold released: the page offers times again.
+    if (confirmed === "slot_lost") return { ok: false, message: TAKEN };
+  } catch (error) {
+    // Scheduled and paid: the next sweep confirms it on the calendar.
+    logger.warn("a newly chosen time will be confirmed on the calendar by the next sweep", {
+      bookingId,
+      error: (error as Error).name,
+    });
+  }
+
+  return { ok: true, newTime: describeInstant(outcome.start, booking.customerTimezone) };
+}
+
+/** Any open time from now to the end of the move window: the customer lost theirs through us. */
+function choosableSlots(durationMinutes: number, deps: ManageDeps): Promise<readonly TimeSlot[]> {
+  return deps.offered(durationMinutes, deps.now, addDays(deps.now, BOOKING_POLICY.moveWindowDays));
 }
 
 /** Open times inside the move window, other than the one the booking already has. */

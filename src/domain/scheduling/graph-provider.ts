@@ -70,6 +70,17 @@ const VIEW_FIELDS = "id,start,end,showAs,isCancelled";
  * keep resolving from Deleted Items and silently hide every deletion.
  */
 const PREFER_UTC = { Prefer: 'outlook.timezone="UTC"' };
+
+/**
+ * The event itself is gone: Graph's "item not found" (an event deleted in
+ * Outlook answers exactly this, spike S1). Any other 404 - a wrong or
+ * removed mailbox, a tenant change - is our misconfiguration, and read as
+ * "gone" it would release paid bookings' times and report sessions missing,
+ * so it stays an error the caller retries (KC B8 review).
+ */
+function isItemGone(error: unknown): boolean {
+  return error instanceof GraphNotFoundError && error.code === "ErrorItemNotFound";
+}
 /** What counts as taken. `free` is a calendar entry that deliberately does not block. */
 const BLOCKING = new Set(["busy", "tentative", "oof", "workingElsewhere"]);
 /** Teams provisions the join link a moment after the event is switched to an online meeting. */
@@ -188,7 +199,7 @@ export class GraphSchedulingProvider implements SchedulingProvider {
     } catch (error) {
       // Already gone is the state we wanted. Cleanup that throws on a clean
       // state blocks the sweep behind it.
-      if (error instanceof GraphNotFoundError) return;
+      if (isItemGone(error)) return;
       throw error;
     }
   }
@@ -199,7 +210,7 @@ export class GraphSchedulingProvider implements SchedulingProvider {
       // The customer hears from the booking desk instead.
       await this.client.request({ method: "DELETE", path: this.eventPath(externalId) });
     } catch (error) {
-      if (error instanceof GraphNotFoundError) throw new EventNotFoundError(externalId);
+      if (isItemGone(error)) throw new EventNotFoundError(externalId);
       throw error;
     }
   }
@@ -214,7 +225,7 @@ export class GraphSchedulingProvider implements SchedulingProvider {
         body: { start: graphTime(slot.start), end: graphTime(slot.end) },
       });
     } catch (error) {
-      if (error instanceof GraphNotFoundError) throw new EventNotFoundError(externalId);
+      if (isItemGone(error)) throw new EventNotFoundError(externalId);
       throw error;
     }
   }
@@ -264,7 +275,7 @@ export class GraphSchedulingProvider implements SchedulingProvider {
       });
       return required(response.body, "read event");
     } catch (error) {
-      if (error instanceof GraphNotFoundError) return null;
+      if (isItemGone(error)) return null;
       throw error;
     }
   }

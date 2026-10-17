@@ -12,11 +12,13 @@ import { logger } from "@/lib/logger";
  * failed is tried again next run: the desk may, rarely, hear twice, and is
  * never left not hearing at all.
  *
- * Kind-generic on purpose: the refund alarm, and a booked session's calendar
- * event deleted or moved by hand (the Outlook watch).
+ * Kind-generic on purpose: the refund alarm, a booked session's calendar
+ * event deleted or moved by hand (the Outlook watch), and a paid booking with
+ * no session time.
  */
 
-export type DeskAlertKind = "refund_needs_attention" | "calendar_event_changed";
+export type DeskAlertKind =
+  "refund_needs_attention" | "calendar_event_changed" | "paid_booking_needs_time";
 
 /** At most this many emails a run, failed tries included, so an outage cannot become a flood. */
 export const MAX_ALERT_SENDS_PER_RUN = 10;
