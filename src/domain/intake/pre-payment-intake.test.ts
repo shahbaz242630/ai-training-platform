@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   isPlausiblePhone,
+  isSafeName,
   isValidTimeZone,
   parsePrePaymentIntake,
   type PrePaymentIntakeResult,
@@ -246,5 +247,64 @@ describe("marketing consent", () => {
     expect(fieldsIn(parsePrePaymentIntake({ ...valid, marketingConsent: "false" }))).toContain(
       "marketingConsent",
     );
+  });
+});
+
+/*
+  Names are printed in the greeting of emails sent from the booking desk, so a
+  name must not carry a link, markup or invisible tricks: a "first name" of
+  "Visit www.pay-here.example" or a right-to-left override would put a
+  stranger's words in our voice (security audit, 2026-10-17). Real names in any
+  script, with apostrophes, hyphens, dots and the joiners some scripts need,
+  must still pass.
+*/
+describe("isSafeName", () => {
+  it("accepts real names in many scripts", () => {
+    for (const name of [
+      "Amina",
+      "O'Brien",
+      "Jean-Luc",
+      "J. R.",
+      "محمد",
+      "José María",
+      "Zoë",
+      "张伟",
+      "می‌خواهم", // Persian: the zero-width non-joiner is part of the spelling
+      "क्‍ष", // Devanagari: the zero-width joiner shapes the letters
+    ]) {
+      expect(isSafeName(name), name).toBe(true);
+    }
+  });
+
+  it("refuses links, addresses and markup", () => {
+    for (const name of [
+      "https://pay-here.example",
+      "Visit www.pay-here.example",
+      "me@example.com",
+      "<b>Amina</b>",
+      "Amina >",
+    ]) {
+      expect(isSafeName(name), name).toBe(false);
+    }
+  });
+
+  it("refuses invisible control and direction characters", () => {
+    for (const name of [
+      "Amina\u0000",
+      "Amina\nKhan",
+      "Amina‮moc.live", // right-to-left override
+      "Amina⁦x⁩", // isolates
+      "Ami​na", // zero-width space
+      "﻿Amina", // byte order mark
+    ]) {
+      expect(isSafeName(name), JSON.stringify(name)).toBe(false);
+    }
+  });
+
+  it("is what the booking form uses, for both names", () => {
+    const first = parsePrePaymentIntake({ ...valid, firstName: "Visit www.pay-here.example" });
+    const last = parsePrePaymentIntake({ ...valid, lastName: "Khan‮" });
+    expect(errorsFor(first).map((e) => e.field)).toContain("firstName");
+    expect(errorsFor(last).map((e) => e.field)).toContain("lastName");
   });
 });

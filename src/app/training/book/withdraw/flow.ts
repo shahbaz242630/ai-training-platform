@@ -14,6 +14,7 @@ import {
   withdrawalStatement,
   type WithdrawalRefusal,
 } from "@/domain/booking/withdrawal";
+import { isSafeName } from "@/domain/intake/pre-payment-intake";
 import { describeInstant, presentSlots } from "@/domain/scheduling/slot-presentation";
 import { formatAed } from "@/lib/money";
 
@@ -31,7 +32,13 @@ const MAX_NAME = 200;
 
 export const withdrawalFormSchema = z
   .object({
-    fullName: z.string().trim().min(1, "Please enter your name.").max(MAX_NAME),
+    fullName: z
+      .string()
+      .trim()
+      .min(1, "Please enter your name.")
+      .max(MAX_NAME)
+      // Printed in the acknowledgement email: the booking form's rule.
+      .refine(isSafeName, "Please enter just your name, without links or symbols."),
     email: z.string().trim().max(320).email("Please enter the email address you booked with."),
     reference: z.string().max(40),
     consumer: z.literal(true, {

@@ -60,12 +60,33 @@ export function isPlausiblePhone(value: string): boolean {
   return digits.length >= MIN_PHONE_DIGITS;
 }
 
+/*
+  Control characters, the bidirectional overrides and isolates, the zero-width
+  space and the byte order mark. NOT the zero-width joiner and non-joiner
+  (U+200C, U+200D): Persian, Indic and other scripts need them to spell names.
+*/
+const INVISIBLE = /[\p{Cc}​‪-‮⁦-⁩﻿]/u;
+const LINK_OR_MARKUP = /<|>|:\/\/|www\.|@/i;
+
+/**
+ * A name is printed in the greeting of emails sent from the booking desk, so
+ * it must not carry a link, an address, markup or invisible tricks: those
+ * would put a stranger's words in our voice (security audit, 2026-10-17).
+ * Everything a real name uses in any script still passes.
+ */
+export function isSafeName(value: string): boolean {
+  return !INVISIBLE.test(value) && !LINK_OR_MARKUP.test(value);
+}
+
+const NAME_REFUSED = "Please enter just your name, without links or symbols.";
+
 const nameField = (label: string) =>
   z
     .string({ error: `Please enter your ${label}.` })
     .trim()
     .min(1, `Please enter your ${label}.`)
-    .max(MAX_NAME, `Please keep your ${label} under ${MAX_NAME} characters.`);
+    .max(MAX_NAME, `Please keep your ${label} under ${MAX_NAME} characters.`)
+    .refine(isSafeName, NAME_REFUSED);
 
 /**
  * `strictObject` matters here, and not only for tidiness: it rejects any key
