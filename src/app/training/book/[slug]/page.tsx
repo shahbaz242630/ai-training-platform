@@ -70,9 +70,11 @@ export default async function BookSessionPage({ params }: PageProps<"/training/b
             The session on the left, the booking box on the right. On a narrow
             screen they stack, with the details first: somebody still deciding
             whether they want the session should not have to scroll past a
-            calendar to read what it is.
+            calendar to read what it is. The stacked column is minmax(0,1fr) so
+            it can shrink below its content: a long email in the booking box
+            must be cut off, not widen the page (KC D4).
           */}
-          <div className="grid gap-10 lg:grid-cols-[minmax(0,1fr)_420px] lg:gap-16">
+          <div className="grid grid-cols-[minmax(0,1fr)] gap-10 lg:grid-cols-[minmax(0,1fr)_420px] lg:gap-16">
             <div className="flex flex-col">
               <p className="text-accent mb-[18px] font-mono text-[13px]">
                 Session {session.code.slice(1)}
