@@ -102,8 +102,9 @@ export interface HoldSlotInput {
   readonly orderId?: string | null;
   readonly calendarEventId?: string | null;
   /**
-   * Whose hold this is. With an owner, taking a hold first releases that
-   * person's earlier live holds, so one person holds one time at a time.
+   * Whose hold this is. With an owner, taking a hold first releases the
+   * earlier live holds this browser took for this person, so one person holds
+   * one time at a time.
    */
   readonly owner?: HoldOwner;
   /** How many live holds a connection, and the whole diary, may have. Needs an owner. */
@@ -112,6 +113,12 @@ export interface HoldSlotInput {
 
 export interface HoldOwner {
   readonly customerId: string;
+  /**
+   * The random key in the browser's booking cookie. The customer is matched
+   * on a typed email, which proves nothing, so a hold is given back only by
+   * the browser that took it (security audit, 2026-10-17).
+   */
+  readonly ownerKey: string;
   /** The caller's address as the rate limits read it; null when it could not be read. */
   readonly clientAddress: string | null;
 }
@@ -192,12 +199,16 @@ async function insertHold(
       back to the same time) is never blocked by their own hold. Only `held`:
       a converted hold is a session somebody paid for. If the insert below
       then loses its race, this rolls back with it and they keep their time.
+
+      Only holds this BROWSER took (the owner key), not every hold of the
+      customer: the customer is whoever typed the email, so matching on it
+      alone let a stranger release the hold behind somebody else's checkout.
     */
     const freed = await runner.query<{ id: string; order_id: string | null }>(
       `update slot_holds set status = 'released'
-        where customer_id = $1 and status = 'held'
+        where customer_id = $1 and owner_key = $2 and status = 'held'
         returning id, order_id`,
-      [input.owner.customerId],
+      [input.owner.customerId, input.owner.ownerKey],
     );
     released = freed.rows.map((row) => ({ id: row.id, orderId: row.order_id }));
 
@@ -218,8 +229,9 @@ async function insertHold(
 
   const result = await runner.query<{ id: string; expires_at: Date }>(
     `insert into slot_holds
-       (slot_start, slot_end, expires_at, order_id, calendar_event_id, customer_id, client_address)
-     values ($1, $2, $3, $4, $5, $6, $7)
+       (slot_start, slot_end, expires_at, order_id, calendar_event_id, customer_id, owner_key,
+        client_address)
+     values ($1, $2, $3, $4, $5, $6, $7, $8)
      returning id, expires_at`,
     [
       input.slotStart,
@@ -228,6 +240,7 @@ async function insertHold(
       input.orderId ?? null,
       input.calendarEventId ?? null,
       input.owner?.customerId ?? null,
+      input.owner?.ownerKey ?? null,
       input.owner?.clientAddress ?? null,
     ],
   );

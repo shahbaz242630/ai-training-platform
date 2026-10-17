@@ -1,26 +1,41 @@
 import { afterEach, describe, it, expect, vi } from "vitest";
-import { decodeLeadSession, encodeLeadSession } from "./lead-session";
+import { decodeLeadSession, encodeLeadSession, newOwnerKey } from "./lead-session";
 
 /**
  * The cookie that carries who the browser said it was.
  *
- * Parsing is strict on purpose: anything that is not exactly two UUIDs is
+ * Parsing is strict on purpose: anything that is not exactly three UUIDs is
  * discarded rather than passed along to become a database lookup on
  * attacker-chosen text.
  */
 
 const CUSTOMER = "11111111-2222-4333-8444-555555555555";
 const INTAKE = "66666666-7777-4888-8999-aaaaaaaaaaaa";
+const OWNER = "bbbbbbbb-cccc-4ddd-8eee-ffffffffffff";
+const SESSION = { customerId: CUSTOMER, intakeId: INTAKE, ownerKey: OWNER };
 
 describe("lead session encoding", () => {
-  it("round-trips a real pair", () => {
-    const encoded = encodeLeadSession({ customerId: CUSTOMER, intakeId: INTAKE });
-    expect(decodeLeadSession(encoded)).toEqual({ customerId: CUSTOMER, intakeId: INTAKE });
+  it("round-trips a real session", () => {
+    expect(decodeLeadSession(encodeLeadSession(SESSION))).toEqual(SESSION);
   });
 
-  it("carries nothing but the two ids", () => {
-    const encoded = encodeLeadSession({ customerId: CUSTOMER, intakeId: INTAKE });
-    expect(encoded).toBe(`${CUSTOMER}.${INTAKE}`);
+  it("carries nothing but the three ids", () => {
+    expect(encodeLeadSession(SESSION)).toBe(`${CUSTOMER}.${INTAKE}.${OWNER}`);
+  });
+});
+
+/*
+  The owner key is what lets a new checkout give back this browser's earlier
+  hold. It must be random and unguessable: an email address is not proof of
+  who someone is, so a stranger who knows a customer's email must not be able
+  to release that customer's hold (security audit, 2026-10-17).
+*/
+describe("newOwnerKey", () => {
+  it("is a lower-case v4 UUID, different every time", () => {
+    const a = newOwnerKey();
+    const b = newOwnerKey();
+    expect(a).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+    expect(a).not.toBe(b);
   });
 });
 
@@ -30,9 +45,12 @@ describe("decodeLeadSession", () => {
     expect(decodeLeadSession("")).toBeNull();
   });
 
-  it("refuses anything that is not two parts", () => {
+  it("refuses anything that is not three parts", () => {
     expect(decodeLeadSession(CUSTOMER)).toBeNull();
-    expect(decodeLeadSession(`${CUSTOMER}.${INTAKE}.${INTAKE}`)).toBeNull();
+    // The format before the owner key: refused, so the visitor simply enters
+    // their details again and gets a key.
+    expect(decodeLeadSession(`${CUSTOMER}.${INTAKE}`)).toBeNull();
+    expect(decodeLeadSession(`${CUSTOMER}.${INTAKE}.${OWNER}.${OWNER}`)).toBeNull();
   });
 
   /*
@@ -41,10 +59,11 @@ describe("decodeLeadSession", () => {
     stranger chose should not become a lookup key in the first place.
   */
   it("refuses values that are not UUIDs", () => {
-    expect(decodeLeadSession("not-a-uuid.also-not")).toBeNull();
-    expect(decodeLeadSession(`${CUSTOMER}.wrong`)).toBeNull();
-    expect(decodeLeadSession(`wrong.${INTAKE}`)).toBeNull();
-    expect(decodeLeadSession("1' or '1'='1.2")).toBeNull();
+    expect(decodeLeadSession("not-a-uuid.also-not.nor-this")).toBeNull();
+    expect(decodeLeadSession(`${CUSTOMER}.wrong.${OWNER}`)).toBeNull();
+    expect(decodeLeadSession(`wrong.${INTAKE}.${OWNER}`)).toBeNull();
+    expect(decodeLeadSession(`${CUSTOMER}.${INTAKE}.wrong`)).toBeNull();
+    expect(decodeLeadSession("1' or '1'='1.2.3")).toBeNull();
   });
 
   /*
@@ -55,12 +74,13 @@ describe("decodeLeadSession", () => {
   */
   it("refuses a UUID in the wrong case", () => {
     expect(INTAKE.toUpperCase()).not.toBe(INTAKE);
-    expect(decodeLeadSession(`${CUSTOMER}.${INTAKE.toUpperCase()}`)).toBeNull();
+    expect(decodeLeadSession(`${CUSTOMER}.${INTAKE.toUpperCase()}.${OWNER}`)).toBeNull();
+    expect(decodeLeadSession(`${CUSTOMER}.${INTAKE}.${OWNER.toUpperCase()}`)).toBeNull();
   });
 
-  it("refuses a pair with whitespace around it", () => {
-    expect(decodeLeadSession(` ${CUSTOMER}.${INTAKE}`)).toBeNull();
-    expect(decodeLeadSession(`${CUSTOMER}.${INTAKE} `)).toBeNull();
+  it("refuses a session with whitespace around it", () => {
+    expect(decodeLeadSession(` ${CUSTOMER}.${INTAKE}.${OWNER}`)).toBeNull();
+    expect(decodeLeadSession(`${CUSTOMER}.${INTAKE}.${OWNER} `)).toBeNull();
   });
 });
 
@@ -101,7 +121,7 @@ describe("the lead cookie", () => {
   */
   it("writes an httpOnly, lax, path-wide cookie", async () => {
     const { mod, calls } = await setup();
-    await mod.writeLeadSession({ customerId: CUSTOMER, intakeId: INTAKE }, true);
+    await mod.writeLeadSession(SESSION, true);
 
     expect(calls).toHaveLength(1);
     expect(calls[0]?.options).toMatchObject({
@@ -116,14 +136,14 @@ describe("the lead cookie", () => {
   // development is the one place it is off - and only there.
   it("drops the secure flag only outside production", async () => {
     const { mod, calls } = await setup();
-    await mod.writeLeadSession({ customerId: CUSTOMER, intakeId: INTAKE }, false);
+    await mod.writeLeadSession(SESSION, false);
 
     expect(calls[0]?.options.secure).toBe(false);
   });
 
   it("expires rather than lasting forever", async () => {
     const { mod, calls } = await setup();
-    await mod.writeLeadSession({ customerId: CUSTOMER, intakeId: INTAKE }, true);
+    await mod.writeLeadSession(SESSION, true);
 
     const maxAge = calls[0]?.options.maxAge;
     expect(typeof maxAge).toBe("number");
@@ -134,8 +154,8 @@ describe("the lead cookie", () => {
   });
 
   it("reads back a cookie it wrote", async () => {
-    const { mod } = await setup(`${CUSTOMER}.${INTAKE}`);
-    expect(await mod.readLeadSession()).toEqual({ customerId: CUSTOMER, intakeId: INTAKE });
+    const { mod } = await setup(`${CUSTOMER}.${INTAKE}.${OWNER}`);
+    expect(await mod.readLeadSession()).toEqual(SESSION);
   });
 
   it("reads nothing when the cookie is absent", async () => {
@@ -146,5 +166,25 @@ describe("the lead cookie", () => {
   it("reads nothing when the cookie was tampered with", async () => {
     const { mod } = await setup("not-a-pair");
     expect(await mod.readLeadSession()).toBeNull();
+  });
+
+  /*
+    Editing the details on the form makes a new intake, but it is still the
+    same browser: the owner key it already holds is kept, so the person's
+    earlier hold is still theirs to give back when they pick a time again.
+  */
+  it("keeps the browser's owner key when the details are entered again", async () => {
+    const { mod } = await setup(`${CUSTOMER}.${INTAKE}.${OWNER}`);
+    expect(await mod.currentOwnerKey()).toBe(OWNER);
+  });
+
+  it("makes a fresh owner key when the browser has none, or a broken one", async () => {
+    const none = await setup();
+    const fresh = await none.mod.currentOwnerKey();
+    expect(fresh).toMatch(/^[0-9a-f-]{36}$/);
+    expect(fresh).not.toBe(OWNER);
+
+    const old = await setup(`${CUSTOMER}.${INTAKE}`);
+    expect(await old.mod.currentOwnerKey()).not.toBe(INTAKE);
   });
 });

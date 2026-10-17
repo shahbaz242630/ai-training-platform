@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { cookies } from "next/headers";
 
 /**
@@ -15,7 +16,9 @@ import { cookies } from "next/headers";
  * The cookie is NOT a security token on its own - a determined person can
  * still edit it in developer tools. What makes it hold up is the check at the
  * other end: the intake must genuinely belong to the customer, so a forgery
- * needs both ids AND their relationship, not one lucky guess.
+ * needs both ids AND their relationship, not one lucky guess. The owner key is
+ * different: it is random and never shown, so only the browser that was given
+ * it can act on the holds it took.
  */
 
 const COOKIE_NAME = "lead";
@@ -32,27 +35,51 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 export interface LeadSession {
   readonly customerId: string;
   readonly intakeId: string;
+  /**
+   * A random key for this browser, kept across new details on the same
+   * browser. A slot hold records it, and only a checkout carrying the same key
+   * may give that hold back: the customer id comes from a typed email, which
+   * anyone can type (security audit, 2026-10-17). Unlike the two ids, nothing
+   * can be looked up to forge it.
+   */
+  readonly ownerKey: string;
 }
 
-/** Two ids and a separator. No name, no email, nothing worth reading. */
+/** Three ids and two separators. No name, no email, nothing worth reading. */
 export function encodeLeadSession(session: LeadSession): string {
-  return `${session.customerId}.${session.intakeId}`;
+  return `${session.customerId}.${session.intakeId}.${session.ownerKey}`;
 }
 
 /**
- * Parsed strictly. Anything that is not exactly two UUIDs is discarded rather
- * than passed along to become a database lookup on attacker-chosen text.
+ * Parsed strictly. Anything that is not exactly three UUIDs is discarded
+ * rather than passed along to become a database lookup on attacker-chosen
+ * text. A cookie from before the owner key (two parts) is refused too, so that
+ * visitor enters their details again and is given a key.
  */
 export function decodeLeadSession(value: string | undefined): LeadSession | null {
   if (value === undefined) return null;
   const parts = value.split(".");
-  if (parts.length !== 2) return null;
+  if (parts.length !== 3) return null;
 
-  const [customerId, intakeId] = parts;
-  if (customerId === undefined || intakeId === undefined) return null;
-  if (!UUID.test(customerId) || !UUID.test(intakeId)) return null;
+  const [customerId, intakeId, ownerKey] = parts;
+  if (customerId === undefined || intakeId === undefined || ownerKey === undefined) return null;
+  if (!UUID.test(customerId) || !UUID.test(intakeId) || !UUID.test(ownerKey)) return null;
 
-  return { customerId, intakeId };
+  return { customerId, intakeId, ownerKey };
+}
+
+/** A fresh, unguessable owner key. */
+export function newOwnerKey(): string {
+  return randomUUID();
+}
+
+/**
+ * The owner key this browser already has, or a fresh one. Entering the details
+ * again (the Edit button) makes a new intake but is still the same browser, so
+ * its earlier hold must stay its own to give back.
+ */
+export async function currentOwnerKey(): Promise<string> {
+  return (await readLeadSession())?.ownerKey ?? newOwnerKey();
 }
 
 export async function writeLeadSession(session: LeadSession, isProduction: boolean): Promise<void> {
