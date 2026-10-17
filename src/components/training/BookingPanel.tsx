@@ -308,7 +308,7 @@ export function BookingPanel({
       ) : (
         <>
           <div className="border-line bg-canvas flex items-center justify-between gap-3 border-b px-6 py-2.5">
-            <p className="text-ink-muted truncate text-[13px]">
+            <p className="text-ink-muted min-w-0 truncate text-[13px]">
               {draft.firstName} {draft.lastName} · {draft.email}
             </p>
             <button
