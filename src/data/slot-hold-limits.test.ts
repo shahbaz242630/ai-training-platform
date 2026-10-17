@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
+import { randomUUID } from "node:crypto";
 import { PGlite } from "@electric-sql/pglite";
 import { holdSlot, type HoldLimits } from "./slot-holds";
 import type { QueryRunner } from "./db";
@@ -65,6 +66,13 @@ const newCustomer = async (): Promise<string> => {
   return id;
 };
 
+/** One browser: a customer as the email names them, plus the key only that browser's cookie holds. */
+const ownerFor = (customerId: string, clientAddress: string | null) => ({
+  customerId,
+  ownerKey: randomUUID(),
+  clientAddress,
+});
+
 // Hour-long slots, two hours apart, so no two ever overlap.
 const slotAt = (index: number) => {
   const start = new Date(Date.UTC(2031, 1, 1) + index * 2 * 60 * 60_000);
@@ -88,9 +96,9 @@ const liveHoldsFor = async (customerId: string) =>
   ).rows[0]?.n;
 
 describe("holdSlot with an owner and limits", () => {
-  it("keeps one live hold per person: a new hold releases their earlier one", async () => {
+  it("keeps one live hold per browser: a new hold releases its earlier one", async () => {
     const customerId = await newCustomer();
-    const owner = { customerId, clientAddress: "198.51.100.1" };
+    const owner = ownerFor(customerId, "198.51.100.1");
 
     const first = await holdSlot({ ...slotAt(0), owner, limits: LIMITS }, realTransaction);
     const second = await holdSlot({ ...slotAt(1), owner, limits: LIMITS }, realTransaction);
@@ -103,7 +111,7 @@ describe("holdSlot with an owner and limits", () => {
 
   it("stops one visitor holding the diary: twenty tries end with one hold", async () => {
     const customerId = await newCustomer();
-    const owner = { customerId, clientAddress: "198.51.100.2" };
+    const owner = ownerFor(customerId, "198.51.100.2");
 
     for (let i = 0; i < 20; i++) {
       const outcome = await holdSlot({ ...slotAt(i), owner, limits: LIMITS }, realTransaction);
@@ -114,7 +122,7 @@ describe("holdSlot with an owner and limits", () => {
   });
 
   it("lets a person pick the same time again after changing their mind", async () => {
-    const owner = { customerId: await newCustomer(), clientAddress: "198.51.100.3" };
+    const owner = ownerFor(await newCustomer(), "198.51.100.3");
 
     await holdSlot({ ...slotAt(0), owner, limits: LIMITS }, realTransaction);
     const again = await holdSlot({ ...slotAt(0), owner, limits: LIMITS }, realTransaction);
@@ -124,8 +132,8 @@ describe("holdSlot with an owner and limits", () => {
   });
 
   it("keeps a person's hold when the new one loses its race", async () => {
-    const owner = { customerId: await newCustomer(), clientAddress: "198.51.100.4" };
-    const other = { customerId: await newCustomer(), clientAddress: "198.51.100.5" };
+    const owner = ownerFor(await newCustomer(), "198.51.100.4");
+    const other = ownerFor(await newCustomer(), "198.51.100.5");
 
     const mine = await holdSlot({ ...slotAt(0), owner, limits: LIMITS }, realTransaction);
     await holdSlot({ ...slotAt(1), owner: other, limits: LIMITS }, realTransaction);
@@ -138,7 +146,7 @@ describe("holdSlot with an owner and limits", () => {
   });
 
   it("never releases a person's paid-for (converted) hold", async () => {
-    const owner = { customerId: await newCustomer(), clientAddress: "198.51.100.6" };
+    const owner = ownerFor(await newCustomer(), "198.51.100.6");
 
     const paid = await holdSlot({ ...slotAt(0), owner, limits: LIMITS }, realTransaction);
     if (!paid.ok) throw new Error("setup");
@@ -154,12 +162,12 @@ describe("holdSlot with an owner and limits", () => {
     const clientAddress = "198.51.100.7";
 
     for (let i = 0; i < 3; i++) {
-      const owner = { customerId: await newCustomer(), clientAddress };
+      const owner = ownerFor(await newCustomer(), clientAddress);
       expect((await holdSlot({ ...slotAt(i), owner, limits: LIMITS }, realTransaction)).ok).toBe(
         true,
       );
     }
-    const owner = { customerId: await newCustomer(), clientAddress };
+    const owner = ownerFor(await newCustomer(), clientAddress);
     const fourth = await holdSlot({ ...slotAt(3), owner, limits: LIMITS }, realTransaction);
 
     expect(fourth).toEqual({ ok: false, reason: "address_limit" });
@@ -167,12 +175,12 @@ describe("holdSlot with an owner and limits", () => {
 
   it("refuses new holds once the diary-wide cap of live holds is reached", async () => {
     for (let i = 0; i < 10; i++) {
-      const owner = { customerId: await newCustomer(), clientAddress: `203.0.113.${i + 1}` };
+      const owner = ownerFor(await newCustomer(), `203.0.113.${i + 1}`);
       expect((await holdSlot({ ...slotAt(i), owner, limits: LIMITS }, realTransaction)).ok).toBe(
         true,
       );
     }
-    const owner = { customerId: await newCustomer(), clientAddress: "203.0.113.99" };
+    const owner = ownerFor(await newCustomer(), "203.0.113.99");
     const eleventh = await holdSlot({ ...slotAt(10), owner, limits: LIMITS }, realTransaction);
 
     expect(eleventh).toEqual({ ok: false, reason: "diary_busy" });
@@ -180,10 +188,10 @@ describe("holdSlot with an owner and limits", () => {
 
   it("still applies the diary-wide cap when the caller's address is unknown", async () => {
     for (let i = 0; i < 10; i++) {
-      const owner = { customerId: await newCustomer(), clientAddress: null };
+      const owner = ownerFor(await newCustomer(), null);
       await holdSlot({ ...slotAt(i), owner, limits: LIMITS }, realTransaction);
     }
-    const owner = { customerId: await newCustomer(), clientAddress: null };
+    const owner = ownerFor(await newCustomer(), null);
     const next = await holdSlot({ ...slotAt(10), owner, limits: LIMITS }, realTransaction);
 
     expect(next).toEqual({ ok: false, reason: "diary_busy" });
@@ -193,29 +201,48 @@ describe("holdSlot with an owner and limits", () => {
     const clientAddress = "198.51.100.8";
 
     for (let i = 0; i < 3; i++) {
-      const owner = { customerId: await newCustomer(), clientAddress };
+      const owner = ownerFor(await newCustomer(), clientAddress);
       await holdSlot(
         { ...slotAt(i), expiresAt: new Date(NOW.getTime() - 60_000), owner, limits: LIMITS },
         realTransaction,
       );
     }
-    const owner = { customerId: await newCustomer(), clientAddress };
+    const owner = ownerFor(await newCustomer(), clientAddress);
     const next = await holdSlot({ ...slotAt(3), owner, limits: LIMITS }, realTransaction);
 
     expect(next.ok).toBe(true);
   });
 
   it("records whose hold it is", async () => {
-    const owner = { customerId: await newCustomer(), clientAddress: "198.51.100.9" };
+    const owner = ownerFor(await newCustomer(), "198.51.100.9");
 
     const outcome = await holdSlot({ ...slotAt(0), owner, limits: LIMITS }, realTransaction);
     if (!outcome.ok) throw new Error("setup");
 
-    const row = await db.query<{ customer_id: string; client_address: string }>(
-      `select customer_id, client_address from slot_holds where id = $1`,
+    const row = await db.query<{ customer_id: string; owner_key: string; client_address: string }>(
+      `select customer_id, owner_key, client_address from slot_holds where id = $1`,
       [outcome.hold.id],
     );
-    expect(row.rows[0]).toEqual({ customer_id: owner.customerId, client_address: "198.51.100.9" });
+    expect(row.rows[0]).toEqual({
+      customer_id: owner.customerId,
+      owner_key: owner.ownerKey,
+      client_address: "198.51.100.9",
+    });
+  });
+
+  // Holds taken before the owner key existed have none: they are never given
+  // back early, only expire, which is the safe side.
+  it("never releases a hold that has no owner key", async () => {
+    const owner = ownerFor(await newCustomer(), "198.51.100.10");
+    const old = await holdSlot({ ...slotAt(0), owner, limits: LIMITS }, realTransaction);
+    if (!old.ok) throw new Error("setup");
+    await db.query(`update slot_holds set owner_key = null where id = $1`, [old.hold.id]);
+
+    const next = await holdSlot({ ...slotAt(1), owner, limits: LIMITS }, realTransaction);
+
+    if (!next.ok) throw new Error("the second hold should have been taken");
+    expect(next.released).toEqual([]);
+    expect(await statusOf(old.hold.id)).toBe("held");
   });
 
   it("leaves a hold with no owner exactly as before", async () => {
@@ -223,5 +250,68 @@ describe("holdSlot with an owner and limits", () => {
 
     if (!outcome.ok) throw new Error("an ownerless hold should still be taken");
     expect(outcome.released).toEqual([]);
+  });
+});
+
+/*
+  THE CHECKOUT-HIJACK ATTACK (security audit, 2026-10-17).
+
+  A customer is matched on the email they type, and typing an email proves
+  nothing. "One live hold per person" used to release every live hold of that
+  customer, so a stranger who knew somebody's email could enter it, start a
+  checkout, and release the hold behind the checkout that person was paying
+  for at that moment - ending their payment and taking their time, for free,
+  as often as they liked. A hold is now given back only by the browser that
+  took it: the same customer AND the owner key in that browser's cookie.
+*/
+describe("a stranger who knows a customer's email", () => {
+  it("cannot release that customer's hold", async () => {
+    const customerId = await newCustomer();
+    const victim = ownerFor(customerId, "198.51.100.20");
+    const stranger = ownerFor(customerId, "198.51.100.21");
+
+    const paying = await holdSlot({ ...slotAt(0), owner: victim, limits: LIMITS }, realTransaction);
+    const theirs = await holdSlot(
+      { ...slotAt(1), owner: stranger, limits: LIMITS },
+      realTransaction,
+    );
+
+    if (!paying.ok || !theirs.ok) throw new Error("both holds should have been taken");
+    expect(theirs.released).toEqual([]);
+    expect(await statusOf(paying.hold.id)).toBe("held");
+  });
+
+  it("cannot take the time that customer is paying for", async () => {
+    const customerId = await newCustomer();
+    const victim = ownerFor(customerId, "198.51.100.22");
+    const stranger = ownerFor(customerId, "198.51.100.23");
+
+    const paying = await holdSlot({ ...slotAt(0), owner: victim, limits: LIMITS }, realTransaction);
+    const snipe = await holdSlot(
+      { ...slotAt(0), owner: stranger, limits: LIMITS },
+      realTransaction,
+    );
+
+    expect(snipe).toEqual({ ok: false, reason: "slot_taken" });
+    if (!paying.ok) throw new Error("setup");
+    expect(await statusOf(paying.hold.id)).toBe("held");
+  });
+
+  it("does not hand back that customer's checkout to be ended", async () => {
+    const customerId = await newCustomer();
+    const victim = ownerFor(customerId, "198.51.100.24");
+    const stranger = ownerFor(customerId, "198.51.100.25");
+
+    await holdSlot({ ...slotAt(0), owner: victim, limits: LIMITS }, realTransaction);
+    await holdSlot({ ...slotAt(1), owner: stranger, limits: LIMITS }, realTransaction);
+    const again = await holdSlot(
+      { ...slotAt(2), owner: stranger, limits: LIMITS },
+      realTransaction,
+    );
+
+    // The stranger's own earlier hold is theirs to give back; the victim's is not.
+    if (!again.ok) throw new Error("setup");
+    expect(again.released).toHaveLength(1);
+    expect(await liveHoldsFor(customerId)).toBe(2);
   });
 });

@@ -10,7 +10,7 @@ import { clientAddressFrom, isUsableReturnUrl } from "@/lib/client-address";
 import { logger } from "@/lib/logger";
 import { recordAudit } from "@/lib/audit";
 import { clientEnv, serverEnv } from "@/lib/env";
-import { writeLeadSession, readLeadSession } from "@/lib/lead-session";
+import { currentOwnerKey, writeLeadSession, readLeadSession } from "@/lib/lead-session";
 import {
   attachCalendarEvent,
   holdSlot,
@@ -137,7 +137,13 @@ export async function captureLeadAction(input: unknown): Promise<CaptureLeadResu
       reads this, and nothing on the page needs to.
     */
     await writeLeadSession(
-      { customerId: captured.customerId, intakeId: captured.intakeId },
+      {
+        customerId: captured.customerId,
+        intakeId: captured.intakeId,
+        // Kept from this browser's cookie when there is one, so new details
+        // (the Edit button) do not orphan the hold this browser already took.
+        ownerKey: await currentOwnerKey(),
+      },
       serverEnv().NODE_ENV === "production",
     );
 
@@ -322,8 +328,10 @@ export async function startCheckoutAction(input: unknown): Promise<StartCheckout
 
     const interval = holdInterval(requested, session.durationMinutes);
     /*
-      With an owner and limits: this person's earlier unpaid hold is given
-      back, and a connection or the whole diary already at its cap is refused.
+      With an owner and limits: the unpaid hold this browser took earlier for
+      this person is given back (never one another browser took: the customer
+      is only a typed email), and a connection or the whole diary already at
+      its cap is refused.
       Without these, one script could hold every offered time for free.
     */
     const outcome = await holdSlot({
@@ -332,7 +340,11 @@ export async function startCheckoutAction(input: unknown): Promise<StartCheckout
       expiresAt: addMinutes(now, DEFAULT_HOLD_TTL_MINUTES),
       orderId: null,
       calendarEventId: null,
-      owner: { customerId: lead.customerId, clientAddress: consent.ipAddress },
+      owner: {
+        customerId: lead.customerId,
+        ownerKey: lead.ownerKey,
+        clientAddress: consent.ipAddress,
+      },
       limits: { maxPerAddress: MAX_LIVE_HOLDS_PER_ADDRESS, maxLive: MAX_LIVE_HOLDS, now },
     });
 
