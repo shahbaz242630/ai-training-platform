@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
+import { prefetchFor } from "@/lib/link-prefetch";
 
 type Variant = "primary" | "secondary" | "onDeep";
 
@@ -28,6 +29,7 @@ export function ButtonLink({
   return (
     <Link
       href={href}
+      prefetch={prefetchFor(href)}
       className={`inline-flex items-center justify-center rounded-full px-7 py-3.5 text-base font-medium whitespace-nowrap transition-colors duration-150 ${STYLES[variant]} ${className}`}
     >
       {children}

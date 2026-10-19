@@ -10,6 +10,7 @@ import {
   SITE,
   DELIVERY,
 } from "@/config/site";
+import { prefetchFor } from "@/lib/link-prefetch";
 
 export function SiteFooter() {
   return (
@@ -32,6 +33,7 @@ export function SiteFooter() {
               <Link
                 key={link.href}
                 href={link.href}
+                prefetch={prefetchFor(link.href)}
                 className="text-ink-muted hover:text-ink text-[14.5px] transition-colors"
               >
                 {link.label}
