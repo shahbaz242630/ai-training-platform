@@ -29,11 +29,11 @@
   "dependencies": {
     "@react-email/render": "2.1.0",
     "next": "16.4.1",
-    "pg": "^8.23.0",
+    "pg": "^8.23.1",
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "stripe": "22.6.2",
-    "zod": "^4.6.5"
+    "zod": "^4.6.6"
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.5.8",
@@ -43,13 +43,13 @@
     "@types/pg": "^8.23.1",
     "@types/react": "^19",
     "@types/react-dom": "^19",
-    "@vitejs/plugin-react": "^6.1.1",
+    "@vitejs/plugin-react": "^6.1.2",
     "@vitest/coverage-v8": "^4.1.11",
     "eslint": "^9",
     "eslint-config-next": "16.4.1",
     "husky": "^9.1.7",
-    "lint-staged": "^17.5.1",
-    "prettier": "^3.9.8",
+    "lint-staged": "^17.6.0",
+    "prettier": "^3.9.10",
     "prettier-plugin-tailwindcss": "^0.8.1",
     "tailwindcss": "^4",
     "typescript": "^6",
