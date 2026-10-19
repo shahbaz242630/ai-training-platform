@@ -1,3 +1,4 @@
+import { REFUND_CURRENCY_NOTE } from "@/config/site";
 import { EmailLayout, emailStyles } from "./EmailLayout";
 
 /**
@@ -91,6 +92,7 @@ export function WithdrawalAcknowledgementEmail(props: WithdrawalAcknowledgementE
         </p>
       </div>
       <p style={emailStyles.paragraph}>{refundSentence(props)}</p>
+      <p style={emailStyles.paragraph}>{REFUND_CURRENCY_NOTE}</p>
       <p style={emailStyles.muted}>
         If you did not send this, reply to this email straight away and we will look into it.
       </p>

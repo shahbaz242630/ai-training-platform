@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { REFUND_CURRENCY_NOTE } from "@/config/site";
 import { confirmWithdrawalAction, lookUpWithdrawalAction } from "./actions";
 import type { WithdrawalReceipt, WithdrawalSummary } from "./flow";
 
@@ -99,6 +100,7 @@ export function WithdrawalForm({ initialReference }: { readonly initialReference
             ? "We are emailing you a copy of this confirmation."
             : "We emailed you a confirmation when we received it."}
         </p>
+        <p className="text-ink-muted mt-3 text-[14px] leading-relaxed">{REFUND_CURRENCY_NOTE}</p>
       </Card>
     );
   }

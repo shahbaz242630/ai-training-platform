@@ -59,9 +59,10 @@ export default async function ConfirmingPage({
 
             <p className="text-ink-soft text-[17px] leading-[1.65]">
               Your payment is being verified for{" "}
-              <span className="text-ink font-medium">{session.title}</span>. Once it is, your
-              session is booked and we will be in touch with the date, the time in your own time
-              zone, and how to join.
+              <span className="text-ink font-medium">{session.title}</span>. Once it is, we email
+              your confirmation within a few minutes: your booking reference, the date and time, the
+              joining link and a calendar invite. If it is not in your inbox, please check your junk
+              folder.
             </p>
 
             {/*
@@ -71,16 +72,12 @@ export default async function ConfirmingPage({
               turns up to a session that was never booked.
             */}
             {/*
-              Deliberately does not promise an email. Nothing in this system can
-              send one yet - there is no email provider wired in - and telling
-              somebody who has just paid to wait for a message that will never
-              arrive is worse than telling them nothing. When the send path
-              exists this becomes a promise we can keep, and not before.
+              The email is a promise we can keep: the verified payment queues it
+              and the five-minute send job delivers it (proven live, session 100).
             */}
             <p className="text-ink-muted mt-4 text-[17px] leading-[1.65]">
-              If you have not heard from us within one working day, please email{" "}
-              <ContactLink showAddress /> and quote the email address you booked with - we will find
-              your booking.
+              If nothing has arrived within an hour, email <ContactLink showAddress /> with the
+              address you booked with and we will find your booking.
             </p>
 
             <div className="border-line mt-10 border-t pt-8">
