@@ -70,6 +70,46 @@ export function clientAddressFrom(
 }
 
 /**
+ * The network an address belongs to, for counting against a limit.
+ *
+ * One IPv6 connection is handed a whole /64 block (billions of addresses), so
+ * a limit per IPv6 address is no limit: one cheap server could rotate through
+ * them and hold every slot in the diary (October 2026 audit). Every address in
+ * a /64 therefore counts as one caller. IPv4 stays per address: sharing one (an
+ * office, a mobile network) is common, and a wider block would lock strangers
+ * out together. Anything unreadable is returned as it is.
+ *
+ * For limits only. Evidence (a withdrawal's or a consent's recorded address)
+ * keeps the full address.
+ */
+export function networkBlock(address: string): string {
+  if (!address.includes(":")) return address;
+  const bare = address.split("%")[0]!.toLowerCase();
+  // An IPv4 address carried in IPv6 is that IPv4 address.
+  const mapped = /^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/.exec(bare);
+  if (mapped) return mapped[1]!;
+
+  const halves = bare.split("::");
+  if (halves.length > 2) return address;
+  const head = halves[0] ? halves[0].split(":") : [];
+  const tail = halves.length === 2 && halves[1] ? halves[1].split(":") : [];
+  const missing = 8 - head.length - tail.length;
+  if (halves.length === 1 ? missing !== 0 : missing < 1) return address;
+  const groups = [...head, ...Array<string>(halves.length === 2 ? missing : 0).fill("0"), ...tail];
+  if (!groups.every((group) => /^[0-9a-f]{1,4}$/.test(group))) return address;
+  const network = groups.slice(0, 4).map((group) => group.replace(/^0+(?=.)/, ""));
+  return `${network.join(":")}::/64`;
+}
+
+/** The key a request is limited by: its trusted address's network block. */
+export function limitKeyFrom(
+  forwardedFor: string | null,
+  trustedProxyCount: number = DEFAULT_TRUSTED_PROXY_COUNT,
+): string {
+  return networkBlock(clientAddressFrom(forwardedFor, trustedProxyCount));
+}
+
+/**
  * Whether a site URL is safe to hand to a payment processor as a return
  * address.
  *

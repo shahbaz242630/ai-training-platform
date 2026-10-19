@@ -3,7 +3,7 @@
 import { headers } from "next/headers";
 import { withTransaction } from "@/data/db";
 import { recordAudit } from "@/lib/audit";
-import { clientAddressFrom } from "@/lib/client-address";
+import { limitKeyFrom } from "@/lib/client-address";
 import { serverEnv } from "@/lib/env";
 import { logger } from "@/lib/logger";
 import { createRateLimiter } from "@/lib/rate-limit";
@@ -18,7 +18,7 @@ const limiter = createRateLimiter({ limit: 10, windowMs: 60_000 });
 export async function declineWithdrawalAction(
   token: unknown,
 ): Promise<DeskResult<{ view: DeskNoticeView }>> {
-  const address = clientAddressFrom((await headers()).get("x-forwarded-for"));
+  const address = limitKeyFrom((await headers()).get("x-forwarded-for"));
   const rate = limiter.check(address, new Date());
   if (!rate.allowed) {
     return {

@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { UNKNOWN_CALLER, clientAddressFrom, isUsableReturnUrl } from "./client-address";
+import {
+  UNKNOWN_CALLER,
+  clientAddressFrom,
+  isUsableReturnUrl,
+  limitKeyFrom,
+  networkBlock,
+} from "./client-address";
 
 /**
  * The rate limit is only as good as the key it counts against.
@@ -91,5 +97,54 @@ describe("isUsableReturnUrl", () => {
   // Local development must keep working with no configuration.
   it("allows anything outside production", () => {
     expect(isUsableReturnUrl("http://localhost:3000", false)).toBe(true);
+  });
+});
+
+/*
+  Limits count a network, not an address. One IPv6 connection is handed a
+  whole /64 block, billions of addresses, so a limit per address is no limit
+  at all: one cheap server could hold every slot in the diary. IPv4 stays per
+  address, since sharing (an office, a mobile network) is common there and a
+  wider block would lock out strangers.
+*/
+describe("networkBlock", () => {
+  it("keeps an IPv4 address as it is", () => {
+    expect(networkBlock("203.0.113.9")).toBe("203.0.113.9");
+  });
+
+  it("counts every address in one IPv6 /64 as the same caller", () => {
+    const a = networkBlock("2001:db8:abcd:12:1111:2222:3333:4444");
+    const b = networkBlock("2001:db8:abcd:12::9");
+    const c = networkBlock("2001:0DB8:ABCD:0012:ffff:ffff:ffff:ffff");
+    expect(a).toBe("2001:db8:abcd:12::/64");
+    expect(b).toBe(a);
+    expect(c).toBe(a);
+  });
+
+  it("keeps different /64 blocks apart", () => {
+    expect(networkBlock("2001:db8:abcd:13::1")).not.toBe(networkBlock("2001:db8:abcd:12::1"));
+  });
+
+  it("expands :: wherever it sits", () => {
+    expect(networkBlock("2001:db8::1")).toBe("2001:db8:0:0::/64");
+    expect(networkBlock("::1")).toBe("0:0:0:0::/64");
+    expect(networkBlock("fe80::1%eth0")).toBe("fe80:0:0:0::/64");
+  });
+
+  it("reads an IPv4 address carried in IPv6 as the IPv4 address", () => {
+    expect(networkBlock("::ffff:203.0.113.9")).toBe("203.0.113.9");
+  });
+
+  it("leaves anything it cannot read as it is, and the shared unknown bucket alone", () => {
+    expect(networkBlock(UNKNOWN_CALLER)).toBe(UNKNOWN_CALLER);
+    expect(networkBlock("not-an-address")).toBe("not-an-address");
+    expect(networkBlock("1:2:3:4:5:6:7:8:9")).toBe("1:2:3:4:5:6:7:8:9");
+  });
+});
+
+describe("limitKeyFrom", () => {
+  it("is the trusted address's network block", () => {
+    expect(limitKeyFrom("198.51.100.1, 2001:db8:abcd:12:aaaa::1")).toBe("2001:db8:abcd:12::/64");
+    expect(limitKeyFrom(null)).toBe(UNKNOWN_CALLER);
   });
 });

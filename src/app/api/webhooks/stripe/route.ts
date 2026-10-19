@@ -9,7 +9,7 @@ import { messagesOnSettlement } from "@/domain/messaging/schedule";
 import { getSchedulingProvider } from "@/domain/scheduling/factory";
 import { InvalidSignatureError } from "@/domain/payments/provider";
 import { recordAudit } from "@/lib/audit";
-import { clientAddressFrom } from "@/lib/client-address";
+import { limitKeyFrom } from "@/lib/client-address";
 import { createEvidenceBudget } from "@/lib/evidence-budget";
 import { logger } from "@/lib/logger";
 import { readTextWithin } from "@/lib/read-body";
@@ -95,7 +95,7 @@ export async function POST(request: Request): Promise<NextResponse> {
         answering 500 would invite the processor to retry something that can
         never become valid.
       */
-      const source = clientAddressFrom(request.headers.get("x-forwarded-for"));
+      const source = limitKeyFrom(request.headers.get("x-forwarded-for"));
       if (REJECTION_EVIDENCE.shouldRecord(source, new Date())) {
         await recordAudit({
           action: "webhook.signature_rejected",

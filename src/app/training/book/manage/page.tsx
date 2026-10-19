@@ -5,7 +5,7 @@ import { SiteFooter } from "@/components/layout/SiteFooter";
 import { Container } from "@/components/ui/Container";
 import { BOOKING_POLICY, POLICY_LINKS } from "@/config/site";
 import { withTransaction } from "@/data/db";
-import { clientAddressFrom } from "@/lib/client-address";
+import { limitKeyFrom } from "@/lib/client-address";
 import { serverEnv } from "@/lib/env";
 import { logger } from "@/lib/logger";
 import { createRateLimiter } from "@/lib/rate-limit";
@@ -43,7 +43,7 @@ export default async function ManagePage({ searchParams }: PageProps<"/training/
   const token = typeof t === "string" ? t.slice(0, 300) : "";
 
   const secret = serverEnv().MANAGE_LINK_SECRET;
-  const address = clientAddressFrom((await headers()).get("x-forwarded-for"));
+  const address = limitKeyFrom((await headers()).get("x-forwarded-for"));
   const rate = pageLimiter.check(address, new Date());
   let content: React.ReactNode;
   if (!secret) {
