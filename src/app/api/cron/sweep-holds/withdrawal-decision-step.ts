@@ -3,7 +3,11 @@ import type { QueryRunner } from "@/data/db";
 import { reconcileDeskAlerts, type DeskAlertReport } from "@/data/desk-alerts";
 import { listWithdrawalsForDesk } from "@/data/withdrawals";
 import type { EmailProvider } from "@/domain/messaging/provider";
+import { BOOKING_POLICY, TRAINING_BASE } from "@/config/site";
+import { createDeclineToken } from "@/lib/desk-link";
+import { clientEnv, serverEnv } from "@/lib/env";
 import { logger } from "@/lib/logger";
+import { addDays } from "@/lib/time";
 
 /**
  * The sweep's step for withdrawals the desk decides: an email to the booking
@@ -50,4 +54,19 @@ export async function withdrawalDecisionAlerts(
     });
     return { error: "desk alerts could not be sent" };
   }
+}
+
+/**
+ * The desk's link to decline a withdrawal, valid while the decision matters:
+ * the refund days and a day's grace, counted from now so every reminder's
+ * link outlives the alert. Null when no signing secret is set.
+ */
+export function declineUrlFor(bookingId: string): string | null {
+  const secret = serverEnv().MANAGE_LINK_SECRET;
+  if (!secret) return null;
+  const token = createDeclineToken(
+    { bookingId, expiresAt: addDays(new Date(), BOOKING_POLICY.withdrawalRefundDays + 1) },
+    secret,
+  );
+  return `${clientEnv.NEXT_PUBLIC_SITE_URL}${TRAINING_BASE}/book/desk-decision?t=${token}`;
 }

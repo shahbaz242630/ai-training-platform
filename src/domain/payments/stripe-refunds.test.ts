@@ -1,6 +1,6 @@
 import Stripe from "stripe";
 import { describe, it, expect } from "vitest";
-import { StripePaymentProvider, toPaymentEvent } from "./stripe-provider";
+import { StripePaymentProvider, toCheckoutSnapshot, toPaymentEvent } from "./stripe-provider";
 import { classifyRefundError, refundStatusOf } from "./stripe-refunds";
 import { RefundRefusedError, RefundUnclearError, type RefundEvent } from "./provider";
 
@@ -319,5 +319,58 @@ describe("toPaymentEvent for refunds", () => {
 
   it("does not mistake a refund event for a checkout one", () => {
     expect(toPaymentEvent(refundEvent("refund.created")).kind).toBe("refund");
+  });
+});
+
+describe("toCheckoutSnapshot", () => {
+  const session = (over: Record<string, unknown>) =>
+    ({
+      id: "cs_1",
+      status: "complete",
+      payment_status: "paid",
+      payment_intent: "pi_1",
+      metadata: { orderId: "order-1", slotHoldId: "hold-1" },
+      client_reference_id: "order-1",
+      amount_total: 129900,
+      currency: "aed",
+      ...over,
+    }) as unknown as Stripe.Checkout.Session;
+
+  it("reads a paid session as its completed event would have been read", () => {
+    expect(toCheckoutSnapshot(session({}))).toEqual({
+      checkoutSessionId: "cs_1",
+      paymentIntentId: "pi_1",
+      orderId: "order-1",
+      slotHoldId: "hold-1",
+      outcome: "paid",
+      amountFils: 129900,
+      currency: "aed",
+    });
+  });
+
+  it("reads an expired session as failed, and money still in flight as unpaid", () => {
+    expect(
+      toCheckoutSnapshot(session({ status: "expired", payment_status: "unpaid" })).outcome,
+    ).toBe("failed");
+    expect(toCheckoutSnapshot(session({ payment_status: "unpaid" })).outcome).toBe("unpaid");
+  });
+
+  it("asks Stripe for the session with a bounded wait", async () => {
+    const seen: unknown[] = [];
+    const provider = new StripePaymentProvider(
+      {
+        checkout: {
+          sessions: {
+            retrieve: (...args: unknown[]) => {
+              seen.push(args);
+              return Promise.resolve(session({}));
+            },
+          },
+        },
+      } as unknown as Stripe,
+      SIGNING_SECRET,
+    );
+    expect((await provider.getCheckoutSnapshot("cs_1")).outcome).toBe("paid");
+    expect(seen[0]).toEqual(["cs_1", undefined, { timeout: 15_000 }]);
   });
 });

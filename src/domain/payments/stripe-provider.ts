@@ -5,6 +5,7 @@ import { STRIPE_SUBMIT_MESSAGE, stripeTermsMessage } from "@/config/booking-term
 import {
   InvalidSignatureError,
   PaymentNotConfiguredError,
+  type CheckoutSnapshot,
   type IssuedRefund,
   type PaymentEvent,
   type PaymentOutcome,
@@ -267,6 +268,13 @@ export class StripePaymentProvider implements PaymentProvider {
     return toRefundSnapshot(refund);
   }
 
+  async getCheckoutSnapshot(checkoutSessionId: string): Promise<CheckoutSnapshot> {
+    const session = await this.stripe.checkout.sessions.retrieve(checkoutSessionId, undefined, {
+      timeout: REFUND_TIMEOUT_MS,
+    });
+    return toCheckoutSnapshot(session);
+  }
+
   async getCardCountry(paymentIntentId: string): Promise<string | null> {
     /*
       The charge is expanded: unexpanded, `latest_charge` is a bare id and
@@ -283,6 +291,24 @@ export class StripePaymentProvider implements PaymentProvider {
     const country = charge.payment_method_details?.card?.country ?? null;
     return country ? country.toUpperCase() : null;
   }
+}
+
+/**
+ * A session as it stands, read the way its event would have been. An expired
+ * session failed; anything else is decided by its payment status, exactly as
+ * for checkout.session.completed, so "unpaid" still means wait.
+ */
+export function toCheckoutSnapshot(session: Stripe.Checkout.Session): CheckoutSnapshot {
+  return {
+    checkoutSessionId: session.id,
+    paymentIntentId: paymentIntentIdOf(session.payment_intent),
+    orderId: session.metadata?.[ORDER_ID] ?? session.client_reference_id ?? null,
+    slotHoldId: session.metadata?.[SLOT_HOLD_ID] ?? null,
+    outcome:
+      session.status === "expired" ? "failed" : outcomeFor(COMPLETED, session.payment_status),
+    amountFils: session.amount_total,
+    currency: session.currency,
+  };
 }
 
 /** Stripe shapes in, our shape out. Nothing above this line knows Stripe exists. */
