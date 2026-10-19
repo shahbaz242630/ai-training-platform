@@ -52,12 +52,13 @@ function WithdrawalDecisionEmail({
   const session = getSessionBySlug(alert.sessionSlug)?.title ?? "a session";
   const card =
     alert.cardCountry === null
-      ? "the country of the card they paid with could not be read"
-      : `the card they paid with was issued in ${alert.cardCountry}`;
+      ? "The country of the card they paid with could not be read."
+      : `The card they paid with was issued in ${alert.cardCountry}.`;
   const what =
     `A customer has sent a withdrawal notice for ${session}, ticking that they are a UK or EU ` +
-    `consumer, but ${card}. Nothing has been refunded and the booking is still in place. They ` +
-    `were told we would reply within ${BOOKING_POLICY.deskReplyWorkingDays} working days.`;
+    `consumer. ${card} A card says where it was issued, not where its holder lives, so decide ` +
+    `on what you know of the customer. Nothing has been refunded and the booking is still in ` +
+    `place. They were told we would reply within ${BOOKING_POLICY.deskReplyWorkingDays} working days.`;
   const heading = "A withdrawal needs your decision";
   const decideBy = new Date(
     alert.receivedAt.getTime() + BOOKING_POLICY.withdrawalRefundDays * DAY_MS,

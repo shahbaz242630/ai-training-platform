@@ -42,7 +42,8 @@ describe("renderWithdrawalDecision", () => {
 
   it("says what happened, and how to approve and how to decline", async () => {
     const { text } = await renderWithdrawalDecision(alert, false, null);
-    expect(text).toContain("the card they paid with was issued in AE");
+    expect(text).toContain("The card they paid with was issued in AE.");
+    expect(text).toContain("A card says where it was issued, not where its holder lives");
     expect(text).toContain("Nothing has been refunded and the booking is still in place.");
     expect(text).toContain("within 3 working days");
     expect(text).toContain("pi_3Desk");

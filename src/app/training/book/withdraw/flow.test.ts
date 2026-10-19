@@ -231,16 +231,23 @@ describe("step 2: who decides the refund", () => {
       )
     ).rows[0];
 
-  it("refunds a UK card automatically: the booking is cancelled", async () => {
+  // A card says where it was issued, not where its holder lives: Dubai is full of UK cards.
+  it("sends a UK card to the desk too: nothing is refunded on a card alone", async () => {
     const b = await booked();
     const result = await confirmWithdrawal(
       b.form,
       deps(new Date(b.madeAt.getTime() + DAY), () => Promise.resolve("GB")),
       context,
     );
-    expect(result).toMatchObject({ ok: true, receipt: { route: "automatic", isNew: true } });
-    expect(await status(b.bookingId)).toBe("cancelled");
-    expect(await kept(b.bookingId)).toEqual({ route: "automatic", card_country: "GB" });
+    expect(result).toMatchObject({ ok: true, receipt: { route: "desk", isNew: true } });
+    expect(await status(b.bookingId)).toBe("confirmed");
+    expect(await kept(b.bookingId)).toEqual({ route: "desk", card_country: "GB" });
+    const refunds = await db.query(
+      `select 1 from refunds r join withdrawal_requests w on w.id = r.withdrawal_request_id
+        where w.booking_id = $1`,
+      [b.bookingId],
+    );
+    expect(refunds.rows).toHaveLength(0);
   });
 
   it("sends a UAE card to the desk, whatever box was ticked: the booking stays", async () => {
@@ -364,10 +371,10 @@ describe("a later look at a notice the desk decides", () => {
     });
   });
 
-  it("has no desk state for a notice refunded automatically", async () => {
+  it("says reviewing for every new notice, whatever the card", async () => {
     const b = await booked();
     const now = new Date(b.madeAt.getTime() + DAY);
     const result = await confirmWithdrawal(b.form, deps(now), context);
-    expect(result).toMatchObject({ ok: true, receipt: { route: "automatic", deskState: null } });
+    expect(result).toMatchObject({ ok: true, receipt: { route: "desk", deskState: "reviewing" } });
   });
 });

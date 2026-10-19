@@ -12,7 +12,6 @@ import {
   bookingReference,
   decideWithdrawal,
   normaliseReference,
-  withdrawalRoute,
   withdrawalStatement,
   type WithdrawalRefusal,
   type WithdrawalRoute,
@@ -269,10 +268,13 @@ export async function confirmWithdrawal(
       receivedAt: deps.now,
       ipAddress: context.ipAddress,
       userAgent: context.userAgent,
-      // The country answers for the payment it was asked about, and no other.
-      ...(booking.paymentIntentId !== null && booking.paymentIntentId === before.paymentIntentId
-        ? { route: withdrawalRoute(cardCountry), cardCountry }
-        : { route: "desk" as const, cardCountry: null }),
+      // Every notice goes to the desk. The card country helps the desk decide; it
+      // answers for the payment it was asked about, and no other.
+      route: "desk",
+      cardCountry:
+        booking.paymentIntentId !== null && booking.paymentIntentId === before.paymentIntentId
+          ? cardCountry
+          : null,
     });
     return {
       ok: true,
@@ -291,8 +293,8 @@ export async function confirmWithdrawal(
 }
 
 /**
- * The card country, or null when the processor cannot say. Null sends the
- * notice to the desk: an outage must never be what decides that money goes back.
+ * The card country, for the desk to weigh, or null when the processor cannot
+ * say. It decides nothing by itself: every notice goes to the desk.
  */
 async function readCardCountry(deps: FlowDeps, paymentIntentId: string): Promise<string | null> {
   try {
@@ -300,7 +302,7 @@ async function readCardCountry(deps: FlowDeps, paymentIntentId: string): Promise
     // Anything but a plain two-letter code is not a country this can decide on.
     return country !== null && /^[A-Z]{2}$/.test(country) ? country : null;
   } catch (error) {
-    logger.warn("the card country could not be read; the withdrawal goes to the desk", {
+    logger.warn("the card country could not be read for a withdrawal", {
       error: (error as Error).name,
     });
     return null;

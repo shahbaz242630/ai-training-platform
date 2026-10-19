@@ -236,7 +236,7 @@ function refundLabel(receipt: WithdrawalReceipt): string {
 function receiptSentence(receipt: WithdrawalReceipt): string {
   switch (receipt.deskState) {
     case "reviewing":
-      return `We could not confirm automatically that the UK and EU 14-day right applies to this booking, so a member of our team will look at it and reply by email within ${BOOKING_POLICY.deskReplyWorkingDays} working days. Your booking stays in place until then. If the right applies, we refund ${receipt.refundDue} in full, to the card you paid with, within ${BOOKING_POLICY.withdrawalRefundDays} days of your notice.`;
+      return `A member of our team checks every cancellation notice to confirm that the UK and EU 14-day right applies, and will reply by email within ${BOOKING_POLICY.deskReplyWorkingDays} working days. Your booking stays in place until then. If the right applies, we refund ${receipt.refundDue} in full, to the card you paid with, within ${BOOKING_POLICY.withdrawalRefundDays} days of your notice.`;
     case "declined":
       return "We have looked at your notice, and our reply is on its way to you by email. Your booking stays in place, and you can still move it once, free, from the Reschedule link in your booking email.";
     case "refunded":
