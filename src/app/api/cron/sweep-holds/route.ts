@@ -29,6 +29,7 @@ import { purgeExpiredPersonalData, type PurgeReport } from "@/data/retention";
 import { readAppliedSchemaVersion, schemaStatus } from "@/data/schema-version";
 import { recordAudit } from "@/lib/audit";
 import { watchCalendar } from "./calendar-watch-step";
+import { endAbandonedCheckouts } from "./abandoned-checkouts-step";
 import { disputeStep, queueChooseNewTime } from "./dispute-step";
 import { heartbeatFailed, heartbeatStep } from "./heartbeat-step";
 import { reconcilePendingOrders } from "./reconcile-step";
@@ -222,6 +223,13 @@ export async function POST(request: Request): Promise<NextResponse> {
       desk: supportEmail,
     });
 
+    // A checkout given up for another, still open at Stripe: ended, so it cannot be paid as well.
+    const abandonedCheckouts = await endAbandonedCheckouts({
+      provider: getPaymentProvider,
+      transaction: withTransaction,
+      clock: () => new Date(),
+    });
+
     /*
       Disputes, after the settling above, so a dispute on an order settled
       this run is linked this run: the effects re-applied where work remains,
@@ -278,6 +286,7 @@ export async function POST(request: Request): Promise<NextResponse> {
       disputes,
       withdrawalDecisions,
       reconciliation,
+      abandonedCheckouts,
       schema,
     });
   } catch (error) {

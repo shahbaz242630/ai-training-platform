@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import {
   renderCancellationConfirmation,
   renderChooseNewTime,
@@ -251,16 +252,20 @@ async function prepareSessionEmail(
           name: "zaaheen-session.ics",
           contentType: "text/calendar",
           content: buildCalendarFile({
-            uid: `booking-${context.bookingId}@zaaheen.com`,
+            uid: calendarUid(context.bookingId),
             sequence: context.rescheduleCount,
             start: context.scheduledStart,
             end: context.scheduledEnd,
             stamp: now,
             summary: `${session.title} (Zaaheen)`,
+            /*
+              No booking reference (audit s101 L3): calendars are often shared,
+              and the reference with the owner's email is all the withdrawal
+              form asks for. The reference stays in the emails themselves.
+            */
             description: [
               "Your private one-to-one session.",
               `Join on Microsoft Teams: ${context.meetingUrl}`,
-              `Booking reference: ${bookingReference(context.bookingId)}`,
             ].join("\n"),
             url: context.meetingUrl,
           }),
@@ -276,6 +281,17 @@ async function prepareSessionEmail(
     if (error instanceof TemplateNotAvailableError) return { ok: false, reason: error.message };
     throw error;
   }
+}
+
+/**
+ * The calendar file's identity for a booking: the same on every file about it,
+ * so a moved session replaces the first, but one-way. The booking id itself
+ * would give away the booking reference (its first eight characters), and
+ * calendars are shared (audit s101 L3).
+ */
+export function calendarUid(bookingId: string): string {
+  const digest = createHash("sha256").update(`zaaheen-booking:${bookingId}`).digest("hex");
+  return `booking-${digest.slice(0, 32)}@zaaheen.com`;
 }
 
 /** The terms exactly as agreed, as a fixed copy for the payment acknowledgement: a web page can change later. */

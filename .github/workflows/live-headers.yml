@@ -1,0 +1,46 @@
+name: Live headers
+
+# The security headers as the LIVE site sends them (audit s101 #17). The DAST
+# scan runs against localhost; only this sees what Hostinger's CDN and
+# Cloudflare actually deliver, and Hostinger has replaced our policy before.
+# A failure fails this workflow, and GitHub emails the repository owner.
+
+on:
+  schedule:
+    - cron: "30 5 * * *"
+  push:
+    branches: [production]
+  workflow_dispatch:
+
+concurrency:
+  group: live-headers
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  headers:
+    name: Live security headers
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version-file: .nvmrc
+
+      # After a production push Hostinger takes a few minutes to deploy, and a
+      # slow deploy must not read as broken headers: up to four tries, three
+      # minutes apart. On the daily run, one try.
+      - name: Production
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          tries=1
+          if [ "$EVENT" = "push" ]; then tries=4; sleep 240; fi
+          for i in $(seq 1 "$tries"); do
+            if node scripts/live-headers.mjs https://coaching.zaaheen.com; then exit 0; fi
+            if [ "$i" -lt "$tries" ]; then sleep 180; fi
+          done
+          exit 1
