@@ -45,19 +45,35 @@ export interface RateLimiter {
 
 const DEFAULT_MAX_KEYS = 10_000;
 
+/**
+ * Where new callers are counted while the table is full: together, under one
+ * shared limit. Memory stays bounded, a flood of fresh keys is limited as one
+ * caller, and nobody already being counted is forgotten (which would let them
+ * start again from zero).
+ */
+export const OVERFLOW_KEY = "overflow";
+
 export function createRateLimiter(options: RateLimiterOptions): RateLimiter {
   const { limit, windowMs, maxKeys = DEFAULT_MAX_KEYS } = options;
   const windows = new Map<string, Window>();
+  // When the table was last swept: at most once a window, so a full table is not rescanned per request.
+  let prunedAt = Number.NEGATIVE_INFINITY;
 
   function prune(nowMs: number): void {
+    prunedAt = nowMs;
     for (const [key, window] of windows) {
       if (window.resetAt <= nowMs) windows.delete(key);
     }
   }
 
   return {
-    check(key: string, now: Date): RateLimitResult {
+    check(requested: string, now: Date): RateLimitResult {
       const nowMs = now.getTime();
+      let key = requested;
+      if (!windows.has(key) && windows.size >= maxKeys) {
+        if (nowMs - prunedAt >= windowMs) prune(nowMs);
+        if (windows.size >= maxKeys) key = OVERFLOW_KEY;
+      }
       const existing = windows.get(key);
 
       if (!existing || existing.resetAt <= nowMs) {
@@ -67,7 +83,6 @@ export function createRateLimiter(options: RateLimiterOptions): RateLimiter {
           tracked. Without it, a stream of one-off keys grows the map forever,
           which turns the defence into the vulnerability.
         */
-        if (windows.size >= maxKeys) prune(nowMs);
         windows.set(key, { count: 1, resetAt: nowMs + windowMs });
         return { allowed: true, retryAfterSeconds: 0 };
       }

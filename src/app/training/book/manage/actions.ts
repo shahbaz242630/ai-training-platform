@@ -5,7 +5,7 @@ import { after } from "next/server";
 import { withTransaction } from "@/data/db";
 import { getEmailProvider } from "@/domain/messaging/factory";
 import { getSchedulingProvider } from "@/domain/scheduling/factory";
-import { clientAddressFrom } from "@/lib/client-address";
+import { limitKeyFrom } from "@/lib/client-address";
 import { clientEnv, serverEnv } from "@/lib/env";
 import { logger } from "@/lib/logger";
 import { createRateLimiter } from "@/lib/rate-limit";
@@ -42,7 +42,7 @@ async function guarded(
   failure: string,
   run: (deps: ManageDeps) => Promise<FlowResult<{ readonly newTime: string }>>,
 ): Promise<FlowResult<{ readonly newTime: string }>> {
-  const address = clientAddressFrom((await headers()).get("x-forwarded-for"));
+  const address = limitKeyFrom((await headers()).get("x-forwarded-for"));
   const rate = limiter.check(address, new Date());
   if (!rate.allowed) {
     return {
@@ -85,7 +85,7 @@ export async function requestManageLinkAction(
   input: unknown,
 ): Promise<FlowResult<{ readonly message: string }>> {
   const now = new Date();
-  const address = clientAddressFrom((await headers()).get("x-forwarded-for"));
+  const address = limitKeyFrom((await headers()).get("x-forwarded-for"));
   const rate = requestLimiter.check(address, now);
   if (!rate.allowed) {
     return {

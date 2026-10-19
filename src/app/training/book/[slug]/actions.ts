@@ -6,7 +6,12 @@ import { captureLead, findCustomerById } from "@/data/customers";
 import { withTransaction } from "@/data/db";
 import { parsePrePaymentIntake, type IntakeFieldError } from "@/domain/intake/pre-payment-intake";
 import { createRateLimiter } from "@/lib/rate-limit";
-import { clientAddressFrom, isUsableReturnUrl } from "@/lib/client-address";
+import {
+  clientAddressFrom,
+  isUsableReturnUrl,
+  limitKeyFrom,
+  networkBlock,
+} from "@/lib/client-address";
 import { logger } from "@/lib/logger";
 import { recordAudit } from "@/lib/audit";
 import { clientEnv, serverEnv } from "@/lib/env";
@@ -92,7 +97,7 @@ export interface CaptureLeadResult {
  */
 async function callerKey(): Promise<string> {
   const headerList = await headers();
-  return clientAddressFrom(headerList.get("x-forwarded-for"));
+  return limitKeyFrom(headerList.get("x-forwarded-for"));
 }
 
 export async function captureLeadAction(input: unknown): Promise<CaptureLeadResult> {
@@ -343,7 +348,8 @@ export async function startCheckoutAction(input: unknown): Promise<StartCheckout
       owner: {
         customerId: lead.customerId,
         ownerKey: lead.ownerKey,
-        clientAddress: consent.ipAddress,
+        // Counted by network: every address in one IPv6 block is one caller.
+        clientAddress: consent.ipAddress === null ? null : networkBlock(consent.ipAddress),
       },
       limits: { maxPerAddress: MAX_LIVE_HOLDS_PER_ADDRESS, maxLive: MAX_LIVE_HOLDS, now },
     });

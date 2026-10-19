@@ -64,6 +64,22 @@ describe("createRateLimiter", () => {
     expect(limiter.size()).toBeLessThanOrEqual(50);
   });
 
+  it("never holds more than its cap plus the shared overflow, however many live keys arrive", () => {
+    const limiter = createRateLimiter({ limit: 1, windowMs: 60_000, maxKeys: 100 });
+    for (let i = 0; i < 5_000; i++) limiter.check(`live-${i}`, NOW);
+    expect(limiter.size()).toBeLessThanOrEqual(101);
+  });
+
+  it("counts newcomers together while full, so a flood of fresh keys is limited as one", () => {
+    const limiter = createRateLimiter({ limit: 2, windowMs: 60_000, maxKeys: 3 });
+    for (const key of ["a", "b", "c"]) limiter.check(key, NOW);
+    expect(limiter.check("new-1", NOW).allowed).toBe(true);
+    expect(limiter.check("new-2", NOW).allowed).toBe(true);
+    expect(limiter.check("new-3", NOW).allowed).toBe(false);
+    // Somebody already counted keeps their own allowance.
+    expect(limiter.check("a", NOW).allowed).toBe(true);
+  });
+
   it("keeps counting correctly for a live key after pruning", () => {
     const limiter = createRateLimiter({ limit: 1, windowMs: 60_000, maxKeys: 2 });
     expect(limiter.check("live", NOW).allowed).toBe(true);

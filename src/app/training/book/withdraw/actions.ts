@@ -7,7 +7,7 @@ import { withTransaction } from "@/data/db";
 import { getEmailProvider } from "@/domain/messaging/factory";
 import { getPaymentProvider } from "@/domain/payments/factory";
 import { recordAudit } from "@/lib/audit";
-import { clientAddressFrom } from "@/lib/client-address";
+import { clientAddressFrom, limitKeyFrom } from "@/lib/client-address";
 import { logger } from "@/lib/logger";
 import { createRateLimiter } from "@/lib/rate-limit";
 import {
@@ -36,7 +36,7 @@ const flowDeps = () => ({
 });
 
 async function limited(): Promise<string | null> {
-  const address = clientAddressFrom((await headers()).get("x-forwarded-for"));
+  const address = limitKeyFrom((await headers()).get("x-forwarded-for"));
   const rate = limiter.check(address, new Date());
   return rate.allowed
     ? null

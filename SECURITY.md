@@ -199,6 +199,12 @@ discovered:
   addresses can keep those ten held and so delay real bookings for as long as
   they keep going. Closing that needs bot protection at the edge, tracked for
   launch.
+- **Limits count networks, not addresses** (October 2026 audit). One IPv6
+  connection is handed a /64 block of billions of addresses, so every address
+  in a /64 counts as one caller, for every rate limit and the per-address hold
+  cap. IPv4 stays per address. Recorded evidence keeps the full address. While
+  a limiter's table is full, new callers share one overflow allowance: memory
+  stays bounded and nobody already counted starts again from zero.
 - The booking page shows availability read from the calendar (Microsoft
   Graph, which allows four concurrent requests per mailbox) and the database.
   It once read both on every view, so a small flood of page loads could get the

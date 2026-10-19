@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { headers } from "next/headers";
 import { Container } from "@/components/ui/Container";
 import { withTransaction } from "@/data/db";
-import { clientAddressFrom } from "@/lib/client-address";
+import { limitKeyFrom } from "@/lib/client-address";
 import { serverEnv } from "@/lib/env";
 import { logger } from "@/lib/logger";
 import { createRateLimiter } from "@/lib/rate-limit";
@@ -34,7 +34,7 @@ export default async function DeskDecisionPage({
   const token = typeof t === "string" ? t.slice(0, 300) : "";
   const secret = serverEnv().MANAGE_LINK_SECRET;
   const rate = pageLimiter.check(
-    clientAddressFrom((await headers()).get("x-forwarded-for")),
+    limitKeyFrom((await headers()).get("x-forwarded-for")),
     new Date(),
   );
 
