@@ -141,6 +141,16 @@ export const BOOKING_POLICY = {
   withdrawalRefundDays: 14,
 } as const;
 
+/**
+ * Said wherever a refund is promised or reported: customers outside the UAE
+ * pay in dirhams and their bank converts it, so the refund can land as a
+ * slightly different amount in their own currency. The Booking and Refund
+ * Policy's own words (founder, sessions 96 and 100).
+ */
+export const REFUND_CURRENCY_NOTE =
+  "Refunds are made in UAE dirhams. If your bank converted the payment, the amount in your " +
+  "own currency may differ slightly because of exchange rates.";
+
 export const FOOTER_LINKS = [
   { href: POLICY_LINKS.terms, label: "Coaching Terms" },
   { href: POLICY_LINKS.bookingAndRefunds, label: "Booking and Refund Policy" },

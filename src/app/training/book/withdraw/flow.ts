@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { contactLine } from "@/components/ui/ContactLink";
 import { getSessionBySlug } from "@/config/sessions";
+import { SITE } from "@/config/site";
 import type { QueryRunner } from "@/data/db";
 import {
   findBookingForWithdrawal,
@@ -42,7 +43,11 @@ export const withdrawalFormSchema = z
     email: z.string().trim().max(320).email("Please enter the email address you booked with."),
     reference: z.string().max(40),
     consumer: z.literal(true, {
-      error: "Please confirm you live in the UK or EU and booked for yourself.",
+      // Not just a refusal: somebody elsewhere is told what they can do instead.
+      error:
+        "This form is for the 14-day cancellation right that UK and EU consumers have. Living " +
+        "elsewhere? You can move your session once, free, from the Reschedule link in your " +
+        `booking email, or email ${SITE.supportEmail}.`,
     }),
   })
   .strict();

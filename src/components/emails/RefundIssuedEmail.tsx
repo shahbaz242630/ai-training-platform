@@ -1,3 +1,4 @@
+import { REFUND_CURRENCY_NOTE } from "@/config/site";
 import { EmailLayout, emailStyles } from "./EmailLayout";
 
 /**
@@ -31,6 +32,7 @@ export function RefundIssuedEmail(props: RefundIssuedEmailProps) {
         with. Banks usually take 5 to 10 working days to show it on your statement. If it has not
         appeared after 10 working days, reply to this email and we will look into it.
       </p>
+      <p style={emailStyles.paragraph}>{REFUND_CURRENCY_NOTE}</p>
       <p style={emailStyles.detail}>
         <strong>Booking reference:</strong> {props.reference}
       </p>

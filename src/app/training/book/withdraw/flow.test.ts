@@ -109,7 +109,8 @@ describe("step 1: look up", () => {
     const result = await lookUpWithdrawal({ ...b.form, consumer: false }, deps(new Date()));
     expect(result).toEqual({
       ok: false,
-      message: "Please confirm you live in the UK or EU and booked for yourself.",
+      message:
+        "This form is for the 14-day cancellation right that UK and EU consumers have. Living elsewhere? You can move your session once, free, from the Reschedule link in your booking email, or email knowledgecentre@zaaheen.com.",
     });
   });
 

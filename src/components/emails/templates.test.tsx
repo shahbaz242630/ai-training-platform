@@ -315,3 +315,39 @@ describe("renderRefundIssued", () => {
     expect(containsPlaceholder(email)).toBe(false);
   });
 });
+
+/*
+  Customers outside the UAE pay in dirhams and their bank converts it, so a
+  refund can land as a slightly different amount in their own currency. Every
+  email that speaks about a refund says so (founder, session 100), in the
+  words already approved for the Booking and Refund Policy.
+*/
+describe("the refund currency note", () => {
+  const note =
+    "Refunds are made in UAE dirhams. If your bank converted the payment, the amount in your own currency may differ slightly because of exchange rates.";
+
+  it("is in the refund email", async () => {
+    const email = await renderRefundIssued({
+      firstName: "Test",
+      reference: "3F9A1C2B",
+      amountFils: 129_900,
+    });
+    expect(email.text).toContain(note);
+  });
+
+  it("is in every version of the withdrawal acknowledgement", async () => {
+    for (const refund of ["succeeded", "issued", "owed"] as const) {
+      const email = await renderWithdrawalAcknowledgement({
+        firstName: "Amina",
+        sessionTitle: "Claude, Claude Code & Advanced Workflows",
+        reference: "3F9A1C2B",
+        statement: "I, Amina Khan, withdraw from my contract.",
+        receivedAt: new Date("2026-10-07T09:05:00Z"),
+        timeZone: "Europe/London",
+        refundDueFils: 129_900,
+        refund,
+      });
+      expect(email.text).toContain(note);
+    }
+  });
+});

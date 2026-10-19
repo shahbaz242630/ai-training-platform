@@ -32,3 +32,19 @@ describe("withdrawal form name", () => {
     }
   });
 });
+
+/*
+  The form is only for the UK and EU statutory right. Somebody elsewhere who
+  leaves the box unticked is told what they can do instead, not just refused
+  (founder, session 100: a UAE customer was left with nowhere to go).
+*/
+describe("withdrawal form residence", () => {
+  it("tells somebody outside the UK and EU what they can do instead", () => {
+    const result = withdrawalFormSchema.safeParse({ ...form, consumer: false });
+    expect(result.success).toBe(false);
+    const message = result.error?.issues.find((issue) => issue.path[0] === "consumer")?.message;
+    expect(message).toBe(
+      "This form is for the 14-day cancellation right that UK and EU consumers have. Living elsewhere? You can move your session once, free, from the Reschedule link in your booking email, or email knowledgecentre@zaaheen.com.",
+    );
+  });
+});
