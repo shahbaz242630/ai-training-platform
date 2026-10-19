@@ -78,6 +78,8 @@ const CHECKOUT_SESSION_TTL_MINUTES = 30;
   request is simply repeated later with the same key.
 */
 const REFUND_TIMEOUT_MS = 15_000;
+/** The card-country question at a withdrawal: one try, five seconds, then the desk decides. */
+const CARD_COUNTRY_TIMEOUT_MS = 5_000;
 /** At most two tries of 15 seconds: well inside the five-minute claim (data/refunds.ts). */
 const REFUND_NETWORK_RETRIES = 1;
 
@@ -263,6 +265,23 @@ export class StripePaymentProvider implements PaymentProvider {
       timeout: REFUND_TIMEOUT_MS,
     });
     return toRefundSnapshot(refund);
+  }
+
+  async getCardCountry(paymentIntentId: string): Promise<string | null> {
+    /*
+      The charge is expanded: unexpanded, `latest_charge` is a bare id and
+      carries no card. Short and never retried: a customer is waiting on the
+      withdrawal page, and a slow answer costs nothing but a desk decision.
+    */
+    const intent = await this.stripe.paymentIntents.retrieve(
+      paymentIntentId,
+      { expand: ["latest_charge"] },
+      { timeout: CARD_COUNTRY_TIMEOUT_MS, maxNetworkRetries: 0 },
+    );
+    const charge = intent.latest_charge;
+    if (!charge || typeof charge === "string") return null;
+    const country = charge.payment_method_details?.card?.country ?? null;
+    return country ? country.toUpperCase() : null;
   }
 }
 

@@ -100,6 +100,7 @@ describe("applying the migrations", () => {
       "refunds",
       "slot_holds",
       "webhook_events",
+      "withdrawal_decisions",
       "withdrawal_requests",
     ]);
   });

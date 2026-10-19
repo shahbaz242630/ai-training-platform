@@ -253,7 +253,7 @@ describe("recordRefundIssued", () => {
     const id = await owed(s);
     await only(id);
     const [claimed] = await claimDueRefunds(runner, NOW, 5);
-    const move = await recordRefundIssued(
+    const { move } = await recordRefundIssued(
       runner,
       claimed!,
       { providerRefundId: "re_ok", status: "succeeded" },

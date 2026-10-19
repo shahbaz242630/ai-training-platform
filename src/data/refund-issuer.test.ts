@@ -258,7 +258,24 @@ describe("reportRefundEvent", () => {
     orderId: "00000000-0000-4000-8000-000000000001",
     refundId: "00000000-0000-4000-8000-000000000002",
     status: "succeeded" as const,
+    cancelledBookings: [] as readonly string[],
   };
+
+  it("records each booking a full refund cancelled", async () => {
+    await reportRefundEvent(
+      {
+        ...base,
+        result: "applied",
+        orderMove: "refunded",
+        cancelledBookings: ["00000000-0000-4000-8000-0000000000b1"],
+      },
+      "evt_c",
+    );
+    expect(audits.map((a) => [a.action, a.subject])).toEqual([
+      ["order.refunded", `order:${base.orderId}`],
+      ["booking.cancelled", "booking:00000000-0000-4000-8000-0000000000b1"],
+    ]);
+  });
 
   it("leaves no trail for a stale event", async () => {
     await reportRefundEvent({ ...base, result: "stale", orderMove: "unchanged" }, "evt_s");

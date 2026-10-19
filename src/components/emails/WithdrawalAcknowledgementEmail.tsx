@@ -20,6 +20,8 @@ export interface WithdrawalAcknowledgementEmailProps {
   /** e.g. "AED 1,299" */
   readonly refundLabel: string;
   readonly refundDays: number;
+  /** Working days the desk takes to answer a notice it decides. */
+  readonly deskReplyDays: number;
   readonly refund: WithdrawalRefundState;
   readonly companyName: string;
   readonly supportEmail: string;
@@ -29,8 +31,10 @@ export interface WithdrawalAcknowledgementEmailProps {
  * Where the refund stands when the email goes. "Refunded" only once Stripe
  * says it succeeded: a refund still on its way can fail (a closed card), and
  * a durable record should not say something that may turn out untrue.
+ * "Review": the card is not from the UK or the EU, so a person decides and
+ * the booking stays in place meanwhile; nothing is promised but the answer.
  */
-export type WithdrawalRefundState = "succeeded" | "issued" | "owed";
+export type WithdrawalRefundState = "succeeded" | "issued" | "owed" | "review";
 
 /** What the customer's bank does after that is not ours to promise, so it is said as usual, not as a promise. */
 const BANK_TIMING =
@@ -53,6 +57,14 @@ function refundSentence(props: WithdrawalAcknowledgementEmailProps): string {
       return (
         `Your booking is cancelled. We will refund ${props.refundLabel} to the card you paid with ` +
         `within ${props.refundDays} days, at no cost to you, and email you when the refund has been issued.`
+      );
+    case "review":
+      return (
+        "We could not confirm automatically that the UK and EU 14-day right applies to this " +
+        "booking, so a member of our team will look at it and reply by email within " +
+        `${props.deskReplyDays} working days. Your booking stays in place until then. If the ` +
+        `right applies, we refund ${props.refundLabel} in full, to the card you paid with, within ` +
+        `${props.refundDays} days of your notice.`
       );
   }
 }
@@ -88,7 +100,8 @@ export function WithdrawalAcknowledgementEmail(props: WithdrawalAcknowledgementE
           <strong>Booking reference:</strong> {props.reference}
         </p>
         <p style={emailStyles.detail}>
-          <strong>Refund:</strong> {props.refundLabel}
+          <strong>Refund:</strong>{" "}
+          {props.refund === "review" ? "Being reviewed" : props.refundLabel}
         </p>
       </div>
       <p style={emailStyles.paragraph}>{refundSentence(props)}</p>

@@ -3,7 +3,13 @@ import { join } from "node:path";
 import { PGlite } from "@electric-sql/pglite";
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import type { QueryRunner } from "./db";
-import { findBookingForWithdrawal, loadWithdrawal, recordWithdrawal } from "./withdrawals";
+import {
+  findBookingForWithdrawal,
+  declineWithdrawal,
+  listWithdrawalsForDesk,
+  loadWithdrawal,
+  recordWithdrawal,
+} from "./withdrawals";
 import { bookingReference } from "@/domain/booking/withdrawal";
 
 /**
@@ -85,6 +91,8 @@ const input = (s: Seeded, over: Partial<Parameters<typeof recordWithdrawal>[1]> 
   receivedAt: new Date("2026-10-07T09:00:00Z"),
   ipAddress: "203.0.113.9",
   userAgent: "test",
+  route: "automatic" as const,
+  cardCountry: "GB",
   ...over,
 });
 
@@ -134,6 +142,8 @@ describe("recordWithdrawal", () => {
       created: true,
       receivedAt: new Date("2026-10-07T09:00:00Z"),
       refundDueFils: 149900,
+      route: "automatic",
+      declined: false,
     });
 
     const booking = await db.query<{ status: string }>(
@@ -177,6 +187,8 @@ describe("recordWithdrawal", () => {
       created: false,
       receivedAt: new Date("2026-10-07T09:00:00Z"),
       refundDueFils: 149900,
+      route: "automatic",
+      declined: false,
     });
     const count = await db.query<{ n: number }>(
       `select count(*)::int as n from withdrawal_requests where booking_id = $1`,
@@ -212,6 +224,8 @@ describe("recordWithdrawal", () => {
     expect(found?.withdrawal).toEqual({
       receivedAt: new Date("2026-10-07T09:00:00Z"),
       refundDueFils: 149900,
+      route: "automatic",
+      declined: false,
     });
   });
 });
@@ -293,11 +307,223 @@ describe("loadWithdrawal", () => {
       statement: "I, Amina Khan, withdraw from my contract.",
       refundDueFils: 149900,
       receivedAt: new Date("2026-10-07T09:00:00Z"),
+      route: "automatic",
+      declined: false,
     });
   });
 
   it("returns null for a booking with no withdrawal", async () => {
     const s = await seed();
     expect(await loadWithdrawal(runner, s.bookingId)).toBeNull();
+  });
+});
+
+describe("a notice the desk decides", () => {
+  const desk = (s: Seeded) => input(s, { route: "desk", cardCountry: "AE" });
+
+  it("is kept, with the card's country and the route, and acknowledged", async () => {
+    const s = await seed();
+    const result = await recordWithdrawal(runner, desk(s));
+    expect(result).toEqual({
+      created: true,
+      receivedAt: new Date("2026-10-07T09:00:00Z"),
+      refundDueFils: 149900,
+      route: "desk",
+      declined: false,
+    });
+    const row = await db.query<{ route: string; card_country: string | null }>(
+      `select route, card_country from withdrawal_requests where booking_id = $1`,
+      [s.bookingId],
+    );
+    expect(row.rows).toEqual([{ route: "desk", card_country: "AE" }]);
+    const ack = await db.query<{ status: string }>(
+      `select status from communication_log
+        where booking_id = $1 and template_key = 'withdrawal_acknowledgement'`,
+      [s.bookingId],
+    );
+    expect(ack.rows).toEqual([{ status: "queued" }]);
+  });
+
+  it("leaves the booking, its reminders and its time exactly as they were", async () => {
+    const s = await seed();
+    await queue(s.bookingId, "reminder_24h");
+    const b = await db.query<{ order_id: string; scheduled_start: Date; scheduled_end: Date }>(
+      `select order_id, scheduled_start, scheduled_end from bookings where id = $1`,
+      [s.bookingId],
+    );
+    const slot = b.rows[0]!;
+    const hold = await db.query<{ id: string }>(
+      `insert into slot_holds (slot_start, slot_end, order_id, expires_at, status)
+       values ($1, $2, $3, $1, 'converted') returning id`,
+      [slot.scheduled_start, slot.scheduled_end, slot.order_id],
+    );
+
+    await recordWithdrawal(runner, desk(s));
+
+    const booking = await db.query<{ status: string }>(
+      `select status from bookings where id = $1`,
+      [s.bookingId],
+    );
+    expect(booking.rows[0]?.status).toBe("confirmed");
+    const reminder = await db.query<{ status: string }>(
+      `select status from communication_log
+        where booking_id = $1 and template_key = 'reminder_24h'`,
+      [s.bookingId],
+    );
+    expect(reminder.rows[0]?.status).toBe("queued");
+    const held = await db.query<{ status: string }>(`select status from slot_holds where id = $1`, [
+      hold.rows[0]!.id,
+    ]);
+    expect(held.rows[0]?.status).toBe("converted");
+  });
+
+  it("moves no money: no refund is written for the sweep", async () => {
+    const s = await seed();
+    await recordWithdrawal(runner, desk(s));
+    const refunds = await db.query<{ n: number }>(
+      `select count(*)::int as n
+         from refunds r join withdrawal_requests w on w.id = r.withdrawal_request_id
+        where w.booking_id = $1`,
+      [s.bookingId],
+    );
+    expect(refunds.rows[0]?.n).toBe(0);
+  });
+
+  it("stays the desk's however often it is confirmed, even if a later look found a UK card", async () => {
+    const s = await seed();
+    await recordWithdrawal(runner, desk(s));
+    const again = await recordWithdrawal(runner, input(s, { cardCountry: "GB" }));
+    expect(again).toMatchObject({ created: false, route: "desk" });
+    const booking = await db.query<{ status: string }>(
+      `select status from bookings where id = $1`,
+      [s.bookingId],
+    );
+    expect(booking.rows[0]?.status).toBe("confirmed");
+  });
+
+  it("shows on the next lookup as the desk's", async () => {
+    const s = await seed();
+    await recordWithdrawal(runner, desk(s));
+    const found = await findBookingForWithdrawal(runner, s.reference, s.email);
+    expect(found?.withdrawal?.route).toBe("desk");
+    expect(found?.paymentIntentId).toBeNull();
+  });
+
+  it("refuses a card country that is not two capital letters", async () => {
+    const s = await seed();
+    await expect(
+      recordWithdrawal(runner, input(s, { route: "desk", cardCountry: "uae" })),
+    ).rejects.toThrow();
+  });
+});
+
+describe("listWithdrawalsForDesk", () => {
+  const RECEIVED = new Date("2026-10-07T09:00:00Z");
+  const DAYS = (d: number) => new Date(RECEIVED.getTime() + d * 24 * 3_600_000);
+  const listed = async (now: Date) =>
+    (await listWithdrawalsForDesk(runner, now)).map((w) => w.bookingId);
+
+  it("lists a notice the desk has not yet decided, with what the alert needs", async () => {
+    const s = await seed({ start: "2026-12-01T15:00:00Z" });
+    await recordWithdrawal(runner, input(s, { route: "desk", cardCountry: "AE" }));
+    const found = (await listWithdrawalsForDesk(runner, DAYS(1))).find(
+      (w) => w.bookingId === s.bookingId,
+    );
+    expect(found).toEqual({
+      bookingId: s.bookingId,
+      sessionSlug: "claude-claude-code",
+      scheduledStart: new Date("2026-12-01T15:00:00Z"),
+      receivedAt: RECEIVED,
+      cardCountry: "AE",
+      amountFils: 149900,
+      paymentIntentId: null,
+    });
+  });
+
+  it("never lists a notice refunded automatically", async () => {
+    const s = await seed({ start: "2026-12-02T15:00:00Z" });
+    await recordWithdrawal(runner, input(s));
+    expect(await listed(DAYS(1))).not.toContain(s.bookingId);
+  });
+
+  it("stops listing it once the payment is refunded: the approval", async () => {
+    const s = await seed({ start: "2026-12-03T15:00:00Z" });
+    await recordWithdrawal(runner, input(s, { route: "desk", cardCountry: "AE" }));
+    await db.query(
+      `update orders set payment_status = 'refunded'
+        where id = (select order_id from bookings where id = $1)`,
+      [s.bookingId],
+    );
+    expect(await listed(DAYS(1))).not.toContain(s.bookingId);
+  });
+
+  it("keeps listing it after the session begins, until the refund days are over", async () => {
+    const soon = await seed({ start: DAYS(3).toISOString() });
+    await recordWithdrawal(runner, input(soon, { route: "desk", cardCountry: "AE" }));
+    expect(await listed(DAYS(2))).toContain(soon.bookingId);
+    // Still owed a decision: the session starting must not close the alert quietly.
+    expect(await listed(DAYS(4))).toContain(soon.bookingId);
+    expect(await listed(DAYS(15))).not.toContain(soon.bookingId);
+
+    const later = await seed({ start: null });
+    await recordWithdrawal(runner, input(later, { route: "desk", cardCountry: null }));
+    expect(await listed(DAYS(14))).toContain(later.bookingId);
+    expect(await listed(DAYS(15))).not.toContain(later.bookingId);
+  });
+});
+
+describe("declineWithdrawal", () => {
+  const desk = (s: Seeded) => input(s, { route: "desk", cardCountry: "AE" });
+
+  it("records the desk's decline once, and the notice leaves the desk's list", async () => {
+    const s = await seed({ start: "2026-12-10T15:00:00Z" });
+    await recordWithdrawal(runner, desk(s));
+    const now = new Date("2026-10-08T09:00:00Z");
+    expect(await declineWithdrawal(runner, s.bookingId, now)).toBe("declined");
+    expect(await declineWithdrawal(runner, s.bookingId, now)).toBe("already_declined");
+    expect((await listWithdrawalsForDesk(runner, now)).map((w) => w.bookingId)).not.toContain(
+      s.bookingId,
+    );
+    const found = await findBookingForWithdrawal(runner, s.reference, s.email);
+    expect(found?.withdrawal?.declined).toBe(true);
+    const booking = await db.query<{ status: string }>(
+      `select status from bookings where id = $1`,
+      [s.bookingId],
+    );
+    expect(booking.rows[0]?.status).toBe("confirmed");
+  });
+
+  it("refuses a notice refunded automatically, one already refunded, and a booking with none", async () => {
+    const auto = await seed({ start: "2026-12-11T15:00:00Z" });
+    await recordWithdrawal(runner, input(auto));
+    expect(await declineWithdrawal(runner, auto.bookingId, new Date())).toBe("not_for_the_desk");
+
+    const refunded = await seed({ start: "2026-12-12T15:00:00Z" });
+    await recordWithdrawal(runner, desk(refunded));
+    await db.query(
+      `update orders set payment_status = 'refunded'
+        where id = (select order_id from bookings where id = $1)`,
+      [refunded.bookingId],
+    );
+    expect(await declineWithdrawal(runner, refunded.bookingId, new Date())).toBe(
+      "not_for_the_desk",
+    );
+
+    const none = await seed({ start: "2026-12-13T15:00:00Z" });
+    expect(await declineWithdrawal(runner, none.bookingId, new Date())).toBe("not_for_the_desk");
+  });
+
+  it("keeps a part-refunded notice on the desk's list: a gesture is not the decision", async () => {
+    const s = await seed({ start: "2026-12-14T15:00:00Z" });
+    await recordWithdrawal(runner, desk(s));
+    await db.query(
+      `update orders set payment_status = 'partially_refunded'
+        where id = (select order_id from bookings where id = $1)`,
+      [s.bookingId],
+    );
+    const now = new Date("2026-10-08T09:00:00Z");
+    expect((await listWithdrawalsForDesk(runner, now)).map((w) => w.bookingId)).toContain(
+      s.bookingId,
+    );
   });
 });

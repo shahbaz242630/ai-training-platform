@@ -414,6 +414,8 @@ describe("the withdrawal acknowledgement", () => {
       receivedAt: PAST,
       ipAddress: null,
       userAgent: null,
+      route: "automatic",
+      cardCountry: "GB",
     });
 
     const result = await run();
@@ -442,6 +444,8 @@ describe("the withdrawal acknowledgement", () => {
       receivedAt: PAST,
       ipAddress: null,
       userAgent: null,
+      route: "automatic",
+      cardCountry: "GB",
     });
     await runner.query(
       `update refunds set status = 'pending', provider_refund_id = 're_send_issued'
@@ -468,6 +472,8 @@ describe("the withdrawal acknowledgement", () => {
       receivedAt: PAST,
       ipAddress: null,
       userAgent: null,
+      route: "automatic",
+      cardCountry: "GB",
     });
 
     await run();

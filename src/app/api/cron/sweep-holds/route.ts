@@ -21,7 +21,7 @@ import {
   renderPaidBookingNeedsTime,
   renderRefundNeedsAttention,
 } from "@/components/emails/desk-alerts";
-import { TRAINING_BASE, supportEmail } from "@/config/site";
+import { BOOKING_POLICY, TRAINING_BASE, supportEmail } from "@/config/site";
 import { getEmailProvider } from "@/domain/messaging/factory";
 import { issueDueRefunds, refreshPendingRefunds } from "@/data/refund-issuer";
 import { getPaymentProvider } from "@/domain/payments/factory";
@@ -29,9 +29,11 @@ import { purgeExpiredPersonalData, type PurgeReport } from "@/data/retention";
 import { readAppliedSchemaVersion, schemaStatus } from "@/data/schema-version";
 import { recordAudit } from "@/lib/audit";
 import { watchCalendar } from "./calendar-watch-step";
+import { withdrawalDecisionAlerts } from "./withdrawal-decision-step";
 import { authoriseCronRequest } from "@/lib/cron-auth";
 import { clientEnv, serverEnv } from "@/lib/env";
 import { logger } from "@/lib/logger";
+import { createDeclineToken } from "@/lib/desk-link";
 import { createManageToken } from "@/lib/manage-link";
 import { addDays } from "@/lib/time";
 
@@ -193,6 +195,15 @@ export async function POST(request: Request): Promise<NextResponse> {
     // The same for a customer who has paid and has no session time (KC B8).
     const paidBookingAlerts = await paidBookingAlertsOrReport(waitingForTime);
 
+    // And a withdrawal whose card is not from the UK or the EU, waiting for a person.
+    const withdrawalDecisions = await withdrawalDecisionAlerts({
+      transaction: withTransaction,
+      email: getEmailProvider,
+      clock: () => new Date(),
+      desk: supportEmail,
+      declineUrl: declineUrlFor,
+    });
+
     /*
       What the privacy notice says we stop keeping, deleted on schedule. Every
       step is keyed on time, so a run with nothing due changes nothing.
@@ -220,6 +231,7 @@ export async function POST(request: Request): Promise<NextResponse> {
       // rather than only in a log somebody has to go looking for.
       paidButUnscheduled,
       paidBookingAlerts,
+      withdrawalDecisions,
       schema,
     });
   } catch (error) {
@@ -448,6 +460,21 @@ function chooseTimeUrlFor(problem: PaidButUnscheduled, now: Date): string | null
     secret,
   );
   return `${clientEnv.NEXT_PUBLIC_SITE_URL}${TRAINING_BASE}/book/manage?t=${token}`;
+}
+
+/**
+ * The desk's link to decline a withdrawal, valid while the decision matters:
+ * the refund days and a day's grace, counted from now so every reminder's
+ * link outlives the alert. Null when no signing secret is set.
+ */
+function declineUrlFor(bookingId: string): string | null {
+  const secret = serverEnv().MANAGE_LINK_SECRET;
+  if (!secret) return null;
+  const token = createDeclineToken(
+    { bookingId, expiresAt: addDays(new Date(), BOOKING_POLICY.withdrawalRefundDays + 1) },
+    secret,
+  );
+  return `${clientEnv.NEXT_PUBLIC_SITE_URL}${TRAINING_BASE}/book/desk-decision?t=${token}`;
 }
 
 /**

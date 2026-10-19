@@ -12,11 +12,14 @@ import {
   bookingReference,
   decideWithdrawal,
   normaliseReference,
+  withdrawalRoute,
   withdrawalStatement,
   type WithdrawalRefusal,
+  type WithdrawalRoute,
 } from "@/domain/booking/withdrawal";
 import { isSafeName } from "@/domain/intake/pre-payment-intake";
 import { describeInstant, presentSlots } from "@/domain/scheduling/slot-presentation";
+import { logger } from "@/lib/logger";
 import { formatAed } from "@/lib/money";
 
 /**
@@ -69,6 +72,24 @@ export interface WithdrawalReceipt {
   readonly refundDue: string;
   /** False when the notice had already been received earlier: no new email goes. */
   readonly isNew: boolean;
+  /** Automatic: cancelled and refunded now. Desk: the booking stays while a person decides. */
+  readonly route: WithdrawalRoute;
+  /** For a desk notice, where the decision stands: so a later look never says "reviewing" forever. */
+  readonly deskState: DeskState | null;
+  /** Whether the booking is cancelled now: a refund after the session leaves it as it was. */
+  readonly bookingCancelled: boolean;
+}
+
+export type DeskState = "reviewing" | "refunded" | "declined";
+
+function deskStateOf(
+  route: WithdrawalRoute,
+  paymentStatus: string,
+  declined: boolean,
+): DeskState | null {
+  if (route !== "desk") return null;
+  if (paymentStatus === "refunded") return "refunded";
+  return declined ? "declined" : "reviewing";
 }
 
 export type FlowResult<T> =
@@ -79,6 +100,8 @@ export type TransactionRunner = <T>(work: (runner: QueryRunner) => Promise<T>) =
 export interface FlowDeps {
   readonly transaction: TransactionRunner;
   readonly now: Date;
+  /** The issuing country of the card behind a payment, from the processor. */
+  readonly cardCountry: (paymentIntentId: string) => Promise<string | null>;
 }
 
 export const NOT_FOUND_MESSAGE = (): string =>
@@ -167,6 +190,13 @@ export async function lookUpWithdrawal(
         received: describeInstant(booking.withdrawal.receivedAt, booking.customerTimezone),
         refundDue: formatAed(booking.withdrawal.refundDueFils),
         isNew: false,
+        route: booking.withdrawal.route,
+        deskState: deskStateOf(
+          booking.withdrawal.route,
+          booking.paymentStatus,
+          booking.withdrawal.declined,
+        ),
+        bookingCancelled: booking.bookingStatus === "cancelled",
       },
     };
   }
@@ -192,6 +222,25 @@ export async function confirmWithdrawal(
 ): Promise<FlowResult<{ receipt: WithdrawalReceipt; bookingId: string }>> {
   const parsed = parse(input);
   if (!parsed.ok) return parsed;
+
+  /*
+    The card country is asked before the transaction, so no database
+    connection or order lock is held while the processor answers, and only
+    for a notice that would be kept: a booking about to be refused, or one
+    already withdrawn, needs no question.
+  */
+  const before = await deps.transaction((runner) =>
+    findBookingForWithdrawal(runner, parsed.reference, parsed.form.email),
+  );
+  if (before === null) return { ok: false, message: NOT_FOUND_MESSAGE() };
+  let cardCountry: string | null = null;
+  if (
+    before.withdrawal === null &&
+    before.paymentIntentId !== null &&
+    decideWithdrawal({ ...before, now: deps.now }).ok
+  ) {
+    cardCountry = await readCardCountry(deps, before.paymentIntentId);
+  }
 
   return deps.transaction(async (runner) => {
     const booking = await findBookingForWithdrawal(runner, parsed.reference, parsed.form.email, {
@@ -220,6 +269,10 @@ export async function confirmWithdrawal(
       receivedAt: deps.now,
       ipAddress: context.ipAddress,
       userAgent: context.userAgent,
+      // The country answers for the payment it was asked about, and no other.
+      ...(booking.paymentIntentId !== null && booking.paymentIntentId === before.paymentIntentId
+        ? { route: withdrawalRoute(cardCountry), cardCountry }
+        : { route: "desk" as const, cardCountry: null }),
     });
     return {
       ok: true,
@@ -228,7 +281,28 @@ export async function confirmWithdrawal(
         received: describeInstant(recorded.receivedAt, booking.customerTimezone),
         refundDue: formatAed(recorded.refundDueFils),
         isNew: recorded.created,
+        route: recorded.route,
+        deskState: deskStateOf(recorded.route, booking.paymentStatus, recorded.declined),
+        // Read before the notice was kept: an automatic one has just cancelled it.
+        bookingCancelled: booking.bookingStatus === "cancelled" || recorded.route === "automatic",
       },
     };
   });
+}
+
+/**
+ * The card country, or null when the processor cannot say. Null sends the
+ * notice to the desk: an outage must never be what decides that money goes back.
+ */
+async function readCardCountry(deps: FlowDeps, paymentIntentId: string): Promise<string | null> {
+  try {
+    const country = await deps.cardCountry(paymentIntentId);
+    // Anything but a plain two-letter code is not a country this can decide on.
+    return country !== null && /^[A-Z]{2}$/.test(country) ? country : null;
+  } catch (error) {
+    logger.warn("the card country could not be read; the withdrawal goes to the desk", {
+      error: (error as Error).name,
+    });
+    return null;
+  }
 }

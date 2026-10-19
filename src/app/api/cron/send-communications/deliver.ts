@@ -1,4 +1,5 @@
 import {
+  renderCancellationConfirmation,
   renderRefundIssued,
   renderTemplate,
   renderWithdrawalAcknowledgement,
@@ -40,10 +41,11 @@ import { termsPdfFor, termsPdfName } from "@/legal/terms-pdfs";
 
 export type Outcome = "sent" | "retry" | "failed" | "withdrawn";
 
-/** Messages about a withdrawal, which still go after the booking is cancelled. */
+/** Messages about the cancellation itself, which still go after the booking is cancelled. */
 const ABOUT_A_WITHDRAWAL: ReadonlySet<TemplateKey> = new Set([
   "withdrawal_acknowledgement",
   "refund_issued",
+  "cancellation_confirmation",
 ]);
 
 export interface SendNowInput {
@@ -120,7 +122,9 @@ export async function deliver(
       ? await prepareWithdrawalAcknowledgement(context)
       : row.templateKey === "refund_issued"
         ? await prepareRefundIssued(context)
-        : await prepareSessionEmail(row, context, now);
+        : row.templateKey === "cancellation_confirmation"
+          ? await prepareCancellationConfirmation(context)
+          : await prepareSessionEmail(row, context, now);
   if (!prepared.ok) return giveUp(row, prepared.reason, now);
   const { email } = prepared;
 
@@ -318,7 +322,31 @@ async function prepareWithdrawalAcknowledgement(context: CommunicationContext): 
     receivedAt: withdrawal.receivedAt,
     timeZone: context.customerTimezone,
     refundDueFils: withdrawal.refundDueFils,
-    refund: refundStateForEmail(refund),
+    // A notice the desk decides has no refund of its own: a person makes it, if it is owed.
+    refund: withdrawal.route === "desk" && refund === null ? "review" : refundStateForEmail(refund),
+  });
+  return { ok: true, email, bcc: supportEmail() };
+}
+
+/**
+ * That a full refund cancelled the booking. Queued only by that cancellation;
+ * a booking still open means something else happened, and a person looks.
+ * The desk gets a copy: it is the record that the customer was told.
+ */
+async function prepareCancellationConfirmation(context: CommunicationContext): Promise<Prepared> {
+  if (context.bookingStatus !== "cancelled") return { ok: false, reason: "booking_not_cancelled" };
+  const session = getSessionBySlug(context.sessionSlug);
+  if (!session) return { ok: false, reason: "unknown_session" };
+  const email = await renderCancellationConfirmation({
+    firstName: context.firstName,
+    bookingId: context.bookingId,
+    sessionTitle: session.title,
+    slot:
+      context.scheduledStart && context.scheduledEnd
+        ? { start: context.scheduledStart, end: context.scheduledEnd }
+        : null,
+    timeZone: context.customerTimezone,
+    refundedFils: context.amountPaidFils,
   });
   return { ok: true, email, bcc: supportEmail() };
 }

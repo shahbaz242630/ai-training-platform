@@ -5,6 +5,7 @@ import { after } from "next/server";
 import { sendQueuedMessageNow } from "@/app/api/cron/send-communications/deliver";
 import { withTransaction } from "@/data/db";
 import { getEmailProvider } from "@/domain/messaging/factory";
+import { getPaymentProvider } from "@/domain/payments/factory";
 import { recordAudit } from "@/lib/audit";
 import { clientAddressFrom } from "@/lib/client-address";
 import { logger } from "@/lib/logger";
@@ -24,6 +25,16 @@ import {
 */
 const limiter = createRateLimiter({ limit: 10, windowMs: 60_000 });
 
+/*
+  The payment provider is built only when a card country is actually asked
+  for: looking a booking up must not fail because payments are unconfigured.
+*/
+const flowDeps = () => ({
+  transaction: withTransaction,
+  now: new Date(),
+  cardCountry: (paymentIntentId: string) => getPaymentProvider().getCardCountry(paymentIntentId),
+});
+
 async function limited(): Promise<string | null> {
   const address = clientAddressFrom((await headers()).get("x-forwarded-for"));
   const rate = limiter.check(address, new Date());
@@ -38,7 +49,7 @@ export async function lookUpWithdrawalAction(
   const refused = await limited();
   if (refused) return { ok: false, message: refused };
   try {
-    return await lookUpWithdrawal(input, { transaction: withTransaction, now: new Date() });
+    return await lookUpWithdrawal(input, flowDeps());
   } catch (error) {
     logger.error("withdrawal lookup failed", { error: (error as Error).message });
     return {
@@ -56,17 +67,13 @@ export async function confirmWithdrawalAction(
 
   const headerList = await headers();
   try {
-    const result = await confirmWithdrawal(
-      input,
-      { transaction: withTransaction, now: new Date() },
-      {
-        ipAddress: clientAddressFrom(headerList.get("x-forwarded-for")),
-        userAgent: headerList.get("user-agent"),
-      },
-    );
+    const result = await confirmWithdrawal(input, flowDeps(), {
+      ipAddress: clientAddressFrom(headerList.get("x-forwarded-for")),
+      userAgent: headerList.get("user-agent"),
+    });
     if (!result.ok) return result;
 
-    if (result.receipt.isNew) {
+    if (result.receipt.isNew && result.receipt.route === "automatic") {
       await recordAudit({
         action: "booking.cancelled",
         actor: { kind: "system", process: "withdrawal-form" },
@@ -80,6 +87,19 @@ export async function confirmWithdrawalAction(
           bookingId: result.bookingId,
         },
       );
+    } else if (result.receipt.isNew) {
+      await recordAudit({
+        action: "admin.action",
+        actor: { kind: "system", process: "withdrawal-form" },
+        subject: `booking:${result.bookingId}`,
+        metadata: { reason: "withdrawal_for_desk_decision" },
+      });
+      logger.warn(
+        "withdrawal received for the desk to decide: the card is not from the UK or the EU; the booking stays until then",
+        { bookingId: result.bookingId },
+      );
+    }
+    if (result.receipt.isNew) {
       /*
         The acknowledgement straight away, as the page promises and the law
         asks, rather than at the next five-minute run. After the response, so
