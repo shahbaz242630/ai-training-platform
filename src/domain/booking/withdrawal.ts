@@ -68,52 +68,19 @@ export function decideWithdrawal(facts: WithdrawalFacts): WithdrawalDecision {
 }
 
 /**
- * Who decides a withdrawal's refund: the system at once, or a person.
+ * Who decides a withdrawal's refund: a person, every time.
  *
- * The form's tick ("I am a UK or EU consumer") is the customer's word, and
- * a word alone must not move money. The country the card was issued in is
- * the processor's fact, so only a card from the UK or an EU member state is
- * refunded automatically. Anything else, including a card whose country could
- * not be read, goes to the desk, which decides within the 14 days: a UK
- * resident paying with a card from abroad loses nothing but a short wait.
+ * The form's tick ("I am a UK or EU consumer") is the customer's word, and a
+ * word alone must not move money. Nor does the card: Dubai is full of UK and
+ * EU residents' cards held by people who live here, so the issuing country
+ * says nothing about residence (founder, session 101). Every notice is kept,
+ * acknowledged at once, and decided by the desk within the 14 days; a UK or
+ * EU consumer owed the refund loses nothing but a short wait.
+ *
+ * "automatic" stays a route because notices kept before this rule were
+ * refunded automatically, and their records say so.
  */
 export type WithdrawalRoute = "automatic" | "desk";
-
-/** ISO 3166-1 alpha-2: the United Kingdom and the 27 EU member states. */
-const UK_AND_EU: ReadonlySet<string> = new Set([
-  "GB",
-  "AT",
-  "BE",
-  "BG",
-  "HR",
-  "CY",
-  "CZ",
-  "DK",
-  "EE",
-  "FI",
-  "FR",
-  "DE",
-  "GR",
-  "HU",
-  "IE",
-  "IT",
-  "LV",
-  "LT",
-  "LU",
-  "MT",
-  "NL",
-  "PL",
-  "PT",
-  "RO",
-  "SK",
-  "SI",
-  "ES",
-  "SE",
-]);
-
-export function withdrawalRoute(cardCountry: string | null): WithdrawalRoute {
-  return cardCountry !== null && UK_AND_EU.has(cardCountry) ? "automatic" : "desk";
-}
 
 /** The notice, in the words the customer confirms and the record keeps. */
 export function withdrawalStatement(input: {

@@ -31,8 +31,8 @@ export interface WithdrawalAcknowledgementEmailProps {
  * Where the refund stands when the email goes. "Refunded" only once Stripe
  * says it succeeded: a refund still on its way can fail (a closed card), and
  * a durable record should not say something that may turn out untrue.
- * "Review": the card is not from the UK or the EU, so a person decides and
- * the booking stays in place meanwhile; nothing is promised but the answer.
+ * "Review": a person decides, as for every notice now, and the booking stays
+ * in place meanwhile; nothing is promised but the answer.
  */
 export type WithdrawalRefundState = "succeeded" | "issued" | "owed" | "review";
 
@@ -60,8 +60,8 @@ function refundSentence(props: WithdrawalAcknowledgementEmailProps): string {
       );
     case "review":
       return (
-        "We could not confirm automatically that the UK and EU 14-day right applies to this " +
-        "booking, so a member of our team will look at it and reply by email within " +
+        "A member of our team checks every cancellation notice to confirm that the UK and EU " +
+        "14-day right applies, and will reply by email within " +
         `${props.deskReplyDays} working days. Your booking stays in place until then. If the ` +
         `right applies, we refund ${props.refundLabel} in full, to the card you paid with, within ` +
         `${props.refundDays} days of your notice.`

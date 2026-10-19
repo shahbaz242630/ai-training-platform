@@ -107,13 +107,14 @@ reach our infrastructure at any point.
   came from the processor, not that it is about our order.
 - **Secrets are server-only.** Nothing sensitive sits behind `NEXT_PUBLIC_*`;
   a guard script fails the build if it does.
-- **A withdrawal is refunded automatically only on the processor's fact, never
-  on the customer's word.** The form's "I am a UK or EU consumer" tick once
-  refunded the full price by itself (October 2026 audit). Now the card's
-  issuing country is read from Stripe at confirmation: a UK or EU card is
-  refunded automatically; any other card, an unreadable country or a failed
-  lookup goes to the desk, the booking stays in place, and a person decides
-  within the 14 days. The billing country is not used: the customer types it.
+- **No withdrawal is refunded automatically.** The form's "I am a UK or EU
+  consumer" tick once refunded the full price by itself (October 2026 audit).
+  A card's issuing country was tried next and dropped the same day: Dubai is
+  full of UK and EU cards held by people who live here, so it says nothing
+  about residence. Every notice is now kept and acknowledged at once, the
+  booking stays in place, and a person decides within the 14 days (approve:
+  a full refund in Stripe; decline: a signed one-press link in the desk
+  alert). The card's country is shown to the desk as one fact among others.
 - **A full refund ends the booking it paid for**, however it was made. A
   refund in the payment dashboard cancels the order's open bookings, frees
   their time and stops their reminders, so money returned by hand cannot

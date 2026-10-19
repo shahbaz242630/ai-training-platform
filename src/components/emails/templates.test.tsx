@@ -231,7 +231,7 @@ describe("renderWithdrawalAcknowledgement", () => {
   it("says the booking stays while the desk decides, and promises no refund", async () => {
     const email = await renderWithdrawalAcknowledgement({ ...withdrawal, refund: "review" });
     expect(email.text).toContain(
-      "We could not confirm automatically that the UK and EU 14-day right applies to this booking, so a member of our team will look at it and reply by email within 3 working days.",
+      "A member of our team checks every cancellation notice to confirm that the UK and EU 14-day right applies, and will reply by email within 3 working days.",
     );
     expect(email.text).toContain("Your booking stays in place until then.");
     expect(email.text).toContain(
