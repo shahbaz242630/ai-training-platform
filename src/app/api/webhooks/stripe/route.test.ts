@@ -415,6 +415,12 @@ describe("a paid delivery", () => {
   it("keeps the order paid but unscheduled when the hold has already gone, and shouts", async () => {
     const { orderId, slotHoldId } = await pendingOrder();
     await db.query("update slot_holds set status = 'expired' where id = $1", [slotHoldId]);
+    // Somebody else holds the same time now, so it cannot be taken back.
+    await db.query(
+      `insert into slot_holds (slot_start, slot_end, expires_at)
+       select slot_start, slot_end, now() + interval '30 minutes' from slot_holds where id = $1`,
+      [slotHoldId],
+    );
 
     const result = await deliver(paidEvent(orderId, slotHoldId));
 
@@ -433,6 +439,18 @@ describe("a paid delivery", () => {
         metadata: expect.objectContaining({ scheduled: false }),
       }),
     );
+  });
+});
+
+describe("a late paid delivery", () => {
+  it("still gets the customer their time when nobody took it meanwhile", async () => {
+    const { orderId, slotHoldId } = await pendingOrder();
+    await db.query("update slot_holds set status = 'expired' where id = $1", [slotHoldId]);
+
+    const result = await deliver(paidEvent(orderId, slotHoldId));
+
+    expect(result).toEqual({ status: 200, body: { ok: true, outcome: "settled" } });
+    expect((await stateOf(orderId, slotHoldId)).order).toBe("paid");
   });
 });
 

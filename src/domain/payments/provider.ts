@@ -124,6 +124,18 @@ export interface RefundEvent {
 
 export type PaymentEvent = CheckoutEvent | RefundEvent;
 
+/** A checkout session as the processor has it now: what its event would have said. */
+export type CheckoutSnapshot = Pick<
+  CheckoutEvent,
+  | "checkoutSessionId"
+  | "paymentIntentId"
+  | "orderId"
+  | "slotHoldId"
+  | "outcome"
+  | "amountFils"
+  | "currency"
+>;
+
 export interface RefundPaymentInput {
   readonly paymentIntentId: string;
   readonly amountFils: Fils;
@@ -251,4 +263,10 @@ export interface PaymentProvider {
    * caller treats that as unknown.
    */
   getCardCountry(paymentIntentId: string): Promise<string | null>;
+
+  /**
+   * Read a checkout session as the processor has it now. How an order is
+   * settled when its event never arrived: the same facts, asked for.
+   */
+  getCheckoutSnapshot(checkoutSessionId: string): Promise<CheckoutSnapshot>;
 }

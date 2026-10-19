@@ -1,5 +1,6 @@
 import type { QueryRunner } from "./db";
 import { promoteIntakeToCustomer } from "./customers";
+import { AVAILABILITY } from "@/config/availability";
 import { transitionPayment, type Order, type PaymentStatus } from "@/domain/booking/order";
 import { InvalidTransitionError } from "@/domain/booking/transitions";
 import { scheduleBooking, type Booking, type BookingStatus } from "@/domain/booking/booking";
@@ -189,35 +190,10 @@ export async function settlePaidOrder(
   */
   await promoteIntakeToCustomer(runner, order.id, input.now);
 
-  /*
-    Convert only a hold that is still LIVE and still belongs to this order.
-    Adopting an expired one would tell the customer their time is secured when
-    the calendar has already let it go.
-  */
-  const converted =
+  const claimed =
     input.slotHoldId === null
-      ? {
-          rows: [] as {
-            id: string;
-            slot_start: Date;
-            slot_end: Date;
-            calendar_event_id: string | null;
-          }[],
-        }
-      : await runner.query<{
-          id: string;
-          slot_start: Date;
-          slot_end: Date;
-          calendar_event_id: string | null;
-        }>(
-          `update slot_holds
-              set status = 'converted'
-            where id = $1 and order_id = $2 and status = 'held' and expires_at > $3
-            returning id, slot_start, slot_end, calendar_event_id`,
-          [input.slotHoldId, order.id, input.now],
-        );
-
-  const claimed = converted.rows[0];
+      ? undefined
+      : await claimPaidHold(runner, order.id, input.slotHoldId, input.now);
   if (!claimed) return "paid_without_slot";
 
   /*
@@ -273,6 +249,84 @@ export async function settlePaidOrder(
   );
 
   return "settled";
+}
+
+interface ClaimedHold {
+  readonly id: string;
+  readonly slot_start: Date;
+  readonly slot_end: Date;
+  readonly calendar_event_id: string | null;
+}
+
+/**
+ * The time a payment bought, made the order's for good.
+ *
+ * A payment can arrive after its hold ran out: Stripe retries a delivery our
+ * endpoint failed, minutes or hours later, and the hold outlives the checkout
+ * by only five minutes. Refusing it then charged the customer and gave them
+ * no time (October 2026 audit). So:
+ *
+ *  - A hold still held by this order is converted, whatever its expiry. While
+ *    it is held nobody else can have the time: the database refuses
+ *    overlapping holds.
+ *  - A hold the sweep already expired is taken again, as a new converted hold
+ *    for the same time, if nobody has held or booked it since (a booking
+ *    placed by hand has no hold behind it, so both are asked) and it is still
+ *    at least the booking notice away: it has no calendar event any more, and
+ *    the calendar refuses a new one inside the notice, which would turn a
+ *    "time reserved" email into a lost slot. It carries no calendar event (the sweep deletes
+ *    the expired one); the confirmation step blocks the time on the calendar
+ *    and refuses it there if the calendar is busy, as for any booking.
+ *  - A hold released on purpose (a second checkout, a failure) is never taken
+ *    back, and nor is any hold of another order.
+ */
+async function claimPaidHold(
+  runner: QueryRunner,
+  orderId: string,
+  slotHoldId: string,
+  now: Date,
+): Promise<ClaimedHold | undefined> {
+  const converted = await runner.query<ClaimedHold>(
+    `update slot_holds
+        set status = 'converted'
+      where id = $1 and order_id = $2 and status = 'held'
+      returning id, slot_start, slot_end, calendar_event_id`,
+    [slotHoldId, orderId],
+  );
+  if (converted.rows[0]) return converted.rows[0];
+
+  const expired = await runner.query<{ slot_start: Date; slot_end: Date }>(
+    `select slot_start, slot_end from slot_holds
+      where id = $1 and order_id = $2 and status = 'expired'
+        and slot_start >= $3::timestamptz + make_interval(hours => $4)`,
+    [slotHoldId, orderId, now, AVAILABILITY.minimumNoticeHours],
+  );
+  const lapsed = expired.rows[0];
+  if (!lapsed) return undefined;
+
+  const taken = await runner.query(
+    `select 1 from slot_holds
+      where status in ('held', 'converted') and slot_start < $2 and slot_end > $1
+     union all
+     select 1 from bookings
+      where status in ('scheduled', 'confirmed')
+        and scheduled_start < $2 and scheduled_end > $1
+     limit 1`,
+    [lapsed.slot_start, lapsed.slot_end],
+  );
+  if (taken.rows.length > 0) return undefined;
+  /*
+    Two payments racing for the same moment: the database refuses the second
+    insert, this delivery fails, and the processor's retry finds the time
+    taken above. Nothing is ever double-booked.
+  */
+  const retaken = await runner.query<ClaimedHold>(
+    `insert into slot_holds (slot_start, slot_end, expires_at, order_id, status)
+     values ($1, $2, $3, $4, 'converted')
+     returning id, slot_start, slot_end, calendar_event_id`,
+    [lapsed.slot_start, lapsed.slot_end, now, orderId],
+  );
+  return retaken.rows[0];
 }
 
 /**

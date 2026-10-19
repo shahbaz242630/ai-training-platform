@@ -1,6 +1,7 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import {
   InvalidSignatureError,
+  type CheckoutSnapshot,
   type IssuedRefund,
   type PaymentEvent,
   type PaymentOutcome,
@@ -118,6 +119,16 @@ export class MockPaymentProvider implements PaymentProvider {
     const refund = this.refunds.get(providerRefundId);
     if (!refund) return Promise.reject(new Error(`no such refund ${providerRefundId}`));
     return Promise.resolve(refund);
+  }
+
+  /** Checkout sessions as the processor would report them now, by id. */
+  readonly checkoutSnapshots = new Map<string, CheckoutSnapshot>();
+
+  getCheckoutSnapshot(checkoutSessionId: string): Promise<CheckoutSnapshot> {
+    const snapshot = this.checkoutSnapshots.get(checkoutSessionId);
+    if (!snapshot)
+      return Promise.reject(new Error(`no such checkout session ${checkoutSessionId}`));
+    return Promise.resolve(snapshot);
   }
 
   getCardCountry(paymentIntentId: string): Promise<string | null> {

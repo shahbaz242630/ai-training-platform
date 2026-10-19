@@ -47,6 +47,25 @@ afterAll(async () => {
 let slotCounter = 0;
 
 /** A pending order with its booking and a live hold - the state checkout leaves behind. */
+async function holdTimes(slotHoldId: string): Promise<{ start: Date; end: Date }> {
+  const row = await db.query<{ slot_start: Date; slot_end: Date }>(
+    `select slot_start, slot_end from slot_holds where id = $1`,
+    [slotHoldId],
+  );
+  return { start: row.rows[0]!.slot_start, end: row.rows[0]!.slot_end };
+}
+
+/** The hold runs out and is swept, and somebody else holds the same time. */
+async function expireAndRetake(slotHoldId: string): Promise<void> {
+  const { start, end } = await holdTimes(slotHoldId);
+  await db.query("update slot_holds set status = 'expired' where id = $1", [slotHoldId]);
+  await db.query(`insert into slot_holds (slot_start, slot_end, expires_at) values ($1, $2, $3)`, [
+    start,
+    end,
+    new Date(NOW.getTime() + 30 * 60_000),
+  ]);
+}
+
 async function pendingOrder(email: string) {
   const customer = await db.query<{ id: string }>(
     `insert into customers (first_name, last_name, email, timezone)
@@ -189,14 +208,14 @@ describe("settlePaidOrder", () => {
   });
 
   /*
-    THE ONE THAT NEEDS A HUMAN. A delayed payment method can land hours after
-    the hold expired. The money is ours, so the order MUST be paid - leaving it
-    pending is what produces a second charge - and the booking waits to be
-    rescheduled by hand.
+    THE ONE THAT NEEDS A HUMAN. A payment can land after its hold expired and
+    somebody else took the time. The money is ours, so the order MUST be paid -
+    leaving it pending is what produces a second charge - and the booking waits
+    to be rescheduled by hand.
   */
   it("keeps the order paid when the slot has already gone", async () => {
     const { orderId, slotHoldId } = await pendingOrder("late@example.com");
-    await db.query("update slot_holds set status = 'expired' where id = $1", [slotHoldId]);
+    await expireAndRetake(slotHoldId);
 
     const outcome = await settlePaidOrder(runner, { orderId, slotHoldId, now: NOW });
 
@@ -204,18 +223,83 @@ describe("settlePaidOrder", () => {
     expect(await statusOf(orderId)).toEqual({ order: "paid", booking: "awaiting_schedule" });
   });
 
-  // Same case, reached the other way: the hold is still `held` but has run out.
-  it("refuses a hold that expired even though nothing swept it", async () => {
+  /*
+    A late payment (a webhook retried after an outage, say) finds its hold run
+    out. While the hold is still held, nobody else can have the time: the
+    database refuses overlapping holds. So it is converted, whatever its expiry.
+  */
+  it("converts a hold still held for this order, even past its expiry", async () => {
     const { orderId, slotHoldId } = await pendingOrder("stale@example.com");
     await db.query("update slot_holds set expires_at = $2 where id = $1", [
       slotHoldId,
       new Date(NOW.getTime() - 60_000),
     ]);
 
+    expect(await settlePaidOrder(runner, { orderId, slotHoldId, now: NOW })).toBe("settled");
+    expect(await statusOf(orderId)).toEqual({ order: "paid", booking: "scheduled" });
+  });
+
+  // Swept as expired, and nobody took the time since: the customer gets the time they paid for.
+  it("takes the time again when a late payment finds it still free", async () => {
+    const { orderId, slotHoldId } = await pendingOrder("late-free@example.com");
+    await db.query("update slot_holds set status = 'expired' where id = $1", [slotHoldId]);
+
+    expect(await settlePaidOrder(runner, { orderId, slotHoldId, now: NOW })).toBe("settled");
+    expect(await statusOf(orderId)).toEqual({ order: "paid", booking: "scheduled" });
+    const converted = await db.query<{ n: number }>(
+      `select count(*)::int as n from slot_holds where order_id = $1 and status = 'converted'`,
+      [orderId],
+    );
+    expect(converted.rows[0]?.n).toBe(1);
+  });
+
+  it("never takes back a time that has already begun", async () => {
+    const { orderId, slotHoldId } = await pendingOrder("late-past@example.com");
+    const { start } = await holdTimes(slotHoldId);
+    await db.query("update slot_holds set status = 'expired' where id = $1", [slotHoldId]);
+
+    const later = new Date(start.getTime() + 60_000);
+    expect(await settlePaidOrder(runner, { orderId, slotHoldId, now: later })).toBe(
+      "paid_without_slot",
+    );
+  });
+
+  it("does not take back a time inside the booking notice: the calendar would refuse it", async () => {
+    const { orderId, slotHoldId } = await pendingOrder("late-soon@example.com");
+    const { start } = await holdTimes(slotHoldId);
+    await db.query("update slot_holds set status = 'expired' where id = $1", [slotHoldId]);
+
+    const twelveHoursBefore = new Date(start.getTime() - 12 * 60 * 60_000);
+    expect(await settlePaidOrder(runner, { orderId, slotHoldId, now: twelveHoursBefore })).toBe(
+      "paid_without_slot",
+    );
+  });
+
+  // A booking placed by hand has no hold behind it, and must still stop the retake.
+  it("does not take back a time somebody was booked into by hand", async () => {
+    const { orderId, slotHoldId } = await pendingOrder("late-booked@example.com");
+    const { start, end } = await holdTimes(slotHoldId);
+    await db.query("update slot_holds set status = 'expired' where id = $1", [slotHoldId]);
+    const other = await pendingOrder("placed-by-hand@example.com");
+    await db.query(
+      `update bookings set status = 'scheduled', scheduled_start = $2, scheduled_end = $3
+        where order_id = $1`,
+      [other.orderId, start, end],
+    );
+
     expect(await settlePaidOrder(runner, { orderId, slotHoldId, now: NOW })).toBe(
       "paid_without_slot",
     );
-    expect((await statusOf(orderId)).order).toBe("paid");
+  });
+
+  // Released on purpose (a second checkout, a failure), not timed out: never taken back.
+  it("does not take back a hold that was released on purpose", async () => {
+    const { orderId, slotHoldId } = await pendingOrder("late-released@example.com");
+    await db.query("update slot_holds set status = 'released' where id = $1", [slotHoldId]);
+
+    expect(await settlePaidOrder(runner, { orderId, slotHoldId, now: NOW })).toBe(
+      "paid_without_slot",
+    );
   });
 
   /*
@@ -616,7 +700,7 @@ describe("scheduling goes through the domain", () => {
   */
   it("does not schedule the booking when the slot was already gone", async () => {
     const { orderId, slotHoldId } = await pendingOrder("no-slot@example.com");
-    await db.query("update slot_holds set status = 'expired' where id = $1", [slotHoldId]);
+    await expireAndRetake(slotHoldId);
 
     expect(await settlePaidOrder(runner, { orderId, slotHoldId, now: NOW })).toBe(
       "paid_without_slot",

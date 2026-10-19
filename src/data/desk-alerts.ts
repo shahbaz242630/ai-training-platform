@@ -21,7 +21,8 @@ export type DeskAlertKind =
   | "refund_needs_attention"
   | "calendar_event_changed"
   | "paid_booking_needs_time"
-  | "withdrawal_needs_decision";
+  | "withdrawal_needs_decision"
+  | "payment_events_missing";
 
 /** At most this many emails a run, failed tries included, so an outage cannot become a flood. */
 export const MAX_ALERT_SENDS_PER_RUN = 10;
