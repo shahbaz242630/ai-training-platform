@@ -238,6 +238,21 @@ describe("the desk is told", () => {
       [orderId],
     );
 
+    /*
+      First the customer's own choose-a-time email is queued (founder decision,
+      October 2026), and the desk waits: it hears once that email has gone, in
+      words that match.
+    */
+    const queuedRun = await run();
+    expect(queuedRun.body.chooseTimeEmails).toEqual({ queued: 1, failed: 0 });
+    expect(queuedRun.body.paidBookingAlerts).toMatchObject({ raised: 0 });
+    expect(mail.current.sent).toEqual([]);
+    await db.query(
+      `update communication_log set status = 'sent', sent_at = now()
+        where booking_id = $1 and template_key = 'choose_new_time'`,
+      [booking.rows[0]!.id],
+    );
+
     const first = await run();
     expect(first.body.paidButUnscheduled).toBe(1);
     expect(first.body.paidBookingAlerts).toEqual({
@@ -250,7 +265,8 @@ describe("the desk is told", () => {
     expect(mail.current.sent[0]?.subject).toMatch(/^Paid, no session time: booking /);
     expect(mail.current.sent[0]?.text).toContain("pi_waiting");
     expect(mail.current.sent[0]?.text).not.toMatch(/Amina|Khan|sweepwaiting/);
-    // The customer's own link to choose a new time, for the desk to forward.
+    expect(mail.current.sent[0]?.text).toContain("was emailed their own link");
+    // The customer's link again, should they lose theirs.
     const link = /http:\/\/localhost:3000\/training\/book\/manage\?t=(\S+)/.exec(
       mail.current.sent[0]?.text ?? "",
     );

@@ -2,6 +2,7 @@ import type { QueryRunner } from "@/data/db";
 import { withTransaction } from "@/data/db";
 import { queueForOrder } from "@/data/communications";
 import { bookingIdsForOrder, confirmBookingOnCalendar } from "@/data/confirmation";
+import { linkDisputesAtSettlement } from "@/data/disputes";
 import { releaseFailedOrder, settlePaidOrder, type SettlementOutcome } from "@/data/settlement";
 import { messagesOnSettlement } from "@/domain/messaging/schedule";
 import type { CheckoutSnapshot } from "@/domain/payments/provider";
@@ -75,8 +76,19 @@ export async function applyCheckoutOutcome(
     other. It says the payment is in and the time is reserved; the joining
     details follow when the calendar side confirms.
   */
-  if (settled === "settled") {
+  /*
+    Paid without a time gets it too: the contract is confirmed in writing, with
+    the terms, whether or not the time survived. The email says the time is
+    still to be chosen; the link to choose one follows from the sweep.
+  */
+  if (settled === "settled" || settled === "paid_without_slot") {
     await queueForOrder(runner, event.orderId, messagesOnSettlement(now));
+    /*
+      A dispute can reach us before the payment does. Linked here, in the same
+      transaction, so a stolen-card dispute cancels the session before any
+      confirmation is sent, not at the next sweep.
+    */
+    await linkDisputesAtSettlement(runner, event.orderId, event.paymentIntentId, now);
   }
 
   return settled;

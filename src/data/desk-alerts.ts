@@ -22,7 +22,8 @@ export type DeskAlertKind =
   | "calendar_event_changed"
   | "paid_booking_needs_time"
   | "withdrawal_needs_decision"
-  | "payment_events_missing";
+  | "payment_events_missing"
+  | "dispute_needs_response";
 
 /** At most this many emails a run, failed tries included, so an outage cannot become a flood. */
 export const MAX_ALERT_SENDS_PER_RUN = 10;
@@ -197,7 +198,24 @@ export async function reconcileDeskAlerts(
     provider ??= deps.email();
     // A reminder only once the desk has actually been told; a first send that failed is still the first.
     const reminder = sends > 0;
-    const email = await problem.render(reminder);
+    let email;
+    try {
+      email = await problem.render(reminder);
+    } catch (error) {
+      /*
+        One alert that cannot be written must not stop the others behind it.
+        Released, and tried again in half an hour like a failed send.
+      */
+      await deps.transaction((runner) =>
+        runner.query(`update desk_alerts set claimed_until = null where id = $1`, [id]),
+      );
+      report.failed += 1;
+      logger.error("a desk alert could not be written; it will be tried again in half an hour", {
+        alertId: id,
+        error: (error as Error).name,
+      });
+      continue;
+    }
     const result = await provider.send({
       to: deskAddress,
       subject: email.subject,

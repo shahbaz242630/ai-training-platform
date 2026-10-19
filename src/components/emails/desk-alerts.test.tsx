@@ -167,6 +167,10 @@ describe("renderPaidBookingNeedsTime", () => {
     amountFils: 149_900,
     paymentIntentId: "pi_3Lost",
     fullyPaid: true,
+    disputed: false,
+    waitingSince: new Date("2027-01-01T10:00:00Z"),
+    customerEmailedAt: new Date("2027-01-01T10:05:00Z"),
+    customerEmailPending: false,
   };
   const link = "https://example.test/training/book/manage?t=v1.abc";
 
@@ -183,8 +187,10 @@ describe("renderPaidBookingNeedsTime", () => {
     const email = await renderPaidBookingNeedsTime(waiting, false, link);
     expect(email.text).toContain("Claude, Claude Code & Advanced Workflows");
     expect(email.text).toContain("has no time on the calendar");
-    expect(email.text).toContain("has not had a confirmation");
-    expect(email.text).toContain("offer them a new time or a full refund");
+    // The customer is sent their own link by the sweep (founder decision, October 2026).
+    expect(email.text).toContain("emailed their own link to choose a new time");
+    expect(email.text).toContain("Nothing to do unless the customer writes");
+    expect(email.text).toContain("If they ask for their money back instead");
     expect(email.text).toContain("Do not charge again.");
     expect(email.text).toContain("once the customer has chosen a time");
     expect(email.text).toContain("refunded in full in Stripe");
@@ -197,6 +203,32 @@ describe("renderPaidBookingNeedsTime", () => {
     expect(email.html).toContain(`href="${link}"`);
     expect(email.text).toContain("does not use up their one move");
     expect(email.text).toContain("each reminder carries a fresh one");
+  });
+
+  /*
+    After a dispute the person who booked may not be the cardholder (a stolen
+    card), so nobody was sent a link: the desk checks first.
+  */
+  it("after a dispute, says the customer was not sent a link and to check Stripe first", async () => {
+    const email = await renderPaidBookingNeedsTime({ ...waiting, disputed: true }, false, link);
+    expect(email.text).toContain("has not been told");
+    expect(email.text).toContain("not sent a link");
+    expect(email.text).toContain("cannot choose a time online");
+    expect(email.text).toContain("Check the dispute in Stripe first");
+    expect(email.text).not.toContain(link);
+  });
+
+  // Only an email that actually went counts: a withdrawn, failed or not-yet-sent one does not.
+  it("when the customer has not actually been emailed, tells the desk to write to them with the link", async () => {
+    const email = await renderPaidBookingNeedsTime(
+      { ...waiting, customerEmailedAt: null },
+      false,
+      link,
+    );
+    expect(email.text).toContain("has not been told");
+    expect(email.text).toContain("offer them a new time or a full refund");
+    expect(email.text).toContain(link);
+    expect(email.text).not.toContain("Nothing to do unless");
   });
 
   it("without a link, offers only the refund and says why", async () => {

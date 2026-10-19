@@ -29,6 +29,7 @@ import { purgeExpiredPersonalData, type PurgeReport } from "@/data/retention";
 import { readAppliedSchemaVersion, schemaStatus } from "@/data/schema-version";
 import { recordAudit } from "@/lib/audit";
 import { watchCalendar } from "./calendar-watch-step";
+import { disputeStep, queueChooseNewTime } from "./dispute-step";
 import { reconcilePendingOrders } from "./reconcile-step";
 import { declineUrlFor, withdrawalDecisionAlerts } from "./withdrawal-decision-step";
 import { authoriseCronRequest } from "@/lib/cron-auth";
@@ -192,8 +193,24 @@ export async function POST(request: Request): Promise<NextResponse> {
     */
     const deskAlerts = await deskAlertsOrReport(attention);
 
-    // The same for a customer who has paid and has no session time (KC B8).
-    const paidBookingAlerts = await paidBookingAlertsOrReport(waitingForTime);
+    // The customer who has paid and has no session time is sent their own link to choose one.
+    const chooseTimeEmails = await queueChooseNewTime(
+      waitingForTime,
+      { transaction: withTransaction, clock: () => new Date() },
+      Boolean(serverEnv().MANAGE_LINK_SECRET),
+    );
+
+    /*
+      And the desk is told about the same customer (KC B8), read again after
+      the queueing so it says truly whether the customer has been emailed. One
+      whose email is still waiting to go is held back: the desk hears once it
+      has gone, or failed, with words that match.
+    */
+    const paidBookingAlerts = await paidBookingAlertsOrReport(
+      (await withTransaction((runner) => listPaidButUnscheduled(runner))).filter(
+        (problem) => !problem.customerEmailPending,
+      ),
+    );
 
     // Orders whose payment event never arrived: asked about, settled, and the desk told.
     const reconciliation = await reconcilePendingOrders({
@@ -201,6 +218,18 @@ export async function POST(request: Request): Promise<NextResponse> {
       transaction: withTransaction,
       clock: () => new Date(),
       email: getEmailProvider,
+      desk: supportEmail,
+    });
+
+    /*
+      Disputes, after the settling above, so a dispute on an order settled
+      this run is linked this run: the effects re-applied where work remains,
+      and the desk told, with the deadline.
+    */
+    const disputes = await disputeStep({
+      transaction: withTransaction,
+      email: getEmailProvider,
+      clock: () => new Date(),
       desk: supportEmail,
     });
 
@@ -240,6 +269,8 @@ export async function POST(request: Request): Promise<NextResponse> {
       // rather than only in a log somebody has to go looking for.
       paidButUnscheduled,
       paidBookingAlerts,
+      chooseTimeEmails,
+      disputes,
       withdrawalDecisions,
       reconciliation,
       schema,

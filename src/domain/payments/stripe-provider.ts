@@ -6,6 +6,7 @@ import {
   InvalidSignatureError,
   PaymentNotConfiguredError,
   type CheckoutSnapshot,
+  type DisputeSnapshot,
   type IssuedRefund,
   type PaymentEvent,
   type PaymentOutcome,
@@ -22,6 +23,12 @@ import {
   toRefundEvent,
   toRefundSnapshot,
 } from "./stripe-refunds";
+import {
+  DISPUTE_EVENTS,
+  classifyDisputeReadError,
+  toDisputeEvent,
+  toDisputeSnapshot,
+} from "./stripe-disputes";
 
 /**
  * Stripe behind the payment port.
@@ -275,6 +282,17 @@ export class StripePaymentProvider implements PaymentProvider {
     return toCheckoutSnapshot(session);
   }
 
+  async getDispute(providerDisputeId: string): Promise<DisputeSnapshot> {
+    try {
+      const dispute = await this.stripe.disputes.retrieve(providerDisputeId, undefined, {
+        timeout: REFUND_TIMEOUT_MS,
+      });
+      return toDisputeSnapshot(dispute);
+    } catch (error) {
+      throw classifyDisputeReadError(error);
+    }
+  }
+
   async getCardCountry(paymentIntentId: string): Promise<string | null> {
     /*
       The charge is expanded: unexpanded, `latest_charge` is a bare id and
@@ -314,6 +332,7 @@ export function toCheckoutSnapshot(session: Stripe.Checkout.Session): CheckoutSn
 /** Stripe shapes in, our shape out. Nothing above this line knows Stripe exists. */
 export function toPaymentEvent(event: Stripe.Event): PaymentEvent {
   if (REFUND_EVENTS.has(event.type)) return toRefundEvent(event);
+  if (DISPUTE_EVENTS.has(event.type)) return toDisputeEvent(event);
 
   const base = {
     kind: "checkout" as const,

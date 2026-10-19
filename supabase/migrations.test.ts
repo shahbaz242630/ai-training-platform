@@ -97,6 +97,7 @@ describe("applying the migrations", () => {
       "desk_alerts",
       "intakes",
       "orders",
+      "payment_disputes",
       "refunds",
       "slot_holds",
       "webhook_events",

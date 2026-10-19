@@ -79,6 +79,23 @@ describe("reconcileDeskAlerts", () => {
     ]);
   });
 
+  // One alert that cannot be written must not stop the ones behind it.
+  it("carries on past an alert that cannot be written, and tries that one again later", async () => {
+    const email = new MockEmailProvider();
+    const broken: DeskProblem = {
+      subjectKey: "refund:broken",
+      render: () => Promise.reject(new Error("template exploded")),
+    };
+
+    const report = await run([broken, problem("refund:fine")], email, NOW);
+
+    expect(report).toMatchObject({ raised: 1, failed: 1 });
+    expect(email.sent.map((m) => m.subject)).toEqual(["Problem refund:fine"]);
+    expect(await alertFor("refund:broken")).toEqual([
+      { sends: 0, last_sent_at: null, resolved_at: null },
+    ]);
+  });
+
   it("says nothing more about the same problem within a day", async () => {
     const email = new MockEmailProvider();
     await run([problem("refund:b")], email, NOW);

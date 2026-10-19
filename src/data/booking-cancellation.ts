@@ -30,10 +30,11 @@ export async function cancelOpenBooking(
     order_id: string;
     scheduled_start: Date | null;
     scheduled_end: Date | null;
+    calendar_event_id: string | null;
   }>(
     `update bookings set status = 'cancelled', updated_at = $2
       where id = $1 and status in ${OPEN}
-      returning order_id, scheduled_start, scheduled_end`,
+      returning order_id, scheduled_start, scheduled_end, calendar_event_id`,
     [bookingId, now],
   );
   const slot = cancelled.rows[0];
@@ -46,11 +47,37 @@ export async function cancelOpenBooking(
     like any other released hold.
   */
   if (slot.scheduled_start && slot.scheduled_end) {
-    await releaseConvertedHoldForLostSlot(runner, {
+    const lost = {
       orderId: slot.order_id,
       slotStart: slot.scheduled_start,
       slotEnd: slot.scheduled_end,
-    });
+    };
+    /*
+      The sweep deletes the event a released hold carries, so the hold must
+      carry the booking's. It usually does already; it does not when the
+      calendar answered after the hold was written and the attach did not land.
+    */
+    if (slot.calendar_event_id !== null) {
+      await runner.query(
+        `update slot_holds set calendar_event_id = $4
+          where order_id = $1 and status = 'converted' and slot_start = $2 and slot_end = $3
+            and calendar_event_id is null`,
+        [lost.orderId, lost.slotStart, lost.slotEnd, slot.calendar_event_id],
+      );
+    }
+    const released = await releaseConvertedHoldForLostSlot(runner, lost);
+    /*
+      A booking placed by hand has no hold. Its event still blocks the time
+      on the real calendar, which availability reads, so a released hold is
+      written for it: the sweep deletes its event like any other.
+    */
+    if (released.length === 0 && slot.calendar_event_id !== null) {
+      await runner.query(
+        `insert into slot_holds (slot_start, slot_end, order_id, calendar_event_id, expires_at, status)
+         values ($1, $2, $3, $4, $5, 'released')`,
+        [lost.slotStart, lost.slotEnd, lost.orderId, slot.calendar_event_id, now],
+      );
+    }
   }
   await runner.query(
     `update communication_log set status = 'cancelled'

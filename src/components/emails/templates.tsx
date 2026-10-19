@@ -24,7 +24,13 @@ import {
   CancellationConfirmationEmail,
   cancellationConfirmationSubject,
 } from "./CancellationConfirmationEmail";
-import { PaymentReceivedEmail, paymentReceivedSubject } from "./PaymentReceivedEmail";
+import { ChooseNewTimeEmail, chooseNewTimeSubject } from "./ChooseNewTimeEmail";
+import {
+  PaymentReceivedEmail,
+  PaymentReceivedNoTimeEmail,
+  paymentReceivedNoTimeSubject,
+  paymentReceivedSubject,
+} from "./PaymentReceivedEmail";
 import { ReminderEmail, reminderSubject } from "./ReminderEmail";
 import {
   RescheduleConfirmationEmail,
@@ -298,6 +304,66 @@ export async function renderRefundIssued(model: RefundIssuedEmailModel): Promise
       firstName={model.firstName}
       reference={model.reference}
       refundLabel={formatAed(model.amountFils)}
+      companyName={companyName()}
+      supportEmail={supportEmail()}
+    />,
+  );
+}
+
+/** The payment acknowledgement for a booking with no time yet: the money came after the time went. */
+export interface PaymentReceivedNoTimeModel {
+  readonly bookingId: string;
+  readonly firstName: string;
+  readonly sessionTitle: string;
+  readonly agreement: AgreementModel | null;
+}
+
+export async function renderPaymentReceivedNoTime(
+  model: PaymentReceivedNoTimeModel,
+): Promise<RenderedEmail> {
+  const reference = bookingReference(model.bookingId);
+  return rendered(
+    paymentReceivedNoTimeSubject(model),
+    <PaymentReceivedNoTimeEmail
+      sessionTitle={model.sessionTitle}
+      firstName={model.firstName}
+      companyName={companyName()}
+      supportEmail={supportEmail()}
+      rights={{
+        reference,
+        withdrawUrl: `${clientEnv.NEXT_PUBLIC_SITE_URL}${TRAINING_BASE}/book/withdraw?ref=${reference}`,
+        termsUrl: POLICY_LINKS.terms,
+        policyUrl: POLICY_LINKS.bookingAndRefunds,
+        cancellationDays: BOOKING_POLICY.cancellationDays,
+        moveNoticeHours: BOOKING_POLICY.moveNoticeHours,
+        findBookingUrl: `${clientEnv.NEXT_PUBLIC_SITE_URL}${TRAINING_BASE}/book/manage`,
+      }}
+      agreement={
+        model.agreement
+          ? { ...model.agreement, amountPaid: formatAed(model.agreement.amountPaidFils) }
+          : null
+      }
+    />,
+  );
+}
+
+export interface ChooseNewTimeModel {
+  readonly bookingId: string;
+  readonly firstName: string;
+  readonly sessionTitle: string;
+  readonly chooseTimeUrl: string;
+  readonly linkDays: number;
+}
+
+export async function renderChooseNewTime(model: ChooseNewTimeModel): Promise<RenderedEmail> {
+  return rendered(
+    chooseNewTimeSubject(model),
+    <ChooseNewTimeEmail
+      firstName={model.firstName}
+      sessionTitle={model.sessionTitle}
+      reference={bookingReference(model.bookingId)}
+      chooseTimeUrl={model.chooseTimeUrl}
+      linkDays={model.linkDays}
       companyName={companyName()}
       supportEmail={supportEmail()}
     />,

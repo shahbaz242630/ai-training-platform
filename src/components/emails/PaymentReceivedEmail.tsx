@@ -40,6 +40,63 @@ export function paymentReceivedSubject(
   return `Payment received: ${props.sessionTitle}, ${props.dayLabel}`;
 }
 
+/**
+ * The same acknowledgement for a payment that reached us after the time it
+ * was for had gone back on sale. The contract is still confirmed in writing,
+ * with the terms attached, before anything else happens; the link to choose a
+ * new time follows in its own email.
+ */
+export interface PaymentReceivedNoTimeProps {
+  readonly sessionTitle: string;
+  readonly rights: BookingRightsProps;
+  readonly firstName: string;
+  readonly agreement: AgreementDetails | null;
+  readonly companyName: string;
+  readonly supportEmail: string;
+}
+
+export function paymentReceivedNoTimeSubject(
+  props: Pick<PaymentReceivedNoTimeProps, "sessionTitle">,
+) {
+  return `Payment received: ${props.sessionTitle}`;
+}
+
+export function PaymentReceivedNoTimeEmail(props: PaymentReceivedNoTimeProps) {
+  return (
+    <EmailLayout
+      preview="We have your payment. Your session needs a new time."
+      companyName={props.companyName}
+      supportEmail={props.supportEmail}
+    >
+      <h1 style={emailStyles.heading}>Thank you, {props.firstName}. Your payment is in.</h1>
+      <p style={emailStyles.paragraph}>
+        We have received your payment. The time you chose was no longer free by the time your
+        payment reached us, so your session does not have a time yet. We are sorry about that.
+      </p>
+      <div style={{ margin: "0 0 20px" }}>
+        <p style={emailStyles.detail}>
+          <strong>Session:</strong> {props.sessionTitle}
+        </p>
+        <p style={emailStyles.detail}>
+          <strong>Time:</strong> to be chosen
+        </p>
+      </div>
+      {props.agreement ? <Agreement {...props.agreement} /> : null}
+      {props.agreement ? (
+        <p style={emailStyles.muted}>
+          The full Coaching Terms and Booking and Refund Policy you agreed to are attached as a PDF,
+          so you keep them exactly as they were when you booked.
+        </p>
+      ) : null}
+      <p style={emailStyles.paragraph}>
+        We will email you a link to choose any open time. If you would rather have your money back,
+        reply to this email and we will refund you in full.
+      </p>
+      <BookingRights {...props.rights} />
+    </EmailLayout>
+  );
+}
+
 export function PaymentReceivedEmail(props: PaymentReceivedEmailProps) {
   return (
     <EmailLayout

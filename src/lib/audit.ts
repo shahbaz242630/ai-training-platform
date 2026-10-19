@@ -19,6 +19,7 @@ export type AuditAction =
   | "order.refunded"
   | "order.refund_requested"
   | "order.refund_failed"
+  | "order.disputed"
   | "booking.slot_held"
   | "booking.hold_released"
   | "booking.confirmed"

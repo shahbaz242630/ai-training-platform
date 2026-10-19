@@ -61,6 +61,19 @@ export interface PaidButUnscheduled {
   readonly paymentIntentId: string | null;
   /** Only a fully paid order can be given a new time from a link; a part-refunded one is by hand. */
   readonly fullyPaid: boolean;
+  /**
+   * The order has had a dispute, now won. Its customer is not sent a link by
+   * themselves: after a stolen-card dispute the booker may not be the
+   * cardholder, so a person decides. (An order whose dispute is not over, or
+   * whose money is gone, is not listed at all: the dispute alert has it.)
+   */
+  readonly disputed: boolean;
+  /** When the booking last went back to waiting (its last change); null with no booking. */
+  readonly waitingSince: Date | null;
+  /** When the customer was sent their choose-a-time link since then; null if not (yet). */
+  readonly customerEmailedAt: Date | null;
+  /** That email is queued and not sent yet: the desk hears once it has gone, or not. */
+  readonly customerEmailPending: boolean;
 }
 
 export async function listPaidButUnscheduled(
@@ -83,17 +96,27 @@ export async function listPaidButUnscheduled(
     gross_amount_fils: string | number;
     stripe_payment_intent_id: string | null;
     payment_status: string;
+    disputed: boolean;
+    waiting_since: Date | null;
+    email_status: string | null;
+    email_sent_at: Date | null;
   }>(
     // One row per order: the desk alert is keyed by it.
     `select distinct on (o.id)
             o.id as order_id, b.id as booking_id, o.session_slug, o.gross_amount_fils,
-            o.stripe_payment_intent_id, o.payment_status
+            o.stripe_payment_intent_id, o.payment_status,
+            exists (select 1 from payment_disputes d where d.order_id = o.id) as disputed,
+            b.updated_at as waiting_since, cl.status as email_status, cl.sent_at as email_sent_at
        from orders o
        left join bookings b on b.order_id = o.id
+       left join communication_log cl
+              on cl.booking_id = b.id and cl.template_key = 'choose_new_time'
       -- Partly refunded still counts: a goodwill part-refund leaves the
       -- customer owed a session. Only a full refund settles it.
       where o.payment_status in ('paid', 'partially_refunded')
         and (b.id is null or b.status = 'awaiting_schedule')
+        and not exists (select 1 from payment_disputes d
+                         where d.order_id = o.id and d.status not in ('won', 'warning_closed'))
       order by o.id, b.sequence`,
   );
   return result.rows.map((row) => ({
@@ -103,5 +126,15 @@ export async function listPaidButUnscheduled(
     amountFils: Number(row.gross_amount_fils),
     paymentIntentId: row.stripe_payment_intent_id,
     fullyPaid: row.payment_status === "paid",
+    disputed: row.disputed,
+    waitingSince: row.waiting_since,
+    customerEmailedAt:
+      row.email_status === "sent" &&
+      row.email_sent_at !== null &&
+      row.waiting_since !== null &&
+      row.email_sent_at >= row.waiting_since
+        ? row.email_sent_at
+        : null,
+    customerEmailPending: row.email_status === "queued",
   }));
 }

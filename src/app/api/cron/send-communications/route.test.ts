@@ -369,21 +369,38 @@ describe("what is refused before a provider is involved", () => {
 
   it("leaves a message for a booking with no time to a person rather than guessing", async () => {
     const { bookingId } = await scheduledBooking({ times: false });
+    await queueForBooking(runner, bookingId, [{ templateKey: "reminder_24h", scheduledFor: PAST }]);
+
+    await run();
+
+    expect(provider.sent).toEqual([]);
+    expect((await rowFor(bookingId, "reminder_24h"))?.last_error).toBe("booking_has_no_time");
+  });
+
+  /*
+    The one session email that does go without a time: the payment
+    acknowledgement, for a payment that arrived after its time was gone. The
+    contract is confirmed in writing whatever happens to the time.
+  */
+  it("acknowledges a payment for a booking with no time, saying the time is still to be chosen", async () => {
+    const { bookingId, email } = await scheduledBooking({ times: false });
     await queueForBooking(runner, bookingId, [
       { templateKey: "payment_receipt", scheduledFor: PAST },
     ]);
 
     await run();
 
-    expect(provider.sent).toEqual([]);
-    expect((await rowFor(bookingId, "payment_receipt"))?.last_error).toBe("booking_has_no_time");
+    const sent = provider.sent.find((m) => m.to === email);
+    expect(sent?.text).toContain("to be chosen");
+    expect(sent?.text).toContain("refund you in full");
+    expect((await rowFor(bookingId, "payment_receipt"))?.status).toBe("sent");
   });
 
   it("carries on past one bad message and sends the rest", async () => {
     const bad = await scheduledBooking({ times: false });
     const good = await scheduledBooking();
     await queueForBooking(runner, bad.bookingId, [
-      { templateKey: "payment_receipt", scheduledFor: PAST },
+      { templateKey: "reminder_24h", scheduledFor: PAST },
     ]);
     await queueForBooking(runner, good.bookingId, [
       { templateKey: "payment_receipt", scheduledFor: PAST },
@@ -727,5 +744,96 @@ describe("the payment acknowledgement", () => {
     expect(logs.some((l) => l.level === "error" && l.message.includes("no printed terms"))).toBe(
       true,
     );
+  });
+});
+
+/*
+  The customer's own link to choose a time for a paid booking with no time
+  (founder decision, October 2026). Checked again at sending: a booking that
+  has a time by now, an order no longer exactly paid, or one that was ever
+  disputed is withdrawn, not sent and not counted as a failure.
+*/
+describe("the choose-a-time email", () => {
+  it("sends the customer a working link, with a copy to the desk", async () => {
+    const { bookingId, email } = await scheduledBooking({ times: false });
+    await queueForBooking(runner, bookingId, [
+      { templateKey: "choose_new_time", scheduledFor: PAST },
+    ]);
+
+    await run();
+
+    const sent = provider.sent.find((m) => m.to === email);
+    expect(sent?.subject).toContain("Choose a time for your session");
+    expect(sent?.html).toContain("http://localhost:3000/training/book/manage?t=");
+    expect(sent?.text).toContain("does not use up your one free move");
+    expect(sent?.bcc).toBe("help@example.com");
+    expect((await rowFor(bookingId, "choose_new_time"))?.status).toBe("sent");
+  });
+
+  it("is withdrawn when the booking has a time by the time it would go", async () => {
+    const { bookingId, email } = await scheduledBooking();
+    await queueForBooking(runner, bookingId, [
+      { templateKey: "choose_new_time", scheduledFor: PAST },
+    ]);
+
+    const result = await run();
+
+    expect(provider.sent.map((m) => m.to)).not.toContain(email);
+    expect((await rowFor(bookingId, "choose_new_time"))?.status).toBe("cancelled");
+    expect(result.body).toMatchObject({ failed: 0 });
+  });
+
+  it("is withdrawn for an order that was ever disputed: a person decides", async () => {
+    const { bookingId, email } = await scheduledBooking({ times: false });
+    await db.query(
+      `insert into payment_disputes (provider_dispute_id, order_id, amount_minor, currency, reason, status)
+       select 'dp_send_' || b.id, b.order_id, 149900, 'AED', 'fraudulent', 'won'
+         from bookings b where b.id = $1`,
+      [bookingId],
+    );
+    await queueForBooking(runner, bookingId, [
+      { templateKey: "choose_new_time", scheduledFor: PAST },
+    ]);
+
+    await run();
+
+    expect(provider.sent.map((m) => m.to)).not.toContain(email);
+    expect((await rowFor(bookingId, "choose_new_time"))?.status).toBe("cancelled");
+  });
+});
+
+describe("the choose-a-time email, when it cannot honestly go", () => {
+  it("is withdrawn for an order no longer exactly paid", async () => {
+    const { bookingId, email } = await scheduledBooking({ times: false });
+    await db.query(
+      `update orders set payment_status = 'partially_refunded'
+        where id = (select order_id from bookings where id = $1)`,
+      [bookingId],
+    );
+    await queueForBooking(runner, bookingId, [
+      { templateKey: "choose_new_time", scheduledFor: PAST },
+    ]);
+
+    await run();
+
+    expect(provider.sent.map((m) => m.to)).not.toContain(email);
+    expect((await rowFor(bookingId, "choose_new_time"))?.status).toBe("cancelled");
+  });
+
+  it("is left for a person, not sent without a link, when no link can be made", async () => {
+    state.manageSecret = undefined;
+    try {
+      const { bookingId, email } = await scheduledBooking({ times: false });
+      await queueForBooking(runner, bookingId, [
+        { templateKey: "choose_new_time", scheduledFor: PAST },
+      ]);
+
+      await run();
+
+      expect(provider.sent.map((m) => m.to)).not.toContain(email);
+      expect((await rowFor(bookingId, "choose_new_time"))?.last_error).toBe("no_link_secret");
+    } finally {
+      state.manageSecret = "x".repeat(40);
+    }
   });
 });

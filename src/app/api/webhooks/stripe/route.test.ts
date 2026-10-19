@@ -430,6 +430,13 @@ describe("a paid delivery", () => {
       booking: "awaiting_schedule",
       hold: "expired",
     });
+    // The payment is still acknowledged in writing, with the terms, at once.
+    const receipt = await db.query<{ template_key: string }>(
+      `select c.template_key from communication_log c join bookings b on b.id = c.booking_id
+        where b.order_id = $1 and c.status = 'queued'`,
+      [orderId],
+    );
+    expect(receipt.rows.map((r) => r.template_key)).toEqual(["payment_receipt"]);
     expect(errorMessages()).toContain(
       "PAID BUT NOT SCHEDULED - needs rescheduling by hand, do not charge again",
     );
@@ -697,5 +704,32 @@ describe("an oversized delivery", () => {
     );
 
     expect(response.status).toBe(413);
+  });
+});
+
+/*
+  A stolen-card dispute can reach us before the payment does. It is linked at
+  settlement, in the same transaction, so the session is cancelled before any
+  confirmation goes out rather than at the next sweep.
+*/
+describe("a dispute that arrived before the payment", () => {
+  it("cancels the session at settlement, before anything is confirmed", async () => {
+    const { orderId, slotHoldId } = await pendingOrder();
+    const intent = `pi_early_${randomUUID()}`;
+    await db.query(
+      `insert into payment_disputes (provider_dispute_id, payment_intent_id, amount_minor, currency,
+                                     reason, status)
+       values ($1, $2, 129900, 'AED', 'fraudulent', 'needs_response')`,
+      [`dp_early_${randomUUID()}`, intent],
+    );
+
+    const result = await deliver(paidEvent(orderId, slotHoldId, { paymentIntentId: intent }));
+
+    expect(result.status).toBe(200);
+    const booking = await db.query<{ status: string }>(
+      "select status from bookings where order_id = $1",
+      [orderId],
+    );
+    expect(booking.rows[0]?.status).toBe("cancelled");
   });
 });

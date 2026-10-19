@@ -180,6 +180,27 @@ describe("confirmBookingOnCalendar", () => {
     expect((await bookingRow(bookingId))?.calendar_event_id).toBe("mock_evt_1");
   });
 
+  /*
+    A refund, withdrawal or dispute can cancel the booking while the calendar
+    is being asked. The event made for it then belongs to nothing: no hold
+    carries it, so the sweep would never delete it, and it would keep the time
+    off sale on the real calendar. It is deleted on the way out.
+  */
+  it("deletes the event it made when the booking is cancelled while the calendar is asked", async () => {
+    const provider = calendar();
+    const { bookingId } = await scheduledBooking({ calendarEventId: null });
+    const confirmSlot = provider.confirmSlot.bind(provider);
+    provider.confirmSlot = async (...args) => {
+      await db.query(`update bookings set status = 'cancelled' where id = $1`, [bookingId]);
+      return confirmSlot(...args);
+    };
+
+    const outcome = await confirmBookingOnCalendar({ bookingId, provider, now: NOW, transaction });
+
+    expect(outcome).toBe("already_confirmed");
+    expect(provider.listEvents()).toHaveLength(0);
+  });
+
   it("is a no-op the second time, and queues nothing twice", async () => {
     const provider = calendar();
     const { bookingId } = await scheduledBooking();

@@ -9,6 +9,7 @@ import { createEvidenceBudget } from "@/lib/evidence-budget";
 import { logger } from "@/lib/logger";
 import { readTextWithin } from "@/lib/read-body";
 import { applyCheckoutOutcome, confirmOnCalendar, reportOutcome } from "./checkout-outcome";
+import { handleDisputeEvent } from "./dispute-event";
 import { handleRefundEvent } from "./refund-event";
 
 /*
@@ -119,6 +120,8 @@ export async function POST(request: Request): Promise<NextResponse> {
 
   // Refunds find their order their own way, so they are handled before the guards below.
   if (event.kind === "refund") return handleRefundEvent(event);
+  // Disputes too: a dispute names a payment, never our order.
+  if (event.kind === "dispute") return handleDisputeEvent(event, payments);
 
   /*
     The order id arrives in processor metadata, so it is external input like

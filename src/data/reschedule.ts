@@ -1,6 +1,7 @@
 import type { QueryRunner } from "./db";
 import { insertAuditEvent } from "./audit-events";
 import { queueForBooking } from "./communications";
+import { orderHasDispute } from "./disputes";
 import { decideReschedule, type RescheduleRefusal } from "@/domain/booking/reschedule";
 import type { BookingStatus } from "@/domain/booking/booking";
 import { messagesOnConfirmation } from "@/domain/messaging/schedule";
@@ -31,7 +32,7 @@ import { logger } from "@/lib/logger";
 
 export type MoveOutcome =
   | { readonly kind: "moved"; readonly start: Date; readonly end: Date }
-  | { readonly kind: "refused"; readonly reason: RescheduleRefusal | "not_found" };
+  | { readonly kind: "refused"; readonly reason: RescheduleRefusal | "not_found" | "disputed" };
 
 export interface MoveInput {
   readonly bookingId: string;
@@ -43,6 +44,17 @@ export interface MoveInput {
 const TIMED: readonly TemplateKey[] = ["reminder_24h", "reminder_3h", "follow_up"];
 
 export async function moveBooking(runner: QueryRunner, input: MoveInput): Promise<MoveOutcome> {
+  /*
+    The order first, then the booking: the order every money path locks in.
+    A dispute is stored under the order's lock, so taking it here means a move
+    either sees the dispute or finishes before it is stored, never neither.
+  */
+  await runner.query(
+    `select o.id from orders o join bookings b on b.order_id = o.id
+      where b.id = $1
+      for update of o`,
+    [input.bookingId],
+  );
   const found = await runner.query<{
     status: BookingStatus;
     scheduled_start: Date | null;
@@ -62,6 +74,10 @@ export async function moveBooking(runner: QueryRunner, input: MoveInput): Promis
   );
   const booking = found.rows[0];
   if (!booking) return { kind: "refused", reason: "not_found" };
+  // A disputed payment freezes the session: a dispute must never become a free reschedule.
+  if (await orderHasDispute(runner, booking.order_id)) {
+    return { kind: "refused", reason: "disputed" };
+  }
 
   const decision = decideReschedule({
     status: booking.status,
@@ -178,6 +194,8 @@ export interface BookingForManage {
   readonly customerTimezone: string;
   /** Exactly paid. Only then can a booking that lost its time be given a new one. */
   readonly orderPaid: boolean;
+  /** The payment has been disputed: nothing can be moved or chosen online; a person decides. */
+  readonly disputed: boolean;
 }
 
 /** What the manage page shows and decides with. Null for an unknown booking. */
@@ -193,9 +211,11 @@ export async function loadBookingForManage(
     reschedule_count: number;
     customer_timezone: string;
     payment_status: string;
+    disputed: boolean;
   }>(
     `select b.status, b.session_slug, b.scheduled_start, b.scheduled_end, b.reschedule_count,
-            b.customer_timezone, o.payment_status
+            b.customer_timezone, o.payment_status,
+            exists (select 1 from payment_disputes d where d.order_id = o.id) as disputed
        from bookings b
        join orders o on o.id = b.order_id
       where b.id = $1`,
@@ -211,6 +231,7 @@ export async function loadBookingForManage(
         rescheduleCount: row.reschedule_count,
         customerTimezone: row.customer_timezone,
         orderPaid: row.payment_status === "paid",
+        disputed: row.disputed,
       }
     : null;
 }

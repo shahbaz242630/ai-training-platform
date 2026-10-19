@@ -1,5 +1,6 @@
 import type { QueryRunner } from "./db";
 import { insertAuditEvent } from "./audit-events";
+import { orderHasDispute } from "./disputes";
 import { scheduleBooking, type Booking, type BookingStatus } from "@/domain/booking/booking";
 import type { PaymentStatus } from "@/domain/booking/order";
 
@@ -32,7 +33,10 @@ import type { PaymentStatus } from "@/domain/booking/order";
 
 export type ChooseTimeOutcome =
   | { readonly kind: "scheduled"; readonly start: Date; readonly end: Date }
-  | { readonly kind: "refused"; readonly reason: "not_waiting" | "not_paid" | "not_found" };
+  | {
+      readonly kind: "refused";
+      readonly reason: "not_waiting" | "not_paid" | "not_found" | "disputed";
+    };
 
 export interface ChooseTimeInput {
   readonly bookingId: string;
@@ -80,6 +84,8 @@ export async function scheduleWaitingBooking(
   if (row.status !== "awaiting_schedule") return { kind: "refused", reason: "not_waiting" };
   // Exactly paid: only a paid order confirms. A part-refunded one is the desk's to settle.
   if (row.payment_status !== "paid") return { kind: "refused", reason: "not_paid" };
+  // While the bank is disputing the payment, no time is given: a person decides.
+  if (await orderHasDispute(runner, row.order_id)) return { kind: "refused", reason: "disputed" };
 
   const { start, end } = input.newSlot;
   const booking: Booking = {

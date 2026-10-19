@@ -284,14 +284,22 @@ describe("toPaymentEvent", () => {
     ignorable rather than failing is what stops the endpoint returning 500 and
     being retried forever.
   */
+  // These are all checkout events: anything else reduced here is the test going wrong.
+  const checkoutOf = (stripeEvent: Parameters<typeof toPaymentEvent>[0]) => {
+    const reduced = toPaymentEvent(stripeEvent);
+    if (reduced.kind !== "checkout")
+      throw new Error(`expected a checkout event, got ${reduced.kind}`);
+    return reduced;
+  };
+
   it("marks an event type we do not consume as ignorable", () => {
-    const reduced = toPaymentEvent(event("customer.subscription.updated"));
+    const reduced = checkoutOf(event("customer.subscription.updated"));
     expect(reduced.ignorable).toBe(true);
     expect(reduced.orderId).toBeNull();
   });
 
   it("falls back to client_reference_id when metadata is missing", () => {
-    const reduced = toPaymentEvent(
+    const reduced = checkoutOf(
       event("checkout.session.completed", {
         client_reference_id: "order-9",
         payment_status: "paid",
@@ -301,7 +309,7 @@ describe("toPaymentEvent", () => {
   });
 
   it("prefers metadata over client_reference_id", () => {
-    const reduced = toPaymentEvent(
+    const reduced = checkoutOf(
       event("checkout.session.completed", {
         client_reference_id: "order-old",
         metadata: { orderId: "order-new" },
@@ -313,7 +321,7 @@ describe("toPaymentEvent", () => {
 
   // Stripe reports seconds; everything we store is a real Date in UTC.
   it("converts the Stripe timestamp from seconds", () => {
-    const reduced = toPaymentEvent(event("checkout.session.completed", { payment_status: "paid" }));
+    const reduced = checkoutOf(event("checkout.session.completed", { payment_status: "paid" }));
     expect(reduced.occurredAt.toISOString()).toBe("2027-01-15T08:00:00.000Z");
   });
 
@@ -325,14 +333,14 @@ describe("toPaymentEvent", () => {
     order was left with no way to refund it.
   */
   it("carries the payment intent id when Stripe sends it as an id", () => {
-    const reduced = toPaymentEvent(
+    const reduced = checkoutOf(
       event("checkout.session.completed", { payment_status: "paid", payment_intent: "pi_123" }),
     );
     expect(reduced.paymentIntentId).toBe("pi_123");
   });
 
   it("carries the payment intent id when Stripe sends the expanded object", () => {
-    const reduced = toPaymentEvent(
+    const reduced = checkoutOf(
       event("checkout.session.completed", {
         payment_status: "paid",
         payment_intent: { id: "pi_456", object: "payment_intent" },
@@ -342,15 +350,15 @@ describe("toPaymentEvent", () => {
   });
 
   it("reports no payment intent when nothing has been paid", () => {
-    const expired = toPaymentEvent(
+    const expired = checkoutOf(
       event("checkout.session.expired", { payment_status: "unpaid", payment_intent: null }),
     );
     expect(expired.paymentIntentId).toBeNull();
 
-    const absent = toPaymentEvent(event("checkout.session.completed", { payment_status: "paid" }));
+    const absent = checkoutOf(event("checkout.session.completed", { payment_status: "paid" }));
     expect(absent.paymentIntentId).toBeNull();
 
-    expect(toPaymentEvent(event("customer.subscription.updated")).paymentIntentId).toBeNull();
+    expect(checkoutOf(event("customer.subscription.updated")).paymentIntentId).toBeNull();
   });
 });
 
