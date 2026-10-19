@@ -13,12 +13,15 @@ import { logger } from "@/lib/logger";
  * never left not hearing at all.
  *
  * Kind-generic on purpose: the refund alarm, a booked session's calendar
- * event deleted or moved by hand (the Outlook watch), and a paid booking with
- * no session time.
+ * event deleted or moved by hand (the Outlook watch), a paid booking with no
+ * session time, and a withdrawal waiting for a person's decision.
  */
 
 export type DeskAlertKind =
-  "refund_needs_attention" | "calendar_event_changed" | "paid_booking_needs_time";
+  | "refund_needs_attention"
+  | "calendar_event_changed"
+  | "paid_booking_needs_time"
+  | "withdrawal_needs_decision";
 
 /** At most this many emails a run, failed tries included, so an outage cannot become a flood. */
 export const MAX_ALERT_SENDS_PER_RUN = 10;

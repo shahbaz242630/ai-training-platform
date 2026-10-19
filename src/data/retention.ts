@@ -41,6 +41,12 @@ async function deleteOrders(
 ): Promise<number> {
   // First: a refund points at both its order and its withdrawal notice.
   await runner.query(`delete from refunds where order_id in (${orderIds})`, params);
+  // A desk decision points at its notice, so it goes before the notice does.
+  await runner.query(
+    `delete from withdrawal_decisions
+      where booking_id in (select id from bookings where order_id in (${orderIds}))`,
+    params,
+  );
   await runner.query(
     `delete from withdrawal_requests
       where booking_id in (select id from bookings where order_id in (${orderIds}))`,

@@ -67,6 +67,54 @@ export function decideWithdrawal(facts: WithdrawalFacts): WithdrawalDecision {
   return { ok: true, refundDueFils: facts.amountPaidFils };
 }
 
+/**
+ * Who decides a withdrawal's refund: the system at once, or a person.
+ *
+ * The form's tick ("I am a UK or EU consumer") is the customer's word, and
+ * a word alone must not move money. The country the card was issued in is
+ * the processor's fact, so only a card from the UK or an EU member state is
+ * refunded automatically. Anything else, including a card whose country could
+ * not be read, goes to the desk, which decides within the 14 days: a UK
+ * resident paying with a card from abroad loses nothing but a short wait.
+ */
+export type WithdrawalRoute = "automatic" | "desk";
+
+/** ISO 3166-1 alpha-2: the United Kingdom and the 27 EU member states. */
+const UK_AND_EU: ReadonlySet<string> = new Set([
+  "GB",
+  "AT",
+  "BE",
+  "BG",
+  "HR",
+  "CY",
+  "CZ",
+  "DK",
+  "EE",
+  "FI",
+  "FR",
+  "DE",
+  "GR",
+  "HU",
+  "IE",
+  "IT",
+  "LV",
+  "LT",
+  "LU",
+  "MT",
+  "NL",
+  "PL",
+  "PT",
+  "RO",
+  "SK",
+  "SI",
+  "ES",
+  "SE",
+]);
+
+export function withdrawalRoute(cardCountry: string | null): WithdrawalRoute {
+  return cardCountry !== null && UK_AND_EU.has(cardCountry) ? "automatic" : "desk";
+}
+
 /** The notice, in the words the customer confirms and the record keeps. */
 export function withdrawalStatement(input: {
   readonly fullName: string;

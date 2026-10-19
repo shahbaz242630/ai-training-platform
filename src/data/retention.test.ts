@@ -210,6 +210,12 @@ describe("bookings, payments and what was agreed", () => {
        values ($1, 'Amina Khan', $2, 'I withdraw.', 0, '2019-03-02T00:00:00Z')`,
       [bookingId, `keep${n}@example.com`],
     );
+    // A desk decision hangs off the notice and must not hold the purge up.
+    await db.query(
+      `insert into withdrawal_decisions (booking_id, decision, decided_at)
+       values ($1, 'declined', '2019-03-03T00:00:00Z')`,
+      [bookingId],
+    );
     await purgeExpiredPersonalData(runner, NOW);
     expect(await exists("orders", orderId)).toBe(false);
     expect(await exists("bookings", bookingId)).toBe(false);

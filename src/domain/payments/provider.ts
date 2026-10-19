@@ -243,4 +243,12 @@ export interface PaymentProvider {
 
   /** Read a refund as the processor has it now. */
   getRefund(providerRefundId: string): Promise<RefundSnapshot>;
+
+  /**
+   * The country the card behind a payment was issued in, as an upper-case
+   * two-letter code, or null when the payment was not made by card or the
+   * processor does not say. Throws when the processor cannot be asked; the
+   * caller treats that as unknown.
+   */
+  getCardCountry(paymentIntentId: string): Promise<string | null>;
 }

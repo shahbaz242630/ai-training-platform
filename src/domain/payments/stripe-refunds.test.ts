@@ -132,6 +132,52 @@ describe("StripePaymentProvider.getRefund", () => {
   });
 });
 
+describe("StripePaymentProvider.getCardCountry", () => {
+  const withIntent = (latestCharge: unknown, seen: unknown[] = []) =>
+    new StripePaymentProvider(
+      {
+        paymentIntents: {
+          retrieve: (...args: unknown[]) => {
+            seen.push(args);
+            return Promise.resolve({ id: "pi_1", latest_charge: latestCharge });
+          },
+        },
+      } as unknown as Stripe,
+      SIGNING_SECRET,
+    );
+
+  it("reads the issuing country of the card from the payment's charge", async () => {
+    const seen: unknown[] = [];
+    const provider = withIntent(
+      { id: "ch_1", payment_method_details: { type: "card", card: { country: "ae" } } },
+      seen,
+    );
+    expect(await provider.getCardCountry("pi_1")).toBe("AE");
+    // The charge must be expanded, or only its id comes back and no country can be read.
+    expect(seen[0]).toEqual([
+      "pi_1",
+      { expand: ["latest_charge"] },
+      { timeout: 5_000, maxNetworkRetries: 0 },
+    ]);
+  });
+
+  it("says nothing it does not know: no charge, a bare id, or no card", async () => {
+    expect(await withIntent(null).getCardCountry("pi_1")).toBeNull();
+    expect(await withIntent("ch_1").getCardCountry("pi_1")).toBeNull();
+    expect(
+      await withIntent({ id: "ch_1", payment_method_details: { type: "link" } }).getCardCountry(
+        "pi_1",
+      ),
+    ).toBeNull();
+    expect(
+      await withIntent({
+        id: "ch_1",
+        payment_method_details: { type: "card", card: { country: null } },
+      }).getCardCountry("pi_1"),
+    ).toBeNull();
+  });
+});
+
 describe("classifyRefundError", () => {
   const stripeError = (Kind: typeof Stripe.errors.StripeError, raw: Record<string, unknown>) =>
     new Kind({ message: "x", ...raw } as never);

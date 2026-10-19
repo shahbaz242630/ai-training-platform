@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { REFUND_CURRENCY_NOTE } from "@/config/site";
+import { BOOKING_POLICY, REFUND_CURRENCY_NOTE } from "@/config/site";
 import { confirmWithdrawalAction, lookUpWithdrawalAction } from "./actions";
 import type { WithdrawalReceipt, WithdrawalSummary } from "./flow";
 
@@ -90,12 +90,11 @@ export function WithdrawalForm({ initialReference }: { readonly initialReference
                   ["Booking reference", step.summary.reference],
                 ] as const)
               : []),
-            ["Refund", step.receipt.refundDue],
+            ["Refund", refundLabel(step.receipt)],
           ]}
         />
         <p className="text-ink-soft mt-4 text-[14.5px] leading-relaxed">
-          Your booking is cancelled. We are refunding {step.receipt.refundDue} to the card you paid
-          with, at no cost to you.{" "}
+          {receiptSentence(step.receipt)}{" "}
           {step.receipt.isNew
             ? "We are emailing you a copy of this confirmation."
             : "We emailed you a confirmation when we received it."}
@@ -220,4 +219,31 @@ function Facts({ rows }: { readonly rows: ReadonlyArray<readonly [string, string
       ))}
     </dl>
   );
+}
+
+function refundLabel(receipt: WithdrawalReceipt): string {
+  switch (receipt.deskState) {
+    case "reviewing":
+      return "Being reviewed";
+    case "declined":
+      return "Not due";
+    default:
+      return receipt.refundDue;
+  }
+}
+
+/** What the customer is told, from where the notice stands now. */
+function receiptSentence(receipt: WithdrawalReceipt): string {
+  switch (receipt.deskState) {
+    case "reviewing":
+      return `We could not confirm automatically that the UK and EU 14-day right applies to this booking, so a member of our team will look at it and reply by email within ${BOOKING_POLICY.deskReplyWorkingDays} working days. Your booking stays in place until then. If the right applies, we refund ${receipt.refundDue} in full, to the card you paid with, within ${BOOKING_POLICY.withdrawalRefundDays} days of your notice.`;
+    case "declined":
+      return "We have looked at your notice, and our reply is on its way to you by email. Your booking stays in place, and you can still move it once, free, from the Reschedule link in your booking email.";
+    case "refunded":
+      return receipt.bookingCancelled
+        ? `Your booking is cancelled and we have refunded ${receipt.refundDue} to the card you paid with, at no cost to you.`
+        : `We have refunded ${receipt.refundDue} to the card you paid with, at no cost to you.`;
+    default:
+      return `Your booking is cancelled. We are refunding ${receipt.refundDue} to the card you paid with, at no cost to you.`;
+  }
 }

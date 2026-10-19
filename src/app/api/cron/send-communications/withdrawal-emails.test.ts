@@ -98,7 +98,9 @@ afterEach(() => {
 });
 
 /** A paid booking withdrawn just now: the notice kept, the refund owed, the acknowledgement queued. */
-async function withdrawn(): Promise<{ bookingId: string; orderId: string; email: string }> {
+async function withdrawn(
+  route: "automatic" | "desk" = "automatic",
+): Promise<{ bookingId: string; orderId: string; email: string }> {
   n += 1;
   const email = `withdraw-mail${n}@example.com`;
   const customer = await db.query<{ id: string }>(
@@ -129,6 +131,8 @@ async function withdrawn(): Promise<{ bookingId: string; orderId: string; email:
     receivedAt: new Date(Date.now() - 1000),
     ipAddress: null,
     userAgent: null,
+    route,
+    cardCountry: route === "automatic" ? "GB" : "AE",
   });
   return { bookingId, orderId: order.rows[0]!.id, email };
 }
@@ -154,6 +158,60 @@ const rows = async (bookingId: string, templateKey: string) =>
   ).rows;
 
 const sentTo = (email: string) => inner.mail.sent.filter((m) => m.to === email);
+
+describe("the acknowledgement of a notice the desk decides", () => {
+  it("says it is being reviewed and the booking stays, and still goes to the desk too", async () => {
+    const { bookingId, email } = await withdrawn("desk");
+    const outcome = await sendQueuedMessageNow({
+      bookingId,
+      templateKey: "withdrawal_acknowledgement",
+      provider: slowMail,
+      now: new Date(),
+    });
+    expect(outcome).toBe("sent");
+    const [sent] = sentTo(email);
+    expect(sent?.text).toContain("Your booking stays in place until then.");
+    expect(sent?.text).toContain("Being reviewed");
+    expect(sent?.text).not.toContain("Your booking is cancelled");
+    expect(sent?.bcc).toBe("help@example.com");
+  });
+});
+
+describe("the desk approving by refunding in the dashboard", () => {
+  it("cancels the booking and tells the customer, with a copy to the desk", async () => {
+    const { bookingId, email } = await withdrawn("desk");
+    await transaction((r) =>
+      applyRefundEvent(
+        r,
+        {
+          kind: "refund",
+          eventId: `evt_desk_approve_${n}`,
+          type: "refund.created",
+          occurredAt: new Date(),
+          ignorable: false,
+          orderId: null,
+          refundRowId: null,
+          providerRefundId: `re_desk_approve_${n}`,
+          paymentIntentId: `pi_withdraw_mail_${n}`,
+          amountFils: 149900,
+          currency: "AED",
+          status: "succeeded",
+        },
+        new Date(),
+      ),
+    );
+    const outcome = await sendQueuedMessageNow({
+      bookingId,
+      templateKey: "cancellation_confirmation",
+      provider: slowMail,
+      now: new Date(),
+    });
+    expect(outcome).toBe("sent");
+    const [sent] = sentTo(email).filter((m) => m.subject.startsWith("Your booking is cancelled"));
+    expect(sent?.text).toContain("refunded AED 1,499 in full");
+    expect(sent?.bcc).toBe("help@example.com");
+  });
+});
 
 describe("the acknowledgement, straight away", () => {
   it("is sent at once, by the same path the five-minute job uses", async () => {

@@ -139,6 +139,14 @@ export const BOOKING_POLICY = {
   cancellationDays: 14,
   /** After a withdrawal, the refund reaches the card within this many days. */
   withdrawalRefundDays: 14,
+  /**
+   * A withdrawal the desk decides (the card is not from the UK or the EU) is
+   * answered within this many working days: well inside the refund days, so
+   * a customer owed the refund still has it in time.
+   */
+  deskReplyWorkingDays: 3,
+  /** How long the desk is reminded about a withdrawal it has not decided: the refund days and a day's grace. */
+  deskDecisionDays: 15,
 } as const;
 
 /**

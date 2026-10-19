@@ -145,6 +145,8 @@ describe("applyRefundEvent", () => {
       refundId: id,
       status: "succeeded",
       orderMove: "refunded",
+      // The withdrawal had already cancelled it.
+      cancelledBookings: [],
     });
     expect(await row(id)).toMatchObject({ provider_refund_id: "re_ours", status: "succeeded" });
   });

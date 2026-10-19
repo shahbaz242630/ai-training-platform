@@ -1,3 +1,4 @@
+import { cancelOpenBookingsOnOrder } from "./booking-cancellation";
 import type { QueryRunner } from "./db";
 import { lockOrder } from "./settlement";
 import { transitionPayment, type PaymentStatus } from "@/domain/booking/order";
@@ -201,7 +202,7 @@ export async function recordRefundIssued(
   claimed: ClaimedRefund,
   issued: IssuedRefund,
   now: Date,
-): Promise<OrderRefundMove> {
+): Promise<{ readonly move: OrderRefundMove; readonly cancelledBookings: readonly string[] }> {
   await lockOrder(runner, claimed.orderId);
   await runner.query(
     `update refunds
@@ -212,7 +213,11 @@ export async function recordRefundIssued(
     [claimed.id, issued.providerRefundId, issued.status, now],
   );
   await queueRefundIssuedEmail(runner, claimed.id, now);
-  return recomputeOrderRefunds(runner, claimed.orderId, now);
+  const move = await recomputeOrderRefunds(runner, claimed.orderId, now);
+  // The same rule as a refund event: an order refunded in full owes no session still to come.
+  const cancelledBookings =
+    move === "refunded" ? await cancelOpenBookingsOnOrder(runner, claimed.orderId, now) : [];
+  return { move, cancelledBookings };
 }
 
 export interface RetryReason {
@@ -324,6 +329,8 @@ export interface RefundEventOutcome {
   readonly refundId: string | null;
   readonly status: RefundStatus | null;
   readonly orderMove: OrderRefundMove;
+  /** Bookings this event cancelled: an order refunded in full owes no session. */
+  readonly cancelledBookings: readonly string[];
 }
 
 const FINAL: ReadonlySet<string> = new Set(["succeeded", "failed", "canceled"]);
@@ -359,7 +366,14 @@ export async function applyRefundEvent(
   now: Date,
 ): Promise<RefundEventOutcome> {
   const none = (result: RefundEventOutcome["result"], orderId: string | null = null) =>
-    ({ result, orderId, refundId: null, status: null, orderMove: "unchanged" }) as const;
+    ({
+      result,
+      orderId,
+      refundId: null,
+      status: null,
+      orderMove: "unchanged",
+      cancelledBookings: [],
+    }) as const;
 
   // Metadata is external input: an id that is not a UUID would fail the query and be retried forever.
   const refundRowId =
@@ -433,7 +447,14 @@ export async function applyRefundEvent(
       event.occurredAt,
     )
   ) {
-    return { result: "stale", orderId, refundId: row.id, status: null, orderMove: "unchanged" };
+    return {
+      result: "stale",
+      orderId,
+      refundId: row.id,
+      status: null,
+      orderMove: "unchanged",
+      cancelledBookings: [],
+    };
   } else if (row.status !== event.status || row.provider_refund_id !== event.providerRefundId) {
     /*
       Written only when something changed. A refund read again and found as
@@ -451,5 +472,21 @@ export async function applyRefundEvent(
 
   await queueRefundIssuedEmail(runner, row.id, now);
   const orderMove = await recomputeOrderRefunds(runner, orderId, now);
-  return { result: "applied", orderId, refundId: row.id, status: event.status, orderMove };
+  /*
+    An order refunded in full owes no session, however the refund was made: in
+    the dashboard (a person approving a withdrawal, or any other full refund)
+    as much as by the sweep. Its bookings still open are cancelled, their time
+    goes back on sale and their reminders stop, in this same transaction. A
+    part refund is a goodwill gesture and leaves the booking as it is.
+  */
+  const cancelledBookings =
+    orderMove === "refunded" ? await cancelOpenBookingsOnOrder(runner, orderId, now) : [];
+  return {
+    result: "applied",
+    orderId,
+    refundId: row.id,
+    status: event.status,
+    orderMove,
+    cancelledBookings,
+  };
 }

@@ -30,13 +30,23 @@ afterAll(async () => {
   await db?.close();
 });
 
-const deps = (now: Date): FlowDeps => ({
+/** Every payment asked about, so a test can see whether the processor was asked at all. */
+let asked: string[] = [];
+
+const deps = (
+  now: Date,
+  cardCountry: (paymentIntentId: string) => Promise<string | null> = () => Promise.resolve("GB"),
+): FlowDeps => ({
   now,
   transaction: (work) => db.transaction((tx) => work(tx as unknown as QueryRunner)),
+  cardCountry: (paymentIntentId) => {
+    asked.push(paymentIntentId);
+    return cardCountry(paymentIntentId);
+  },
 });
 
 /** A paid booking made "now", for a session `startInDays` later. */
-async function booked(startInDays: number | null = 20) {
+async function booked(startInDays: number | null = 20, paid: { intent?: string | null } = {}) {
   const email = `flow${++n}@example.com`;
   const customer = await db.query<{ id: string }>(
     `insert into customers (first_name, last_name, email, timezone)
@@ -44,9 +54,10 @@ async function booked(startInDays: number | null = 20) {
     [email],
   );
   const order = await db.query<{ id: string; created_at: Date }>(
-    `insert into orders (customer_id, order_type, session_slug, gross_amount_fils, payment_status)
-     values ($1, 'single', 'claude-claude-code', 149900, 'paid') returning id, created_at`,
-    [customer.rows[0]!.id],
+    `insert into orders (customer_id, order_type, session_slug, gross_amount_fils, payment_status,
+                         stripe_payment_intent_id)
+     values ($1, 'single', 'claude-claude-code', 149900, 'paid', $2) returning id, created_at`,
+    [customer.rows[0]!.id, paid.intent === undefined ? `pi_flow_${n}` : paid.intent],
   );
   const madeAt = order.rows[0]!.created_at;
   const start =
@@ -205,5 +216,158 @@ describe("step 2: confirm", () => {
     await confirmWithdrawal(b.form, now, context);
     const again = await lookUpWithdrawal(b.form, now);
     expect(again).toMatchObject({ ok: true, alreadyReceived: { isNew: false } });
+  });
+});
+
+describe("step 2: who decides the refund", () => {
+  const status = async (bookingId: string) =>
+    (await db.query<{ status: string }>(`select status from bookings where id = $1`, [bookingId]))
+      .rows[0]?.status;
+  const kept = async (bookingId: string) =>
+    (
+      await db.query<{ route: string; card_country: string | null }>(
+        `select route, card_country from withdrawal_requests where booking_id = $1`,
+        [bookingId],
+      )
+    ).rows[0];
+
+  it("refunds a UK card automatically: the booking is cancelled", async () => {
+    const b = await booked();
+    const result = await confirmWithdrawal(
+      b.form,
+      deps(new Date(b.madeAt.getTime() + DAY), () => Promise.resolve("GB")),
+      context,
+    );
+    expect(result).toMatchObject({ ok: true, receipt: { route: "automatic", isNew: true } });
+    expect(await status(b.bookingId)).toBe("cancelled");
+    expect(await kept(b.bookingId)).toEqual({ route: "automatic", card_country: "GB" });
+  });
+
+  it("sends a UAE card to the desk, whatever box was ticked: the booking stays", async () => {
+    const b = await booked();
+    const result = await confirmWithdrawal(
+      b.form,
+      deps(new Date(b.madeAt.getTime() + DAY), () => Promise.resolve("AE")),
+      context,
+    );
+    expect(result).toMatchObject({ ok: true, receipt: { route: "desk", isNew: true } });
+    expect(await status(b.bookingId)).toBe("confirmed");
+    expect(await kept(b.bookingId)).toEqual({ route: "desk", card_country: "AE" });
+  });
+
+  it("sends the desk a notice whose card country could not be read", async () => {
+    const b = await booked();
+    const result = await confirmWithdrawal(
+      b.form,
+      deps(new Date(b.madeAt.getTime() + DAY), () => Promise.reject(new Error("timed out"))),
+      context,
+    );
+    expect(result).toMatchObject({ ok: true, receipt: { route: "desk" } });
+    expect(await status(b.bookingId)).toBe("confirmed");
+    expect(await kept(b.bookingId)).toEqual({ route: "desk", card_country: null });
+  });
+
+  it("sends the desk a payment the processor has no record of, without asking", async () => {
+    const b = await booked(20, { intent: null });
+    asked = [];
+    const result = await confirmWithdrawal(
+      b.form,
+      deps(new Date(b.madeAt.getTime() + DAY)),
+      context,
+    );
+    expect(result).toMatchObject({ ok: true, receipt: { route: "desk" } });
+    expect(asked).toEqual([]);
+  });
+
+  it("asks once, and a second confirmation keeps the first route", async () => {
+    const b = await booked();
+    const now = new Date(b.madeAt.getTime() + DAY);
+    asked = [];
+    await confirmWithdrawal(
+      b.form,
+      deps(now, () => Promise.resolve("AE")),
+      context,
+    );
+    const again = await confirmWithdrawal(
+      b.form,
+      deps(now, () => Promise.resolve("GB")),
+      context,
+    );
+    expect(again).toMatchObject({ ok: true, receipt: { route: "desk", isNew: false } });
+    expect(asked).toHaveLength(1);
+    expect(await status(b.bookingId)).toBe("confirmed");
+  });
+
+  it("does not ask about a booking it is about to refuse", async () => {
+    const b = await booked(2);
+    asked = [];
+    await confirmWithdrawal(b.form, deps(new Date(b.start!.getTime() + 3_600_000)), context);
+    expect(asked).toEqual([]);
+  });
+});
+
+describe("a later look at a notice the desk decides", () => {
+  const confirmDesk = async () => {
+    const b = await booked();
+    const now = new Date(b.madeAt.getTime() + DAY);
+    await confirmWithdrawal(
+      b.form,
+      deps(now, () => Promise.resolve("AE")),
+      context,
+    );
+    return { b, now };
+  };
+
+  it("says it is being reviewed while it waits", async () => {
+    const { b, now } = await confirmDesk();
+    expect(await lookUpWithdrawal(b.form, deps(now))).toMatchObject({
+      ok: true,
+      alreadyReceived: { route: "desk", deskState: "reviewing" },
+    });
+  });
+
+  it("says it was declined once the desk declined it", async () => {
+    const { b, now } = await confirmDesk();
+    await db.query(
+      `insert into withdrawal_decisions (booking_id, decision, decided_at) values ($1, 'declined', $2)`,
+      [b.bookingId, now],
+    );
+    expect(await lookUpWithdrawal(b.form, deps(now))).toMatchObject({
+      ok: true,
+      alreadyReceived: { deskState: "declined" },
+    });
+  });
+
+  it("says it was refunded once the desk approved it", async () => {
+    const { b, now } = await confirmDesk();
+    await db.query(
+      `update orders set payment_status = 'refunded'
+        where id = (select order_id from bookings where id = $1)`,
+      [b.bookingId],
+    );
+    expect(await lookUpWithdrawal(b.form, deps(now))).toMatchObject({
+      ok: true,
+      alreadyReceived: { deskState: "refunded" },
+    });
+  });
+
+  it("does not say the booking is cancelled when a refund left it in place", async () => {
+    const { b, now } = await confirmDesk();
+    await db.query(
+      `update orders set payment_status = 'refunded'
+        where id = (select order_id from bookings where id = $1)`,
+      [b.bookingId],
+    );
+    expect(await lookUpWithdrawal(b.form, deps(now))).toMatchObject({
+      ok: true,
+      alreadyReceived: { deskState: "refunded", bookingCancelled: false },
+    });
+  });
+
+  it("has no desk state for a notice refunded automatically", async () => {
+    const b = await booked();
+    const now = new Date(b.madeAt.getTime() + DAY);
+    const result = await confirmWithdrawal(b.form, deps(now), context);
+    expect(result).toMatchObject({ ok: true, receipt: { route: "automatic", deskState: null } });
   });
 });

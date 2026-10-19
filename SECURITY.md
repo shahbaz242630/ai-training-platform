@@ -107,6 +107,17 @@ reach our infrastructure at any point.
   came from the processor, not that it is about our order.
 - **Secrets are server-only.** Nothing sensitive sits behind `NEXT_PUBLIC_*`;
   a guard script fails the build if it does.
+- **A withdrawal is refunded automatically only on the processor's fact, never
+  on the customer's word.** The form's "I am a UK or EU consumer" tick once
+  refunded the full price by itself (October 2026 audit). Now the card's
+  issuing country is read from Stripe at confirmation: a UK or EU card is
+  refunded automatically; any other card, an unreadable country or a failed
+  lookup goes to the desk, the booking stays in place, and a person decides
+  within the 14 days. The billing country is not used: the customer types it.
+- **A full refund ends the booking it paid for**, however it was made. A
+  refund in the payment dashboard cancels the order's open bookings, frees
+  their time and stops their reminders, so money returned by hand cannot
+  leave a session booked and blocking the diary.
 
 ### Repository
 - **Module reachability guard.** Every module under `src/config`, `src/domain`,

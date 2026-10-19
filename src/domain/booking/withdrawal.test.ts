@@ -3,6 +3,7 @@ import {
   bookingReference,
   decideWithdrawal,
   normaliseReference,
+  withdrawalRoute,
   withdrawalStatement,
   type WithdrawalFacts,
 } from "./withdrawal";
@@ -113,5 +114,25 @@ describe("withdrawalStatement", () => {
       "I, Amina Khan, withdraw from my contract for the coaching session " +
         '"Claude, Claude Code & Advanced Workflows" (booking reference 3F9A1C2B).',
     );
+  });
+});
+
+describe("withdrawalRoute", () => {
+  it("refunds automatically only for a card issued in the UK or the EU", () => {
+    for (const country of ["GB", "IE", "DE", "FR", "NL", "PL", "CY", "MT"]) {
+      expect(withdrawalRoute(country)).toBe("automatic");
+    }
+  });
+
+  it("sends every other card to the desk, the UAE first", () => {
+    for (const country of ["AE", "US", "IN", "SA", "CH", "NO", "JE", "GG", "IM"]) {
+      expect(withdrawalRoute(country)).toBe("desk");
+    }
+  });
+
+  it("sends the desk anything it cannot read, never guessing in the customer's favour", () => {
+    for (const country of [null, "", "gb", "GBR", "EU", "UK"]) {
+      expect(withdrawalRoute(country)).toBe("desk");
+    }
   });
 });

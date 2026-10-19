@@ -20,6 +20,10 @@ import { BookingConfirmationEmail, bookingConfirmationSubject } from "./BookingC
 import { FollowUpEmail, followUpSubject } from "./FollowUpEmail";
 import { ManageLinkEmail, manageLinkSubject } from "./ManageLinkEmail";
 import { RefundIssuedEmail, refundIssuedSubject } from "./RefundIssuedEmail";
+import {
+  CancellationConfirmationEmail,
+  cancellationConfirmationSubject,
+} from "./CancellationConfirmationEmail";
 import { PaymentReceivedEmail, paymentReceivedSubject } from "./PaymentReceivedEmail";
 import { ReminderEmail, reminderSubject } from "./ReminderEmail";
 import {
@@ -272,6 +276,7 @@ export async function renderWithdrawalAcknowledgement(
       receivedLabel={describeInstant(model.receivedAt, model.timeZone)}
       refundLabel={formatAed(model.refundDueFils)}
       refundDays={BOOKING_POLICY.withdrawalRefundDays}
+      deskReplyDays={BOOKING_POLICY.deskReplyWorkingDays}
       refund={model.refund ?? "owed"}
       companyName={companyName()}
       supportEmail={supportEmail()}
@@ -303,4 +308,39 @@ async function rendered(subject: string, element: React.ReactElement): Promise<R
   const html = await render(element);
   const text = await render(element, { plainText: true });
   return { subject, html, text };
+}
+
+/** What the cancelled-and-refunded email states. The booking is cancelled, so not a session email. */
+export interface CancellationEmailModel {
+  readonly firstName: string;
+  readonly bookingId: string;
+  readonly sessionTitle: string;
+  /** The time it was booked for; null when none was arranged. */
+  readonly slot: { readonly start: Date; readonly end: Date } | null;
+  readonly timeZone: string;
+  readonly refundedFils: Fils;
+}
+
+export async function renderCancellationConfirmation(
+  model: CancellationEmailModel,
+): Promise<RenderedEmail> {
+  const reference = bookingReference(model.bookingId);
+  let sessionTime: string | null = null;
+  if (model.slot) {
+    const [day] = presentSlots([model.slot], model.timeZone);
+    const presented = day?.slots[0];
+    if (day && presented) sessionTime = `${day.label}, ${presented.localTime} (${model.timeZone})`;
+  }
+  return rendered(
+    cancellationConfirmationSubject({ reference }),
+    <CancellationConfirmationEmail
+      firstName={model.firstName}
+      sessionTitle={model.sessionTitle}
+      reference={reference}
+      sessionTime={sessionTime}
+      refundLabel={formatAed(model.refundedFils)}
+      companyName={companyName()}
+      supportEmail={supportEmail()}
+    />,
+  );
 }

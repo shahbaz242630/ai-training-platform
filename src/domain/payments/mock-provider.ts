@@ -70,6 +70,16 @@ export class MockPaymentProvider implements PaymentProvider {
   /** The status a newly made refund starts in. */
   refundStatus: RefundStatus = "pending";
 
+  /**
+   * The card country each payment reports. A payment not listed reports the
+   * UK, so the tests written before the country was asked keep the automatic
+   * path they describe; `cardCountryFailure` makes the next question fail.
+   */
+  readonly cardCountries = new Map<string, string | null>();
+  cardCountryFailure: Error | null = null;
+  /** Every payment whose card country was asked for. */
+  readonly cardCountryRequests: string[] = [];
+
   constructor(secret: string = DEFAULT_SECRET) {
     this.secret = secret;
   }
@@ -108,6 +118,17 @@ export class MockPaymentProvider implements PaymentProvider {
     const refund = this.refunds.get(providerRefundId);
     if (!refund) return Promise.reject(new Error(`no such refund ${providerRefundId}`));
     return Promise.resolve(refund);
+  }
+
+  getCardCountry(paymentIntentId: string): Promise<string | null> {
+    this.cardCountryRequests.push(paymentIntentId);
+    const failure = this.cardCountryFailure;
+    if (failure) {
+      this.cardCountryFailure = null;
+      return Promise.reject(failure);
+    }
+    const country = this.cardCountries.get(paymentIntentId);
+    return Promise.resolve(country === undefined ? "GB" : country);
   }
 
   expireCheckout(checkoutSessionId: string): Promise<void> {

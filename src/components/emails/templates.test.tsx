@@ -5,6 +5,7 @@ import {
   renderTemplate,
   renderRefundIssued,
   renderWithdrawalAcknowledgement,
+  renderCancellationConfirmation,
   type SessionEmailModel,
 } from "./templates";
 
@@ -227,8 +228,21 @@ describe("renderWithdrawalAcknowledgement", () => {
     expect(email.text).not.toMatch(/We have (refunded|issued)/);
   });
 
+  it("says the booking stays while the desk decides, and promises no refund", async () => {
+    const email = await renderWithdrawalAcknowledgement({ ...withdrawal, refund: "review" });
+    expect(email.text).toContain(
+      "We could not confirm automatically that the UK and EU 14-day right applies to this booking, so a member of our team will look at it and reply by email within 3 working days.",
+    );
+    expect(email.text).toContain("Your booking stays in place until then.");
+    expect(email.text).toContain(
+      "If the right applies, we refund AED 1,299 in full, to the card you paid with, within 14 days of your notice.",
+    );
+    expect(email.text).toContain("Being reviewed");
+    expect(email.text).not.toMatch(/booking is cancelled|We have (refunded|issued)|We will refund/);
+  });
+
   it("uses no long dashes in any version", async () => {
-    for (const refund of ["succeeded", "issued", "owed"] as const) {
+    for (const refund of ["succeeded", "issued", "owed", "review"] as const) {
       const email = await renderWithdrawalAcknowledgement({ ...withdrawal, refund });
       expect(email.text).not.toMatch(/[–—]/);
     }
@@ -349,5 +363,44 @@ describe("the refund currency note", () => {
       });
       expect(email.text).toContain(note);
     }
+  });
+});
+
+describe("renderCancellationConfirmation", () => {
+  const cancelled = {
+    firstName: "Amina",
+    bookingId: "3f9a1c2b-0000-4000-8000-000000000001",
+    sessionTitle: "Claude, Claude Code & Advanced Workflows",
+    slot: { start: new Date("2026-11-20T11:00:00Z"), end: new Date("2026-11-20T12:30:00Z") },
+    timeZone: "Asia/Dubai",
+    refundedFils: 129_900,
+  };
+
+  it("says the booking is cancelled and refunded, with the reference and the time it was for", async () => {
+    const email = await renderCancellationConfirmation(cancelled);
+    expect(email.subject).toBe("Your booking is cancelled and refunded (booking 3F9A1C2B)");
+    expect(email.text).toContain(
+      "We have cancelled your booking and refunded AED 1,299 in full to the card you paid with.",
+    );
+    expect(email.text).toContain("Friday, 20 November");
+    expect(email.text).toContain("The calendar invitation for the session is withdrawn");
+    expect(email.text).toContain("3F9A1C2B");
+    expect(email.text).toContain("Banks usually take 5 to 10 working days");
+    expect(email.text).toContain(
+      "Refunds are made in UAE dirhams. If your bank converted the payment, the amount in your own currency may differ slightly because of exchange rates.",
+    );
+  });
+
+  it("leaves out the time when none was arranged", async () => {
+    const email = await renderCancellationConfirmation({ ...cancelled, slot: null });
+    expect(email.text).not.toContain("Was booked for");
+    expect(email.text).not.toContain("calendar invitation");
+    expect(email.text).toContain("You will not receive any more emails about this session.");
+  });
+
+  it("uses no long dashes and carries no identity placeholder", async () => {
+    const email = await renderCancellationConfirmation(cancelled);
+    expect(email.text).not.toMatch(/[–—]/);
+    expect(containsPlaceholder(email)).toBe(false);
   });
 });

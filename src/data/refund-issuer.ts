@@ -144,7 +144,9 @@ async function issueOne(refund: ClaimedRefund, deps: RefundStepDeps): Promise<Is
     return "retrying";
   }
 
-  const move = await transaction((runner) => recordRefundIssued(runner, refund, issued, clock()));
+  const { move, cancelledBookings } = await transaction((runner) =>
+    recordRefundIssued(runner, refund, issued, clock()),
+  );
   await recordAudit({
     action: "order.refund_requested",
     actor: { kind: "system", process: "sweep-refunds" },
@@ -157,6 +159,7 @@ async function issueOne(refund: ClaimedRefund, deps: RefundStepDeps): Promise<Is
     },
   });
   await auditOrderMove(refund.orderId, move, { refundId: refund.id });
+  await auditCancelledBookings(cancelledBookings, { refundId: refund.id });
   logger.info("a withdrawal refund was issued", { refundId: refund.id, status: issued.status });
   return "issued";
 }
@@ -187,6 +190,25 @@ async function alarm(refund: ClaimedRefund, code: string): Promise<void> {
     orderId: refund.orderId,
     code,
   });
+}
+
+/** An audit line, and a log line, for each booking a full refund cancelled. */
+async function auditCancelledBookings(
+  bookingIds: readonly string[],
+  metadata: Record<string, unknown>,
+): Promise<void> {
+  for (const bookingId of bookingIds) {
+    await recordAudit({
+      action: "booking.cancelled",
+      actor: { kind: "provider", provider: "stripe" },
+      subject: `booking:${bookingId}`,
+      metadata: { ...metadata, reason: "order_refunded_in_full" },
+    });
+    logger.warn("an order was refunded in full, so its booking is cancelled and its time freed", {
+      bookingId,
+      ...metadata,
+    });
+  }
 }
 
 /** An audit line when the order's payment status actually moved, and only then. */
@@ -257,6 +279,7 @@ export async function reportRefundEvent(
           refundId: outcome.refundId,
         });
       }
+      await auditCancelledBookings(outcome.cancelledBookings, { eventId });
       return;
   }
 }
