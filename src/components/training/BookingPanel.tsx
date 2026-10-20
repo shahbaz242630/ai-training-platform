@@ -103,14 +103,19 @@ export function BookingPanel({
   // Set when the check has been waiting a long time (a blocker, a privacy
   // browser): the customer is then told how to carry on instead of waiting.
   const [challengeSlow, setChallengeSlow] = useState(false);
+  // Set while Cloudflare shows its box and waits for a tick: the customer is
+  // told to tick it, not that something is slow (staging test s104).
+  const [challengeAsking, setChallengeAsking] = useState(false);
   // A token arriving or dropped ends any "taking longer" message; a new wait starts the clock again (audit s104 review).
   const takeToken = useCallback((token: string | null) => {
     setChallengeToken(token);
     setChallengeSlow(false);
+    if (token !== null) setChallengeAsking(false);
   }, []);
   const renewChallenge = () => {
     setChallengeToken(null);
     setChallengeSlow(false);
+    setChallengeAsking(false);
     setChallengeRenew((count) => count + 1);
   };
 
@@ -252,8 +257,9 @@ export function BookingPanel({
   // Why a Continue button is waiting, so it never looks broken. Used on both steps.
   const checkStatus = (
     <p aria-live="polite" className="text-ink-muted mt-2 text-[12.5px] empty:hidden">
-      {waitingForCheck && !challengeSlow && "Checking your connection…"}
-      {waitingForCheck && challengeSlow && (
+      {waitingForCheck && challengeAsking && "Please tick the box above to continue."}
+      {waitingForCheck && !challengeAsking && !challengeSlow && "Checking your connection…"}
+      {waitingForCheck && !challengeAsking && challengeSlow && (
         <>
           This is taking longer than usual. Please refresh the page, or email{" "}
           <ContactLink showAddress /> and we will book you in.
@@ -382,6 +388,7 @@ export function BookingPanel({
               siteKey={turnstileSiteKey}
               renewKey={challengeRenew}
               onToken={takeToken}
+              onAsking={setChallengeAsking}
               scrollOnInteractive={false}
             />
           )}
@@ -408,6 +415,7 @@ export function BookingPanel({
                 setStep("details");
                 setChallengeToken(null);
                 setChallengeSlow(false);
+                setChallengeAsking(false);
               }}
               className="text-accent hover:text-accent-hover shrink-0 text-[13px] font-medium underline underline-offset-[3px]"
             >
@@ -455,6 +463,7 @@ export function BookingPanel({
                 siteKey={turnstileSiteKey}
                 renewKey={challengeRenew}
                 onToken={takeToken}
+                onAsking={setChallengeAsking}
               />
             )}
             {slotError !== null && (

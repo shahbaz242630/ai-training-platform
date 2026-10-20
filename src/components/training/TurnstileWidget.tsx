@@ -39,6 +39,7 @@ export function TurnstileWidget({
   renewKey,
   onToken,
   scrollOnInteractive = true,
+  onAsking,
 }: {
   siteKey: string;
   /** Changes whenever the booking box needs a new token. */
@@ -51,6 +52,12 @@ export function TurnstileWidget({
    * from the description to the bottom of the form (audit s104 review).
    */
   scrollOnInteractive?: boolean;
+  /**
+   * A stable setter told when Cloudflare is waiting for the person to tick its
+   * box (true) and when it no longer is (false), so the booking box can say
+   * "tick the box" rather than "this is taking longer" (staging test s104).
+   */
+  onAsking?: (asking: boolean) => void;
 }) {
   const container = useRef<HTMLDivElement>(null);
   const widgetId = useRef<string | null>(null);
@@ -70,14 +77,16 @@ export function TurnstileWidget({
       "expired-callback": () => onToken(null),
       "error-callback": () => onToken(null),
       "before-interactive-callback": () => {
+        onAsking?.(true);
         if (scrollOnInteractive) box.scrollIntoView({ block: "nearest" });
       },
+      "after-interactive-callback": () => onAsking?.(false),
     });
     return () => {
       if (widgetId.current !== null) turnstile.remove(widgetId.current);
       widgetId.current = null;
     };
-  }, [ready, siteKey, onToken, scrollOnInteractive]);
+  }, [ready, siteKey, onToken, scrollOnInteractive, onAsking]);
 
   useEffect(() => {
     if (renewKey > 0 && widgetId.current !== null) window.turnstile?.reset(widgetId.current);
