@@ -29,6 +29,7 @@ import {
   toDisputeEvent,
   toDisputeSnapshot,
 } from "./stripe-disputes";
+import { FRAUD_WARNING_EVENTS, toFraudWarningEvent } from "./stripe-fraud-warnings";
 
 /**
  * Stripe behind the payment port.
@@ -333,6 +334,7 @@ export function toCheckoutSnapshot(session: Stripe.Checkout.Session): CheckoutSn
 export function toPaymentEvent(event: Stripe.Event): PaymentEvent {
   if (REFUND_EVENTS.has(event.type)) return toRefundEvent(event);
   if (DISPUTE_EVENTS.has(event.type)) return toDisputeEvent(event);
+  if (FRAUD_WARNING_EVENTS.has(event.type)) return toFraudWarningEvent(event);
 
   const base = {
     kind: "checkout" as const,

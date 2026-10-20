@@ -3,6 +3,7 @@ import { withTransaction } from "@/data/db";
 import { queueForOrder } from "@/data/communications";
 import { bookingIdsForOrder, confirmBookingOnCalendar } from "@/data/confirmation";
 import { linkDisputesAtSettlement } from "@/data/disputes";
+import { linkFraudWarningsAtSettlement } from "@/data/fraud-warnings";
 import { releaseFailedOrder, settlePaidOrder, type SettlementOutcome } from "@/data/settlement";
 import { messagesOnSettlement } from "@/domain/messaging/schedule";
 import type { CheckoutSnapshot } from "@/domain/payments/provider";
@@ -89,6 +90,8 @@ export async function applyCheckoutOutcome(
       confirmation is sent, not at the next sweep.
     */
     await linkDisputesAtSettlement(runner, event.orderId, event.paymentIntentId, now);
+    // An early fraud warning too: linked for the desk to decide, and online moves stop.
+    await linkFraudWarningsAtSettlement(runner, event.orderId, event.paymentIntentId);
   }
 
   return settled;

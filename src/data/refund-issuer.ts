@@ -160,7 +160,7 @@ async function issueOne(refund: ClaimedRefund, deps: RefundStepDeps): Promise<Is
   });
   await auditOrderMove(refund.orderId, move, { refundId: refund.id });
   await auditCancelledBookings(cancelledBookings, { refundId: refund.id });
-  logger.info("a withdrawal refund was issued", { refundId: refund.id, status: issued.status });
+  logger.info("a refund owed was issued", { refundId: refund.id, status: issued.status });
   return "issued";
 }
 

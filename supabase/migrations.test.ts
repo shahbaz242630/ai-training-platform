@@ -95,6 +95,7 @@ describe("applying the migrations", () => {
       "communication_log",
       "customers",
       "desk_alerts",
+      "fraud_warnings",
       "intakes",
       "orders",
       "payment_disputes",

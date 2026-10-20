@@ -105,7 +105,8 @@ export async function listPaidButUnscheduled(
     `select distinct on (o.id)
             o.id as order_id, b.id as booking_id, o.session_slug, o.gross_amount_fils,
             o.stripe_payment_intent_id, o.payment_status,
-            exists (select 1 from payment_disputes d where d.order_id = o.id) as disputed,
+            (exists (select 1 from payment_disputes d where d.order_id = o.id)
+             or exists (select 1 from fraud_warnings f where f.order_id = o.id)) as disputed,
             b.updated_at as waiting_since, cl.status as email_status, cl.sent_at as email_sent_at
        from orders o
        left join bookings b on b.order_id = o.id

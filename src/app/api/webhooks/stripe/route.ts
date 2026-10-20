@@ -10,6 +10,7 @@ import { logger } from "@/lib/logger";
 import { readTextWithin } from "@/lib/read-body";
 import { applyCheckoutOutcome, confirmOnCalendar, reportOutcome } from "./checkout-outcome";
 import { handleDisputeEvent } from "./dispute-event";
+import { handleFraudWarningEvent } from "./fraud-warning-event";
 import { handleRefundEvent } from "./refund-event";
 
 /*
@@ -122,6 +123,8 @@ export async function POST(request: Request): Promise<NextResponse> {
   if (event.kind === "refund") return handleRefundEvent(event);
   // Disputes too: a dispute names a payment, never our order.
   if (event.kind === "dispute") return handleDisputeEvent(event, payments);
+  // And early fraud warnings (audit s104 PAY-4), which also name only the payment.
+  if (event.kind === "fraud_warning") return handleFraudWarningEvent(event);
 
   /*
     The order id arrives in processor metadata, so it is external input like

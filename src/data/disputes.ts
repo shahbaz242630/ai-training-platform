@@ -243,10 +243,14 @@ export async function linkDisputesAtSettlement(
  * stolen-card dispute the person holding the link may not be the cardholder,
  * and an inquiry about a stolen card can close without ever cancelling
  * anything. A person rebooks by hand. Disputes are rare; this costs little.
+ *
+ * An early fraud warning counts too (audit s104 PAY-4): it is the same
+ * stolen-card signal, only earlier.
  */
 export async function orderHasDispute(runner: QueryRunner, orderId: string): Promise<boolean> {
   const result = await runner.query<{ disputed: boolean }>(
-    `select exists (select 1 from payment_disputes where order_id = $1) as disputed`,
+    `select exists (select 1 from payment_disputes where order_id = $1)
+         or exists (select 1 from fraud_warnings where order_id = $1) as disputed`,
     [orderId],
   );
   return result.rows[0]?.disputed ?? false;
