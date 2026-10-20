@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { PAGES, checkHeaders, hasTurnstileKey, nonceOf, run } from "./live-headers.mjs";
+import {
+  PAGES,
+  checkHeaders,
+  hasTurnstileKey,
+  nonceOf,
+  probeOrigin,
+  run,
+} from "./live-headers.mjs";
 
 /**
  * The live header check, offline: no test makes a network call. Each case is
@@ -201,7 +208,7 @@ describe("the switch-off checks", () => {
   });
 
   it("fails unless a request straight to the host is refused with 403", async () => {
-    for (const status of [200, 404, null]) {
+    for (const status of [200, 404, null, "no answer (ETIMEDOUT)"]) {
       const errors = [];
       const code = await run({
         base: "https://live.example",
@@ -212,6 +219,8 @@ describe("the switch-off checks", () => {
       });
       expect(code, String(status)).toBe(1);
       expect(errors.join("\n")).toMatch(/straight to the host/);
+      // Why, when there was no answer: a timeout and a refusal mean different things.
+      expect(errors.join("\n")).toContain(`status ${status ?? "no answer"},`);
     }
     expect(
       await run({
@@ -221,5 +230,14 @@ describe("the switch-off checks", () => {
         ...quiet,
       }),
     ).toBe(0);
+  });
+});
+
+describe("probeOrigin", () => {
+  // Loopback only, to a port nothing listens on: no network call leaves the machine.
+  it("says why there was no answer, never the address", async () => {
+    const status = await probeOrigin("127.0.0.1", "localhost", "/training", 1);
+    expect(status).toMatch(/^no answer \(E[A-Z]+\)$/);
+    expect(String(status)).not.toContain("127.0.0.1");
   });
 });

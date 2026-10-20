@@ -188,6 +188,12 @@ export async function purgeExpiredPersonalData(
     [now],
   );
 
+  // A held refund no payment of ours named within a year never will (audit s104 PAY-2).
+  await runner.query(
+    `delete from held_refund_events where received_at < $1::timestamptz - interval '1 year'`,
+    [now],
+  );
+
   return {
     unpaidOrders,
     customers: customers.rows.length,

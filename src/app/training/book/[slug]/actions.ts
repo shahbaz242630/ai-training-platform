@@ -178,7 +178,7 @@ export async function captureLeadAction(input: unknown): Promise<CaptureLeadResu
         intakeId: captured.intakeId,
         // Kept from this browser's cookie when there is one, so new details
         // (the Edit button) do not orphan the hold this browser already took.
-        ownerKey: await currentOwnerKey(),
+        ownerKey: await currentOwnerKey(serverEnv().NODE_ENV === "production"),
       },
       serverEnv().NODE_ENV === "production",
     );
@@ -270,7 +270,7 @@ export async function startCheckoutAction(input: unknown): Promise<StartCheckout
     and the honest answer is to send them back a step rather than to invent an
     anonymous order.
   */
-  const lead = await readLeadSession();
+  const lead = await readLeadSession(serverEnv().NODE_ENV === "production");
   if (lead === null) {
     return {
       ok: false,

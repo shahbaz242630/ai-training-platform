@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { lockPayment } from "@/data/payment-lock";
 import { withTransaction } from "@/data/db";
 import { recordFraudWarning } from "@/data/fraud-warnings";
 import { claimWebhookEvent, markWebhookProcessed } from "@/data/webhook-events";
@@ -21,6 +22,8 @@ export async function handleFraudWarningEvent(event: FraudWarningEvent): Promise
     const outcome = await withTransaction(async (runner) => {
       const claim = await claimWebhookEvent(runner, event.eventId, event.type);
       if (!claim.isFirstDelivery) return "duplicate" as const;
+      // Before anything reads the order by its payment: settlement may be writing it now.
+      await lockPayment(runner, event.paymentIntentId);
       const recorded = await recordFraudWarning(runner, event, new Date());
       await markWebhookProcessed(runner, event.eventId);
       return recorded;

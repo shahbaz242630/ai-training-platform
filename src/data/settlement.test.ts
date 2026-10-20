@@ -717,3 +717,31 @@ describe("scheduling goes through the domain", () => {
     expect(booking?.scheduled_start).toBeNull();
   });
 });
+
+/*
+  A session placed by hand over a time a customer is paying for (audit s104
+  PAY-3). It has no hold behind it, so the hold check cannot see it; only the
+  bookings' no-overlap rule could, and it failed settlement on every
+  delivery, leaving a charged customer with no email for hours.
+*/
+describe("a session placed by hand over a held time", () => {
+  it("gives the time back and settles the order paid with no time", async () => {
+    const { orderId, slotHoldId } = await pendingOrder("paid-over-hand@example.com");
+    const { start, end } = await holdTimes(slotHoldId);
+
+    // The founder books someone else at that exact time, by hand.
+    const other = await pendingOrder("booked-by-hand@example.com");
+    await db.query(
+      `update bookings set status = 'confirmed', scheduled_start = $2, scheduled_end = $3
+        where order_id = $1`,
+      [other.orderId, start, end],
+    );
+
+    expect(await settlePaidOrder(runner, { orderId, slotHoldId, now: NOW })).toBe(
+      "paid_without_slot",
+    );
+    expect(await statusOf(orderId)).toEqual({ order: "paid", booking: "awaiting_schedule" });
+    expect(await holdStatus(slotHoldId)).toBe("released");
+    expect((await statusOf(other.orderId)).booking).toBe("confirmed");
+  });
+});

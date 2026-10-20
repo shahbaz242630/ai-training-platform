@@ -1,5 +1,6 @@
 import type { QueryRunner } from "./db";
 import { promoteIntakeToCustomer } from "./customers";
+import { releaseConvertedHoldForLostSlot } from "./slot-holds";
 import { AVAILABILITY } from "@/config/availability";
 import { transitionPayment, type Order, type PaymentStatus } from "@/domain/booking/order";
 import { InvalidTransitionError } from "@/domain/booking/transitions";
@@ -215,6 +216,30 @@ export async function settlePaidOrder(
       transaction. Reporting it as settled would claim a session exists for a
       payment we just took, so this refuses to say so.
     */
+    return "paid_without_slot";
+  }
+
+  /*
+    A session placed by hand over this time while the customer was paying
+    (audit s104 PAY-3). It has no hold behind it, so only the bookings know.
+    Without this the update below hit the bookings' no-overlap rule on every
+    delivery: the customer was charged and told nothing for hours. Now the
+    time goes back and the order is paid with no time, which emails the
+    customer a link to choose another and tells the desk.
+  */
+  const clash = await runner.query(
+    `select 1 from bookings
+      where id <> $1 and status in ('scheduled', 'confirmed')
+        and scheduled_start < $3 and scheduled_end > $2
+      limit 1`,
+    [booking.id, claimed.slot_start, claimed.slot_end],
+  );
+  if (clash.rows.length > 0) {
+    await releaseConvertedHoldForLostSlot(runner, {
+      orderId: order.id,
+      slotStart: claimed.slot_start,
+      slotEnd: claimed.slot_end,
+    });
     return "paid_without_slot";
   }
 
