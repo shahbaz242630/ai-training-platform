@@ -1,0 +1,5 @@
+# Known findings that are not secrets (audit s104 SUP-9). One gitleaks fingerprint per line.
+# Two HMAC test fixtures from commit 4addaa12 (2026-10-08), named SECRET in test
+# files and replaced since by "x".repeat(40). Never a real key.
+4addaa12823f37d3c5ecdfd44218b7065faec7bc:src/app/training/book/manage/flow.test.ts:generic-api-key:25
+4addaa12823f37d3c5ecdfd44218b7065faec7bc:src/lib/manage-link.test.ts:generic-api-key:4
