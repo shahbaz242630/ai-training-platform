@@ -4,7 +4,7 @@ import { cspFor, NONCE_PATH_PREFIX } from "@/config/content-security-policy.mjs"
 import { gateSettings } from "@/lib/env";
 
 /**
- * Two jobs on every page request.
+ * Three jobs on every page request.
  *
  * 1. ONLY THROUGH CLOUDFLARE (audit s101 #21). The host answers anybody who
  *    finds its address, and a request sent straight to it skips Cloudflare's
@@ -14,7 +14,11 @@ import { gateSettings } from "@/lib/env";
  *    laptop, the first deploy), nothing is checked. The header is removed
  *    before the app sees the request.
  *
- * 2. A NONCE FOR THE BOOKING PAGES (security audit and scans, 2026-09-27/28).
+ * 2. STAGING ONLY FOR US (audit s104 OUT-1). With STAGING_PASSWORD set, every
+ *    page asks for it (HTTP Basic), except the two callers that carry their
+ *    own proof (callerHasOwnProof). Staging writes the real calendar.
+ *
+ * 3. A NONCE FOR THE BOOKING PAGES (security audit and scans, 2026-09-27/28).
  *    `script-src 'unsafe-inline'` would let any injected inline script run.
  *    With a nonce, only scripts carrying it run: Next.js reads the nonce from
  *    the request's Content-Security-Policy header and puts it on its own
@@ -46,17 +50,42 @@ export function proxy(request: NextRequest): NextResponse {
 
   const requestHeaders = new Headers(request.headers);
   requestHeaders.delete(ORIGIN_HEADER);
-  if (!needsNonce(request)) {
-    return NextResponse.next({ request: { headers: requestHeaders } });
+
+  if (env.staging.kind !== "off" && !callerHasOwnProof(request)) {
+    const password = env.staging.kind === "on" ? env.staging.password : null;
+    if (password === null || !sameSecret(basicPassword(request), password)) {
+      return new NextResponse("This site is private.", {
+        status: 401,
+        headers: {
+          "WWW-Authenticate": 'Basic realm="Zaaheen staging", charset="UTF-8"',
+          "Cache-Control": "no-store, private",
+        },
+      });
+    }
+    // The page never needs it, and nothing downstream should log it.
+    requestHeaders.delete("authorization");
   }
 
-  const nonce = Buffer.from(crypto.randomUUID()).toString("base64");
-  const policy = cspFor(env.nodeEnv, nonce);
-  requestHeaders.set("x-nonce", nonce);
-  requestHeaders.set("Content-Security-Policy", policy);
+  let policy: string | null = null;
+  if (needsNonce(request)) {
+    const nonce = Buffer.from(crypto.randomUUID()).toString("base64");
+    policy = cspFor(env.nodeEnv, nonce);
+    requestHeaders.set("x-nonce", nonce);
+    requestHeaders.set("Content-Security-Policy", policy);
+  }
 
   const response = NextResponse.next({ request: { headers: requestHeaders } });
-  response.headers.set("Content-Security-Policy", policy);
+  if (policy !== null) response.headers.set("Content-Security-Policy", policy);
+  if (env.staging.kind !== "off") {
+    /*
+      A prerendered page says s-maxage, which lets a shared cache keep an
+      answer given to a request carrying a password (RFC 9111 3.5). Hostinger's
+      CDN sits in front of staging and would then hand it to anybody without
+      asking us. Next keeps a Cache-Control that is already set.
+    */
+    response.headers.set("Cache-Control", "private, no-store");
+    response.headers.set("Vary", "Authorization");
+  }
   return response;
 }
 
@@ -65,6 +94,26 @@ export function needsNonce(request: NextRequest): boolean {
   if (!request.nextUrl.pathname.startsWith(NONCE_PATH_PREFIX)) return false;
   if (request.headers.has("next-router-prefetch")) return false;
   return request.headers.get("purpose") !== "prefetch";
+}
+
+/**
+ * Callers the staging lock lets through: Stripe's webhook (signed by Stripe)
+ * and the jobs' cron routes (their own bearer secret, in the same
+ * Authorization header a password would need). Neither can type a password.
+ */
+export function callerHasOwnProof(request: NextRequest): boolean {
+  const path = request.nextUrl.pathname;
+  return path === "/api/webhooks/stripe" || path.startsWith("/api/cron/");
+}
+
+/** The password from an HTTP Basic header; the user name is not checked. */
+export function basicPassword(request: NextRequest): string | null {
+  const match = /^Basic\s+([A-Za-z0-9+/=]+)$/i.exec(request.headers.get("authorization") ?? "");
+  const encoded = match?.[1];
+  if (encoded === undefined) return null;
+  const decoded = Buffer.from(encoded, "base64").toString("utf8");
+  const colon = decoded.indexOf(":");
+  return colon < 0 ? null : decoded.slice(colon + 1);
 }
 
 /** Compared in constant time, so the secret cannot be found a byte at a time. */

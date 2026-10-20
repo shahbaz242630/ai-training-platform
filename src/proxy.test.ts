@@ -2,9 +2,17 @@ import { describe, it, expect, vi } from "vitest";
 import { NextRequest } from "next/server";
 import { cspFor, NONCE_PATH_PREFIX, scriptSrcFor } from "@/config/content-security-policy.mjs";
 
-const state = vi.hoisted(() => ({ originSecret: undefined as string | undefined }));
+const state = vi.hoisted(() => ({
+  originSecret: undefined as string | undefined,
+  staging: { kind: "off" } as
+    { kind: "off" } | { kind: "on"; password: string } | { kind: "broken" },
+}));
 vi.mock("@/lib/env", () => ({
-  gateSettings: () => ({ nodeEnv: "production", originSecret: state.originSecret ?? null }),
+  gateSettings: () => ({
+    nodeEnv: "production",
+    originSecret: state.originSecret ?? null,
+    staging: state.staging,
+  }),
 }));
 const { proxy, config, needsNonce, ORIGIN_HEADER } = await import("./proxy");
 
@@ -137,5 +145,137 @@ describe("requests that did not come through Cloudflare", () => {
 
   it("are not checked at all while no secret is set", () => {
     expect(proxy(at()).status).toBe(200);
+  });
+});
+
+/*
+  Staging only for us (audit s104 OUT-1): staging writes the real calendar and
+  sends real desk mail, so a stranger must not reach it. HTTP Basic, with the
+  two callers that carry their own proof let through.
+*/
+describe("the staging lock", () => {
+  const PASSWORD = "p".repeat(20);
+  const basic = (user: string, password: string) =>
+    `Basic ${Buffer.from(`${user}:${password}`).toString("base64")}`;
+  const at = (path: string, headers: Record<string, string> = {}) =>
+    new NextRequest(`https://example.test${path}`, { headers });
+  const locked = (body: () => void) => {
+    state.staging = { kind: "on", password: PASSWORD };
+    try {
+      body();
+    } finally {
+      state.staging = { kind: "off" };
+    }
+  };
+
+  it("asks every page for the password, and never lets a cache keep the answer", () => {
+    locked(() => {
+      for (const path of ["/training", "/training/book/ai-foundations", "/training/book/manage"]) {
+        const refused = proxy(at(path));
+        expect(refused.status).toBe(401);
+        expect(refused.headers.get("WWW-Authenticate")).toMatch(/^Basic realm=/);
+        expect(refused.headers.get("Cache-Control")).toBe("no-store, private");
+      }
+    });
+  });
+
+  it("refuses a wrong, empty, malformed or non-Basic answer", () => {
+    locked(() => {
+      for (const authorization of [
+        basic("zaaheen", "wrong"),
+        basic("zaaheen", `${PASSWORD}x`),
+        basic("zaaheen", ""),
+        `Basic ${Buffer.from(PASSWORD).toString("base64")}`, // no colon
+        "Basic !!!",
+        `Bearer ${PASSWORD}`,
+      ]) {
+        expect(proxy(at("/training", { authorization })).status).toBe(401);
+      }
+    });
+  });
+
+  it("lets the right password in with any user name, and hides it from the app", () => {
+    locked(() => {
+      for (const user of ["zaaheen", "", "anyone"]) {
+        const response = proxy(
+          at("/training", { authorization: basic(user, PASSWORD), "accept-language": "en" }),
+        );
+        expect(response.status).toBe(200);
+        expect(response.headers.get("x-middleware-request-authorization")).toBeNull();
+        // The list of headers the page receives: the password is not among them.
+        const passed = (response.headers.get("x-middleware-override-headers") ?? "").split(",");
+        expect(passed).not.toContain("authorization");
+        expect(passed).toContain("accept-language");
+      }
+      // A booking page still gets its nonce once in.
+      const page = proxy(
+        at("/training/book/ai-foundations", { authorization: basic("z", PASSWORD) }),
+      );
+      expect(page.headers.get("Content-Security-Policy")).toContain("'nonce-");
+    });
+  });
+
+  /*
+    A prerendered page says s-maxage, which lets a shared cache keep an answer
+    given to a request with a password and hand it to anybody (Hostinger's CDN
+    sits in front of staging). Review s104.
+  */
+  it("keeps every answer out of shared caches while the lock is on", () => {
+    locked(() => {
+      for (const path of ["/training", "/training/book/ai-foundations", "/api/cron/sweep-holds"]) {
+        const response = proxy(at(path, { authorization: basic("z", PASSWORD) }));
+        expect(response.headers.get("Cache-Control")).toBe("private, no-store");
+        expect(response.headers.get("Vary")).toBe("Authorization");
+      }
+    });
+    // Unlocked, the app's own caching is left alone.
+    expect(proxy(at("/training")).headers.get("Cache-Control")).toBeNull();
+  });
+
+  it("lets Stripe's webhook and the jobs through, with their own header untouched", () => {
+    locked(() => {
+      expect(proxy(at("/api/webhooks/stripe")).status).toBe(200);
+      const job = proxy(at("/api/cron/sweep-holds", { authorization: "Bearer job-secret" }));
+      expect(job.status).toBe(200);
+      expect(proxy(at("/api/cron/send-communications")).status).toBe(200);
+    });
+  });
+
+  it("does not stretch those exceptions to look-alike paths", () => {
+    locked(() => {
+      for (const path of [
+        "/api/webhooks/stripe-x",
+        "/api/webhooks",
+        "/api/cronx",
+        "/training/api/cron/x",
+      ]) {
+        expect(proxy(at(path)).status).toBe(401);
+      }
+    });
+  });
+
+  it("refuses everyone, even with a password, when the setting is broken", () => {
+    state.staging = { kind: "broken" };
+    try {
+      expect(proxy(at("/training", { authorization: basic("z", PASSWORD) })).status).toBe(401);
+      expect(proxy(at("/training")).status).toBe(401);
+    } finally {
+      state.staging = { kind: "off" };
+    }
+  });
+
+  it("still refuses a request that skipped Cloudflare before asking for a password", () => {
+    state.originSecret = "s".repeat(40);
+    try {
+      locked(() => {
+        expect(proxy(at("/training", { authorization: basic("z", PASSWORD) })).status).toBe(403);
+      });
+    } finally {
+      state.originSecret = undefined;
+    }
+  });
+
+  it("asks nothing while unset", () => {
+    expect(proxy(at("/training")).status).toBe(200);
   });
 });
