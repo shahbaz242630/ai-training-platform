@@ -28,31 +28,20 @@ allowBuilds:
 # future pnpm release could quietly change.
 minimumReleaseAge: 1440
 
-# Narrow, deliberate exceptions.
+# Exceptions: none standing (audit s104 SUP-8).
 #
-# Next.js 16.3.3 is a SECURITY release - it patched two critical advisories -
-# published less than 24h before our first deploy, so the age check was
-# blocking precisely the update we most wanted. This is the escape path pnpm
-# documents for exactly that case.
+# Next.js 16.3.3 was a SECURITY release published less than 24h before our
+# first deploy, so next, @next/* and eslint-config-next were excluded from the
+# wait. That one-off stayed in place afterwards, so every later Next bump,
+# Dependabot's included, installed versions that could be minutes old: the
+# exact window the wait exists for. It is gone.
 #
-# Why this is an acceptable risk rather than a hole:
-#  - versions are pinned exactly and the lockfile carries integrity hashes, so
-#    an existing version cannot be swapped underneath us;
-#  - the residual risk is limited to the moment WE deliberately bump Next,
-#    which is always a reviewed pull request, never automatic.
-#
-# Keep this list as short as possible. Every entry skips the waiting period, so
-# adding one should feel like a decision rather than a convenience.
-#
-# Note what is NOT here: electron-to-chromium was also blocked, and instead of
-# excluding it the lockfile was rebuilt so pnpm resolved an aged version. That
-# is the preferred fix - exclude only what genuinely cannot be resolved older.
-minimumReleaseAgeExclude:
-  - next
-  - "@next/*"
-  # Ships as part of the same Next.js release; keeping it in lockstep with
-  # `next` stops lint rules drifting from the framework version.
-  - eslint-config-next
+# When a security release genuinely cannot wait a day, add the package here as
+#   minimumReleaseAgeExclude:
+#     - next
+# in that pull request only, say which advisory, and remove it in the next one.
+# Prefer rebuilding the lockfile so an aged version resolves (as was done for
+# electron-to-chromium); exclude only what genuinely cannot resolve older.
 
 # ---------------------------------------------------------------------------
 # Hoisting.

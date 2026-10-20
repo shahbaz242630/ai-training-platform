@@ -22,7 +22,16 @@
 
 # misc
 .DS_Store
+
+# keys and certificates - never in this public repository (audit s104 SUP-10).
+# certs.local/ is named outright, not left to the *.local pattern below.
 *.pem
+*.key
+*.crt
+*.cer
+*.p12
+*.pfx
+certs.local/
 
 # debug
 npm-debug.log*
