@@ -2,6 +2,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import {
   InvalidSignatureError,
   type CheckoutSnapshot,
+  type DisputeSnapshot,
   type IssuedRefund,
   type PaymentEvent,
   type PaymentOutcome,
@@ -131,6 +132,23 @@ export class MockPaymentProvider implements PaymentProvider {
     return Promise.resolve(snapshot);
   }
 
+  /** Disputes as the processor would report them now, by id. */
+  readonly disputes = new Map<string, DisputeSnapshot>();
+
+  /** A failure to answer the next dispute read with. */
+  disputeReadFailure: Error | null = null;
+
+  getDispute(providerDisputeId: string): Promise<DisputeSnapshot> {
+    const failure = this.disputeReadFailure;
+    if (failure) {
+      this.disputeReadFailure = null;
+      return Promise.reject(failure);
+    }
+    const dispute = this.disputes.get(providerDisputeId);
+    if (!dispute) return Promise.reject(new Error(`no such dispute ${providerDisputeId}`));
+    return Promise.resolve(dispute);
+  }
+
   getCardCountry(paymentIntentId: string): Promise<string | null> {
     this.cardCountryRequests.push(paymentIntentId);
     const failure = this.cardCountryFailure;
@@ -214,9 +232,18 @@ export interface MockEventBody {
   readonly providerRefundId?: string;
   readonly refundRowId?: string;
   readonly refundStatus?: RefundStatus;
+  /** Dispute events only: the dispute the event is about, and its status and reason as carried. */
+  readonly providerDisputeId?: string;
+  readonly disputeStatus?: string;
+  readonly disputeReason?: string;
 }
 
 const REFUND_TYPES = new Set(["refund.created", "refund.updated", "refund.failed"]);
+const DISPUTE_TYPES = new Set([
+  "charge.dispute.created",
+  "charge.dispute.updated",
+  "charge.dispute.closed",
+]);
 
 const HANDLED = new Set([
   "checkout.session.completed",
@@ -248,6 +275,26 @@ function parseMockEvent(rawBody: string): PaymentEvent {
       amountFils: body.amountFils ?? 0,
       currency: (body.currency ?? "AED").toUpperCase(),
       status: body.refundStatus ?? "pending",
+    };
+  }
+
+  if (DISPUTE_TYPES.has(body.type)) {
+    return {
+      kind: "dispute",
+      eventId: body.id,
+      type: body.type,
+      occurredAt,
+      ignorable: false,
+      providerDisputeId: body.providerDisputeId ?? "dp_mock",
+      snapshot: {
+        providerDisputeId: body.providerDisputeId ?? "dp_mock",
+        paymentIntentId: body.paymentIntentId ?? null,
+        amountMinor: body.amountFils ?? 0,
+        currency: (body.currency ?? "AED").toUpperCase(),
+        reason: body.disputeReason ?? "general",
+        status: body.disputeStatus ?? "needs_response",
+        evidenceDueBy: null,
+      },
     };
   }
 

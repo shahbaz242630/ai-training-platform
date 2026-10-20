@@ -41,6 +41,7 @@ async function deleteOrders(
 ): Promise<number> {
   // First: a refund points at both its order and its withdrawal notice.
   await runner.query(`delete from refunds where order_id in (${orderIds})`, params);
+  await runner.query(`delete from payment_disputes where order_id in (${orderIds})`, params);
   // A desk decision points at its notice, so it goes before the notice does.
   await runner.query(
     `delete from withdrawal_decisions
@@ -73,17 +74,20 @@ export async function purgeExpiredPersonalData(
     changed (a refund is a later record) and any of their sessions taking place
     or changing, so nothing dated in a later tax year goes a year early. A
     refund row counts too: one that failed late moves no order, and is still a
-    record of that year.
+    record of that year. So does a dispute, which can come months after the
+    session, and whose evidence must outlive it.
   */
   const expiredCustomers = `
     select o.customer_id from orders o
       left join bookings b on b.order_id = o.id
       left join refunds r on r.order_id = o.id
+      left join payment_disputes d on d.order_id = o.id
      group by o.customer_id
     having extract(year from max(greatest(o.created_at, o.updated_at,
                                           coalesce(b.scheduled_end, o.created_at),
                                           coalesce(b.updated_at, o.created_at),
-                                          coalesce(r.updated_at, o.created_at)))
+                                          coalesce(r.updated_at, o.created_at),
+                                          coalesce(d.updated_at, o.created_at)))
                    at time zone 'Asia/Dubai')
            + ${RECORD_YEARS + 1} <= extract(year from $1::timestamptz at time zone 'Asia/Dubai')`;
   const expiredCustomerIds = (

@@ -187,14 +187,20 @@ describe("listPaidButUnscheduled", () => {
   /* THE one. Money taken, customer in no calendar. */
   it("lists a paid order whose booking is still waiting, with what the desk needs to act", async () => {
     const { orderId, bookingId } = await makeOrder("paid", "awaiting_schedule", "pi_3Waiting");
-    expect(await listPaidButUnscheduled(runner)).toContainEqual({
-      orderId,
-      bookingId,
-      sessionSlug: "ai-foundations",
-      amountFils: 129900,
-      paymentIntentId: "pi_3Waiting",
-      fullyPaid: true,
-    });
+    expect(await listPaidButUnscheduled(runner)).toContainEqual(
+      expect.objectContaining({
+        orderId,
+        bookingId,
+        sessionSlug: "ai-foundations",
+        amountFils: 129900,
+        paymentIntentId: "pi_3Waiting",
+        fullyPaid: true,
+        disputed: false,
+        // Nobody has been emailed a link yet.
+        customerEmailedAt: null,
+        customerEmailPending: false,
+      }),
+    );
   });
 
   it("lists a paid order with no booking at all", async () => {

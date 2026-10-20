@@ -87,7 +87,9 @@ const TIME_GONE = "That time is no longer available. Please choose another.";
 const TAKEN = "Someone has just booked that time. Please choose another.";
 const BROKEN = "Something went wrong on our side. Please try again in a moment.";
 
-const REFUSALS: Record<RescheduleRefusal | "not_found", () => string> = {
+const REFUSALS: Record<RescheduleRefusal | "not_found" | "disputed", () => string> = {
+  // Neutral on purpose: the person with the link may not be the cardholder.
+  disputed: () => `This booking cannot be changed online at the moment. Please ${contactLine()}.`,
   already_moved: () =>
     `This booking has already been moved once, so its time is now final. If something has gone wrong, please ${contactLine()}.`,
   too_late: () =>
@@ -111,6 +113,7 @@ export async function loadManageView(
   // A link to a booking that no longer exists reads like any other dead link: ask for a new one.
   if (!booking) return { ok: false, message: LINK_MESSAGE() };
   const session = getSessionBySlug(booking.sessionSlug);
+  if (booking.disputed) return { ok: false, message: REFUSALS.disputed() };
   if (session && booking.status === "awaiting_schedule" && booking.orderPaid) {
     const slots = await choosableSlots(session.durationMinutes, deps);
     return {
@@ -176,6 +179,7 @@ export async function confirmMove(
   const booking = await deps.transaction((runner) => loadBookingForManage(runner, bookingId));
   const session = booking ? getSessionBySlug(booking.sessionSlug) : undefined;
   if (!booking || !session) return { ok: false, message: REFUSALS.not_movable() };
+  if (booking.disputed) return { ok: false, message: REFUSALS.disputed() };
 
   // The time must be one we would offer right now, not merely one that is free.
   const start = new Date(parsed.data.slotStart);
@@ -265,6 +269,7 @@ export async function confirmNewTime(
   if (!booking || !session || !booking.orderPaid) {
     return { ok: false, message: REFUSALS.not_movable() };
   }
+  if (booking.disputed) return { ok: false, message: REFUSALS.disputed() };
   if (booking.status === "scheduled" || booking.status === "confirmed") {
     return { ok: false, message: ALREADY_SET() };
   }
@@ -300,7 +305,12 @@ export async function confirmNewTime(
   if (outcome.kind === "refused") {
     return {
       ok: false,
-      message: outcome.reason === "not_waiting" ? ALREADY_SET() : REFUSALS.not_movable(),
+      message:
+        outcome.reason === "not_waiting"
+          ? ALREADY_SET()
+          : outcome.reason === "disputed"
+            ? REFUSALS.disputed()
+            : REFUSALS.not_movable(),
     };
   }
 

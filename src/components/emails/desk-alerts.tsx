@@ -139,7 +139,7 @@ export async function renderRefundNeedsAttention(
 }
 
 /** "Tue 20 Oct, 19:00 Dubai time": the desk works in Dubai time. */
-function dubaiTime(instant: Date): string {
+export function dubaiTime(instant: Date): string {
   const day = new Intl.DateTimeFormat("en-GB", {
     timeZone: GST_TIMEZONE,
     weekday: "short",
@@ -285,7 +285,10 @@ function PaidBookingNeedsTimeEmail({
   const what =
     `A customer has paid for ${session}, but the booking has no time on the calendar: the held ` +
     "time was lost before the booking was confirmed, or the payment arrived after the hold had " +
-    "expired. The customer has not had a confirmation and has not been told.";
+    "expired." +
+    (problem.customerEmailedAt !== null && !problem.disputed
+      ? ` The customer was emailed their own link to choose a new time on ${dubaiTime(problem.customerEmailedAt)} (a copy is in this inbox).`
+      : " The customer has not had a confirmation and has not been told.");
   const heading = "A customer has paid and has no session time";
   return (
     <EmailLayout preview={what} {...layout}>
@@ -304,7 +307,38 @@ function PaidBookingNeedsTimeEmail({
           <strong>Payment id:</strong> {problem.paymentIntentId ?? "no payment on record"}
         </p>
       </div>
-      {chooseTimeUrl ? (
+      {chooseTimeUrl && problem.customerEmailedAt !== null && !problem.disputed ? (
+        <>
+          <p style={emailStyles.paragraph}>
+            Nothing to do unless the customer writes. They choose any open time themselves from
+            their link, free, and it does not use up their one move. If they ask for their money
+            back instead, refund the payment in full in Stripe. Do not charge again. If they lose
+            the link, this one works too:
+          </p>
+          <p style={emailStyles.detail}>
+            <a href={chooseTimeUrl}>{chooseTimeUrl}</a>
+          </p>
+          <p style={emailStyles.muted}>
+            The link works for {CHOOSE_TIME_LINK_DAYS} days; each reminder carries a fresh one. This
+            alert stops by itself once the customer has chosen a time, or once the payment is
+            refunded in full in Stripe. Until then it comes back once a day.
+          </p>
+        </>
+      ) : problem.disputed ? (
+        <>
+          <p style={emailStyles.paragraph}>
+            This payment was disputed and the dispute is over, so the customer was not sent a link
+            and cannot choose a time online: after a stolen-card dispute, the person who booked may
+            not be the cardholder. Check the dispute in Stripe first. If the session should go
+            ahead, agree a time with the customer from the knowledgecentre@ inbox and book it by
+            hand; otherwise refund the payment in full. Do not charge again.
+          </p>
+          <p style={emailStyles.muted}>
+            This alert stops by itself once the booking has a time, or once the payment is refunded
+            in full in Stripe. Until then it comes back once a day.
+          </p>
+        </>
+      ) : chooseTimeUrl ? (
         <>
           <p style={emailStyles.paragraph}>
             To fix: find the customer in Stripe by the payment id and write to them from the

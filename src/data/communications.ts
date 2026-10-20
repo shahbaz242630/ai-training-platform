@@ -185,6 +185,10 @@ export interface CommunicationContext {
   readonly marketingConsentConfirmedAt: Date | null;
   readonly unsubscribedAt: Date | null;
   readonly amountPaidFils: number;
+  /** Exactly paid: not pending, not refunded in any part. */
+  readonly orderFullyPaid: boolean;
+  /** The order has a dispute on record, whatever its state. */
+  readonly orderDisputed: boolean;
   /** The consent record's stored words, when one exists for the order. */
   readonly agreement: {
     readonly termsVersion: string;
@@ -215,13 +219,16 @@ export async function loadCommunicationContext(
     terms_version: string | null;
     key_terms: string | null;
     express_request_text: string | null;
+    payment_status: string;
+    disputed: boolean;
   }>(
     `select b.id as booking_id, b.status, b.session_slug, b.scheduled_start, b.scheduled_end,
             b.meeting_url, b.reschedule_count, b.customer_timezone,
             c.email, coalesce(i.first_name, c.first_name) as first_name,
             c.marketing_consent, c.marketing_consent_confirmed_at,
             c.unsubscribed_at, o.gross_amount_fils,
-            k.terms_version, k.key_terms, k.express_request_text
+            k.terms_version, k.key_terms, k.express_request_text, o.payment_status,
+            exists (select 1 from payment_disputes d where d.order_id = o.id) as disputed
        from bookings b
        join orders o on o.id = b.order_id
        join customers c on c.id = o.customer_id
@@ -249,6 +256,8 @@ export async function loadCommunicationContext(
     marketingConsentConfirmedAt: row.marketing_consent_confirmed_at,
     unsubscribedAt: row.unsubscribed_at,
     amountPaidFils: Number(row.gross_amount_fils),
+    orderFullyPaid: row.payment_status === "paid",
+    orderDisputed: row.disputed,
     agreement:
       row.terms_version === null || row.key_terms === null
         ? null

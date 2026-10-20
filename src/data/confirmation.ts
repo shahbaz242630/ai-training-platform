@@ -190,6 +190,8 @@ export async function confirmBookingOnCalendar(
   };
 
   let event;
+  // An event this call made that no hold took: if the booking is gone by the end, nobody owns it.
+  let unowned: string | null = null;
   try {
     let eventId = booking.calendarEventId;
     if (eventId === null) {
@@ -215,14 +217,16 @@ export async function confirmBookingOnCalendar(
         with the customer's invite still live.
       */
       const created = eventId;
-      await transaction((runner) =>
-        runner.query(
+      const attached = await transaction((runner) =>
+        runner.query<{ id: string }>(
           `update slot_holds set calendar_event_id = $4
             where order_id = $1 and status = 'converted' and slot_start = $2 and slot_end = $3
-              and calendar_event_id is null`,
+              and calendar_event_id is null
+            returning id`,
           [booking.orderId, slot.start, slot.end, created],
         ),
       );
+      if (attached.rows.length === 0) unowned = created;
     }
     event = await provider.confirmSlot(eventId, attendee);
   } catch (error) {
@@ -263,7 +267,23 @@ export async function confirmBookingOnCalendar(
       [booking.id, meetingUrl, event.externalId, now],
     );
     // Lost a race with another confirmer, which has already queued the messages.
-    if (updated.rows.length === 0) return false;
+    if (updated.rows.length === 0) {
+      /*
+        Or the booking was cancelled while the calendar was being asked (a
+        refund, a withdrawal, a dispute). Then the event made above belongs to
+        nothing: no hold carries it, so the sweep would never delete it, and
+        it would keep the time off sale on the real calendar. Deleted below.
+        Not when another confirmer won: it holds the same event, by the key.
+      */
+      const current = await runner.query<{ status: string }>(
+        `select status from bookings where id = $1`,
+        [booking.id],
+      );
+      const status = current.rows[0]?.status;
+      if (status === "confirmed" || status === "scheduled") unowned = null;
+      return false;
+    }
+    unowned = null;
 
     await queueForBooking(
       runner,
@@ -273,7 +293,21 @@ export async function confirmBookingOnCalendar(
     return true;
   });
 
-  if (!changed) return "already_confirmed";
+  if (!changed) {
+    if (unowned !== null) {
+      try {
+        await provider.releaseSlot(unowned);
+        logger.warn("an event made for a booking cancelled meanwhile was deleted", { bookingId });
+      } catch (error) {
+        logger.error("an event made for a booking cancelled meanwhile could not be deleted", {
+          bookingId,
+          calendarEventId: unowned,
+          error: (error as Error).name,
+        });
+      }
+    }
+    return "already_confirmed";
+  }
 
   await recordAudit({
     action: "booking.confirmed",

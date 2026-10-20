@@ -1,5 +1,7 @@
 import {
   renderCancellationConfirmation,
+  renderChooseNewTime,
+  renderPaymentReceivedNoTime,
   renderRefundIssued,
   renderTemplate,
   renderWithdrawalAcknowledgement,
@@ -30,6 +32,8 @@ import { decideSendTemplate, type TemplateKey } from "@/domain/messaging/sending
 import { clientEnv, serverEnv } from "@/lib/env";
 import { logger } from "@/lib/logger";
 import { createManageToken } from "@/lib/manage-link";
+import { addDays } from "@/lib/time";
+import { CHOOSE_TIME_LINK_DAYS } from "@/components/emails/desk-alerts";
 import { termsPdfFor, termsPdfName } from "@/legal/terms-pdfs";
 
 /**
@@ -124,7 +128,21 @@ export async function deliver(
         ? await prepareRefundIssued(context)
         : row.templateKey === "cancellation_confirmation"
           ? await prepareCancellationConfirmation(context)
-          : await prepareSessionEmail(row, context, now);
+          : row.templateKey === "choose_new_time"
+            ? await prepareChooseNewTime(context, now)
+            : row.templateKey === "payment_receipt" && context.scheduledStart === null
+              ? await preparePaymentReceivedNoTime(context)
+              : await prepareSessionEmail(row, context, now);
+  if (!prepared.ok && prepared.withdraw) {
+    // No longer true by the time it would go: nothing wrong, nothing to retry.
+    await withTransaction((runner) => markCommunicationCancelled(runner, row.id));
+    logger.info("message withdrawn before sending", {
+      communicationId: row.id,
+      templateKey: row.templateKey,
+      reason: prepared.reason,
+    });
+    return "withdrawn";
+  }
   if (!prepared.ok) return giveUp(row, prepared.reason, now);
   const { email } = prepared;
 
@@ -178,7 +196,7 @@ type Prepared =
       readonly bcc?: string;
       readonly attachments?: readonly EmailAttachment[];
     }
-  | { readonly ok: false; readonly reason: string };
+  | { readonly ok: false; readonly reason: string; readonly withdraw?: boolean };
 
 /** A message about a session: it needs the session's time, and says nothing without one. */
 async function prepareSessionEmail(
@@ -214,31 +232,8 @@ async function prepareSessionEmail(
           : null,
       moved: context.rescheduleCount > 0,
     });
-    if (row.templateKey === "payment_receipt") {
-      // The terms exactly as agreed, as a fixed copy: a web page can change later.
-      const version = context.agreement?.termsVersion ?? null;
-      const pdf = version === null ? null : termsPdfFor(version);
-      if (version !== null && pdf === null) {
-        // Still sent: the email quotes the key terms and links the full ones.
-        logger.error("no printed terms exist for this terms version; sent without the PDF", {
-          termsVersion: version,
-        });
-      }
-      return version !== null && pdf !== null
-        ? {
-            ok: true,
-            email,
-            attachments: [
-              {
-                name: termsPdfName(version),
-                contentType: "application/pdf",
-                content: pdf,
-                encoding: "base64",
-              },
-            ],
-          }
-        : { ok: true, email };
-    }
+    if (row.templateKey === "payment_receipt")
+      return { ok: true, email, ...termsAttachment(context) };
     if (
       row.templateKey !== "booking_confirmation" &&
       row.templateKey !== "reschedule_confirmation"
@@ -281,6 +276,32 @@ async function prepareSessionEmail(
     if (error instanceof TemplateNotAvailableError) return { ok: false, reason: error.message };
     throw error;
   }
+}
+
+/** The terms exactly as agreed, as a fixed copy for the payment acknowledgement: a web page can change later. */
+function termsAttachment(context: CommunicationContext): {
+  readonly attachments?: readonly EmailAttachment[];
+} {
+  const version = context.agreement?.termsVersion ?? null;
+  if (version === null) return {};
+  const pdf = termsPdfFor(version);
+  if (pdf === null) {
+    // Still sent: the email quotes the key terms and links the full ones.
+    logger.error("no printed terms exist for this terms version; sent without the PDF", {
+      termsVersion: version,
+    });
+    return {};
+  }
+  return {
+    attachments: [
+      {
+        name: termsPdfName(version),
+        contentType: "application/pdf",
+        content: pdf,
+        encoding: "base64",
+      },
+    ],
+  };
 }
 
 /**
@@ -349,6 +370,60 @@ async function prepareCancellationConfirmation(context: CommunicationContext): P
     refundedFils: context.amountPaidFils,
   });
   return { ok: true, email, bcc: supportEmail() };
+}
+
+/**
+ * The customer's link to choose a time for a paid booking that has none
+ * (founder decision, October 2026). Checked again at sending: if the booking
+ * has a time by now, is no longer exactly paid, or the order has ever been
+ * disputed, it is withdrawn. After a dispute the person with the booking may
+ * not be the cardholder, so a person decides instead. The desk gets a copy:
+ * it is the record that the customer was told.
+ */
+async function prepareChooseNewTime(context: CommunicationContext, now: Date): Promise<Prepared> {
+  if (context.bookingStatus !== "awaiting_schedule") {
+    return { ok: false, reason: "booking_not_waiting", withdraw: true };
+  }
+  if (!context.orderFullyPaid) return { ok: false, reason: "order_not_paid", withdraw: true };
+  if (context.orderDisputed) return { ok: false, reason: "order_disputed", withdraw: true };
+  const session = getSessionBySlug(context.sessionSlug);
+  if (!session) return { ok: false, reason: "unknown_session" };
+  const secret = serverEnv().MANAGE_LINK_SECRET;
+  if (!secret) return { ok: false, reason: "no_link_secret" };
+  const token = createManageToken(
+    { bookingId: context.bookingId, expiresAt: addDays(now, CHOOSE_TIME_LINK_DAYS) },
+    secret,
+  );
+  return {
+    ok: true,
+    email: await renderChooseNewTime({
+      bookingId: context.bookingId,
+      firstName: context.firstName,
+      sessionTitle: session.title,
+      chooseTimeUrl: `${clientEnv.NEXT_PUBLIC_SITE_URL}${TRAINING_BASE}/book/manage?t=${token}`,
+      linkDays: CHOOSE_TIME_LINK_DAYS,
+    }),
+    bcc: supportEmail(),
+  };
+}
+
+/**
+ * The payment acknowledgement for a payment that arrived after its time had
+ * gone: still sent at once, with the terms attached, so the contract is
+ * confirmed in writing whatever happens to the time.
+ */
+async function preparePaymentReceivedNoTime(context: CommunicationContext): Promise<Prepared> {
+  const session = getSessionBySlug(context.sessionSlug);
+  if (!session) return { ok: false, reason: "unknown_session" };
+  const email = await renderPaymentReceivedNoTime({
+    bookingId: context.bookingId,
+    firstName: context.firstName,
+    sessionTitle: session.title,
+    agreement: context.agreement
+      ? { ...context.agreement, amountPaidFils: context.amountPaidFils }
+      : null,
+  });
+  return { ok: true, email, ...termsAttachment(context) };
 }
 
 /**

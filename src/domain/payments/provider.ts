@@ -122,7 +122,52 @@ export interface RefundEvent {
   readonly status: RefundStatus;
 }
 
-export type PaymentEvent = CheckoutEvent | RefundEvent;
+/**
+ * Something happened to a dispute: a customer's bank reversing, or asking
+ * about, a payment. Only the dispute's id is taken from the event. The
+ * handler reads the dispute again and acts on that, because the processor
+ * does not promise to deliver events in order, and an older event acted on
+ * after a newer one would move the dispute backwards.
+ */
+export interface DisputeEvent {
+  readonly kind: "dispute";
+  readonly eventId: string;
+  readonly type: string;
+  readonly occurredAt: Date;
+  readonly ignorable: false;
+  readonly providerDisputeId: string;
+  /**
+   * The dispute as the event carried it. Used only when the processor
+   * clearly refuses to be asked (a key without the right, a dispute it no
+   * longer has): storing an older copy beats failing the delivery for three
+   * days and storing nothing.
+   */
+  readonly snapshot: DisputeSnapshot;
+}
+
+export type PaymentEvent = CheckoutEvent | RefundEvent | DisputeEvent;
+
+/**
+ * A dispute as the processor has it now.
+ *
+ * The status is kept as the processor's own word: the set grows over time,
+ * and a status this code does not know yet must reach a person, not fail an
+ * insert. The amount is in the dispute's own currency and minor unit, which
+ * can differ from the order's, so it is never compared with the order.
+ */
+export interface DisputeSnapshot {
+  readonly providerDisputeId: string;
+  /** The payment disputed. Null for a dispute on a bare charge, which is never ours. */
+  readonly paymentIntentId: string | null;
+  readonly amountMinor: number;
+  readonly currency: string;
+  /** e.g. "fraudulent", "product_not_received". */
+  readonly reason: string;
+  /** e.g. "needs_response", "won". */
+  readonly status: string;
+  /** The deadline to respond; null when the card network allows no response. */
+  readonly evidenceDueBy: Date | null;
+}
 
 /** A checkout session as the processor has it now: what its event would have said. */
 export type CheckoutSnapshot = Pick<
@@ -157,6 +202,21 @@ export interface RefundSnapshot extends IssuedRefund {
   readonly amountFils: Fils;
   readonly currency: string;
   readonly paymentIntentId: string | null;
+}
+
+/**
+ * A dispute could not be read. `transient` when asking again may work (no
+ * answer, a rate limit, the processor failing on its side); otherwise the
+ * processor refused, and asking again will not change that.
+ */
+export class DisputeReadError extends Error {
+  constructor(
+    readonly code: string,
+    readonly transient: boolean,
+  ) {
+    super(`The dispute could not be read (${code})`);
+    this.name = "DisputeReadError";
+  }
 }
 
 /** Base type, so every payment failure can be caught in one place. */
@@ -269,4 +329,7 @@ export interface PaymentProvider {
    * settled when its event never arrived: the same facts, asked for.
    */
   getCheckoutSnapshot(checkoutSessionId: string): Promise<CheckoutSnapshot>;
+
+  /** Read a dispute as the processor has it now. Throws when it cannot be asked. */
+  getDispute(providerDisputeId: string): Promise<DisputeSnapshot>;
 }
