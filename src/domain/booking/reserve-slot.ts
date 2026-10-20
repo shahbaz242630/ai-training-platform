@@ -31,6 +31,13 @@ export const reserveSlotRequestSchema = z
         termsVersion: z.string().min(1).max(40),
       })
       .strict(),
+    /**
+     * The person check's token (audit s101 #3). Optional here: whether it is
+     * required is the server's own setting, and a missing or bad one is
+     * refused by the check with words that say so. Capped only to keep a
+     * request small; Cloudflare's own limit is checked there.
+     */
+    turnstileToken: z.string().max(8192).optional(),
   })
   // Strict, so a request carrying keys it was never offered is refused rather
   // than quietly ignored - the same rule the intake schema follows.

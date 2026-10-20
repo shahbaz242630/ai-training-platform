@@ -81,3 +81,43 @@ describe("gateSettings", () => {
     expect((await freshGate()).originSecret).toBeNull();
   });
 });
+
+/*
+  The person check at checkout start (audit s101 #3). On from the SECRET alone,
+  so a missing or mistyped site key can never switch the protection off while
+  the secret is set: the page then shows no widget and every checkout is
+  refused, which is loud. Both are read at run time on the server, so the
+  browser can never disagree with the server about whether the check is on.
+*/
+describe("turnstileSettings", () => {
+  async function fresh() {
+    vi.resetModules();
+    return (await import("./env")).turnstileSettings();
+  }
+
+  it("is off when no secret is set, or the secret is blank", async () => {
+    delete process.env.TURNSTILE_SECRET_KEY;
+    process.env.TURNSTILE_SITE_KEY = "0x4AAAAAAAsitekey";
+    expect(await fresh()).toBeNull();
+    process.env.TURNSTILE_SECRET_KEY = "   ";
+    expect(await fresh()).toBeNull();
+  });
+
+  it("is on with both keys, trimmed", async () => {
+    process.env.TURNSTILE_SECRET_KEY = " 0x4AAAAAAAsecret ";
+    process.env.TURNSTILE_SITE_KEY = " 0x4AAAAAAAsitekey ";
+    expect(await fresh()).toEqual({ secret: "0x4AAAAAAAsecret", siteKey: "0x4AAAAAAAsitekey" });
+  });
+
+  it("stays on when only the site key is missing", async () => {
+    process.env.TURNSTILE_SECRET_KEY = "0x4AAAAAAAsecret";
+    delete process.env.TURNSTILE_SITE_KEY;
+    expect(await fresh()).toEqual({ secret: "0x4AAAAAAAsecret", siteKey: null });
+  });
+
+  it("still answers when another setting is invalid", async () => {
+    process.env.HEARTBEAT_URL = "not a url at all";
+    process.env.TURNSTILE_SECRET_KEY = "0x4AAAAAAAsecret";
+    expect((await fresh())?.secret).toBe("0x4AAAAAAAsecret");
+  });
+});

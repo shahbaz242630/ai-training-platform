@@ -145,3 +145,31 @@ export function gateSettings(): {
     originSecret: secret.length >= 32 ? secret : null,
   };
 }
+
+/**
+ * The person check at checkout start (audit s101 #3 part 2, src/lib/turnstile.ts),
+ * read on its own like gateSettings() so a bad value elsewhere cannot fail it.
+ *
+ * On from the SECRET alone. A missing or mistyped site key therefore cannot
+ * switch the protection off while the secret is set: the page shows no widget
+ * and every checkout is refused, which is loud, rather than quietly letting
+ * every caller through. Both keys are read here at request time, on the
+ * server, and the page hands the site key to the browser, so the two can never
+ * disagree about whether the check is on (a NEXT_PUBLIC_ value is fixed into
+ * the bundle at build time and could). Unset TURNSTILE_SECRET_KEY is the way
+ * back.
+ */
+export function turnstileSettings(): {
+  readonly secret: string;
+  readonly siteKey: string | null;
+} | null {
+  const secret = process.env.TURNSTILE_SECRET_KEY?.trim() ?? "";
+  if (secret === "") return null;
+  const siteKey = process.env.TURNSTILE_SITE_KEY?.trim() ?? "";
+  if (siteKey === "") {
+    logger.error(
+      "TURNSTILE_SECRET_KEY is set without TURNSTILE_SITE_KEY; every checkout is refused",
+    );
+  }
+  return { secret, siteKey: siteKey === "" ? null : siteKey };
+}

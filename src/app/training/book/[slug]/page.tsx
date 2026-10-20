@@ -10,6 +10,7 @@ import { formatAed } from "@/lib/money";
 import { offeredSlotsForPage } from "./availability";
 import { paymentsAreConfigured } from "@/domain/payments/factory";
 import { logger } from "@/lib/logger";
+import { turnstileSettings } from "@/lib/env";
 
 /*
   Rendered per request rather than at build time. Availability depends on the
@@ -60,6 +61,15 @@ export default async function BookSessionPage({ params }: PageProps<"/training/b
     availabilityFailed = true;
     logger.error("availability could not be read", { error: (error as Error).message });
   }
+
+  /*
+    The person check (audit s101 #3). Read from the same settings the checkout
+    action checks against, at request time, so the page and the server never
+    disagree about whether it is on. With the check on and no site key, the
+    box shows no widget and every checkout is refused: loud, never silently
+    open (turnstileSettings logs it).
+  */
+  const challenge = turnstileSettings();
 
   return (
     <>
@@ -152,6 +162,7 @@ export default async function BookSessionPage({ params }: PageProps<"/training/b
                 durationMinutes={session.durationMinutes}
                 priceLabel={formatAed(session.priceFils)}
                 availabilityFailed={availabilityFailed}
+                turnstileSiteKey={challenge?.siteKey ?? null}
               />
             </aside>
           </div>

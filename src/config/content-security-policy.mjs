@@ -19,10 +19,19 @@
   safe side.
 */
 
+/*
+  The person check at checkout start (audit s101 #3) is Cloudflare Turnstile:
+  a script from this origin, which shows its challenge in a frame from it.
+  Allowed on the booking pages (the nonce policy) only. Under 'strict-dynamic'
+  a current browser ignores the host in script-src and trusts the script
+  through the nonce; the host is there for older browsers.
+*/
+const TURNSTILE_ORIGIN = "https://challenges.cloudflare.com";
+
 /** The script-src directive, with a nonce when one is given. */
 export function scriptSrcFor(nodeEnv, nonce) {
   const base = nonce
-    ? `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'`
+    ? `script-src 'self' 'nonce-${nonce}' 'strict-dynamic' ${TURNSTILE_ORIGIN}`
     : "script-src 'self' 'unsafe-inline'";
   return nodeEnv === "development" ? `${base} 'unsafe-eval'` : base;
 }
@@ -41,6 +50,9 @@ export function cspFor(nodeEnv, nonce) {
     // Stripe Checkout is hosted (a full redirect), so no frame or connect
     // allowance is required for it here. Revisit only if we ever embed Elements.
     "connect-src 'self'",
+    // Without it frames fall back to default-src 'self'; the challenge's frame
+    // is the only one any page here shows.
+    ...(nonce ? [`frame-src ${TURNSTILE_ORIGIN}`] : []),
     "form-action 'self'",
     "frame-ancestors 'none'",
     "object-src 'none'",
