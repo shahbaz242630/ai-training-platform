@@ -156,3 +156,40 @@ describe("the details step in the booking box", () => {
     expect(step).toMatch(/disabled=\{saving \|\| waitingForCheck\}/);
   });
 });
+
+/*
+  Staging test s104: while Cloudflare showed its box and waited for a tick,
+  the booking box said "This is taking longer than usual. Please refresh",
+  which sends a person the wrong way. The widget now reports when it is
+  asking, and the box says to tick it.
+*/
+describe("when Cloudflare asks for a tick", () => {
+  const widget = read("src/components/training/TurnstileWidget.tsx");
+  const panel = read("src/components/training/BookingPanel.tsx");
+
+  it("the widget reports asking, and stopping, to the booking box", () => {
+    expect(widget).toMatch(/"before-interactive-callback": \(\) => \{\s*onAsking\?\.\(true\);/);
+    expect(widget).toMatch(/"after-interactive-callback": \(\) => onAsking\?\.\(false\)/);
+    expect(panel.match(/onAsking=\{setChallengeAsking\}/g)).toHaveLength(2);
+  });
+
+  it("the box says to tick it, and never says 'taking longer' while it asks", () => {
+    expect(panel).toContain(
+      '{waitingForCheck && challengeAsking && "Please tick the box above to continue."}',
+    );
+    expect(panel).toMatch(/waitingForCheck && !challengeAsking && challengeSlow &&/);
+    expect(panel).toMatch(
+      /waitingForCheck && !challengeAsking && !challengeSlow && "Checking your connection…"/,
+    );
+  });
+
+  it("forgets the asking state with a token, a renewal, or going back to edit", () => {
+    expect(panel).toMatch(/if \(token !== null\) setChallengeAsking\(false\);/);
+    const renew = panel.slice(
+      panel.indexOf("const renewChallenge"),
+      panel.indexOf("const renewChallenge") + 200,
+    );
+    expect(renew).toContain("setChallengeAsking(false)");
+    expect(panel).toMatch(/setChallengeSlow\(false\);\s*setChallengeAsking\(false\);\s*\}\}/);
+  });
+});
