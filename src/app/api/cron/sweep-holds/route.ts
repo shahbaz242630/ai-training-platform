@@ -30,6 +30,7 @@ import { readAppliedSchemaVersion, schemaStatus } from "@/data/schema-version";
 import { recordAudit } from "@/lib/audit";
 import { watchCalendar } from "./calendar-watch-step";
 import { disputeStep, queueChooseNewTime } from "./dispute-step";
+import { heartbeatFailed, heartbeatStep } from "./heartbeat-step";
 import { reconcilePendingOrders } from "./reconcile-step";
 import { declineUrlFor, withdrawalDecisionAlerts } from "./withdrawal-decision-step";
 import { authoriseCronRequest } from "@/lib/cron-auth";
@@ -252,8 +253,12 @@ export async function POST(request: Request): Promise<NextResponse> {
       logger.info("expired slot holds swept", { expired: expired.length });
     }
 
+    // Last: tell the outside monitor this run happened, and whether anything is stuck.
+    const heartbeat = await heartbeatStep(schema, now);
+
     return NextResponse.json({
       ok: true,
+      heartbeat,
       sweptAt: now.toISOString(),
       expired: expired.length,
       calendarEventsReleased: calendar.released,
@@ -283,6 +288,8 @@ export async function POST(request: Request): Promise<NextResponse> {
       is a failure, never a pass.
     */
     logger.error("slot hold sweep failed", { error: (error as Error).message });
+    // The monitor hears it too: a sweep failing every run looks, from outside, like one that runs.
+    await heartbeatFailed();
     return NextResponse.json({ error: "Sweep failed" }, { status: 500 });
   }
 }

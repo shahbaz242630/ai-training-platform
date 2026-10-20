@@ -64,6 +64,13 @@ const serverSchema = z.object({
   */
   MANAGE_LINK_SECRET: optional(z.string().min(32)),
   SENTRY_DSN: optional(z.string()),
+  /*
+    The outside monitor the five-minute sweep checks in with (audit s101 #7):
+    if the check-ins stop, or say "fail", the founder is told by a service
+    that does not depend on this app, its database or its email. HTTPS only.
+    Unset, nothing is sent.
+  */
+  HEARTBEAT_URL: optional(z.string().url().startsWith("https://")),
 });
 
 /** Values safe to expose to the browser. Never add a secret here. */
