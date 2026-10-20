@@ -2,8 +2,11 @@ import { describe, it, expect, vi } from "vitest";
 import { NextRequest } from "next/server";
 import { cspFor, NONCE_PATH_PREFIX, scriptSrcFor } from "@/config/content-security-policy.mjs";
 
-vi.mock("@/lib/env", () => ({ serverEnv: () => ({ NODE_ENV: "production" }) }));
-const { proxy, config } = await import("./proxy");
+const state = vi.hoisted(() => ({ originSecret: undefined as string | undefined }));
+vi.mock("@/lib/env", () => ({
+  gateSettings: () => ({ nodeEnv: "production", originSecret: state.originSecret ?? null }),
+}));
+const { proxy, config, needsNonce, ORIGIN_HEADER } = await import("./proxy");
 
 /*
   The booking pages' per-request nonce (security audit and scans, 2026-09-27/28).
@@ -61,7 +64,60 @@ describe("proxy", () => {
     expect(nonces.size).toBe(50);
   });
 
-  it("runs on exactly the paths next.config.mjs leaves without a policy", () => {
-    expect(config.matcher.map((m) => m.source)).toEqual([`${NONCE_PATH_PREFIX}:path*`]);
+  it("gives a nonce only to a booking page being rendered, not a prefetch or another page", () => {
+    const at = (path: string, headers: Record<string, string> = {}) =>
+      new NextRequest(`https://example.test${path}`, { headers });
+    expect(needsNonce(at(`${NONCE_PATH_PREFIX}ai-foundations`))).toBe(true);
+    expect(needsNonce(at("/training"))).toBe(false);
+    expect(needsNonce(at(`${NONCE_PATH_PREFIX}x`, { "next-router-prefetch": "1" }))).toBe(false);
+    expect(needsNonce(at(`${NONCE_PATH_PREFIX}x`, { purpose: "prefetch" }))).toBe(false);
+    // Any other page passes straight through, with no policy from here.
+    expect(proxy(at("/training")).headers.get("Content-Security-Policy")).toBeNull();
+  });
+
+  it("runs on every request but the build's static files", () => {
+    const pattern = new RegExp("^" + config.matcher[0] + "$");
+    expect(pattern.test("/training")).toBe(true);
+    expect(pattern.test("/api/webhooks/stripe")).toBe(true);
+    expect(pattern.test("/_next/static/chunks/app.js")).toBe(false);
+  });
+});
+
+/*
+  Only through Cloudflare (audit s101 #21): a request sent straight to the host
+  skips Cloudflare's limits and rules. With the secret set, it is refused.
+*/
+describe("requests that did not come through Cloudflare", () => {
+  const SECRET = "s".repeat(40);
+  const at = (headers: Record<string, string> = {}) =>
+    new NextRequest("https://example.test/training", { headers });
+
+  it("are refused once the secret is set, whatever is presented instead", () => {
+    state.originSecret = SECRET;
+    try {
+      const refused = proxy(at());
+      expect(refused.status).toBe(403);
+      // Never cached, so no cache in front can hand it to a real visitor.
+      expect(refused.headers.get("Cache-Control")).toBe("no-store, private");
+      expect(proxy(at({ [ORIGIN_HEADER]: "wrong" })).status).toBe(403);
+      expect(proxy(at({ [ORIGIN_HEADER]: `${SECRET}x` })).status).toBe(403);
+    } finally {
+      state.originSecret = undefined;
+    }
+  });
+
+  it("pass with the secret, which the app then never sees", () => {
+    state.originSecret = SECRET;
+    try {
+      const response = proxy(at({ [ORIGIN_HEADER]: SECRET }));
+      expect(response.status).toBe(200);
+      expect(response.headers.get(`x-middleware-request-${ORIGIN_HEADER}`)).toBeNull();
+    } finally {
+      state.originSecret = undefined;
+    }
+  });
+
+  it("are not checked at all while no secret is set", () => {
+    expect(proxy(at()).status).toBe(200);
   });
 });

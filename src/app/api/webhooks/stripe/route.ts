@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import { withTransaction } from "@/data/db";
 import { claimWebhookEvent, markWebhookProcessed } from "@/data/webhook-events";
 import { getPaymentProvider } from "@/domain/payments/factory";
@@ -171,8 +171,21 @@ export async function POST(request: Request): Promise<NextResponse> {
       never wait on that or be rolled back by it. If this fails, the booking
       stays scheduled and the five-minute sweep tries again; the customer's
       acknowledgement is already queued either way.
+
+      And after the RESPONSE (audit s101 P8): Stripe asks for a fast 2xx and
+      holds the customer on its spinner until it has one, so a slow calendar
+      must not keep either waiting. A failure here is the sweep's to retry.
     */
-    if (outcome === "settled") await confirmOnCalendar(orderId);
+    if (outcome === "settled") {
+      after(() =>
+        confirmOnCalendar(orderId).catch((error: unknown) => {
+          logger.error("calendar confirmation after the response failed; the sweep will retry", {
+            orderId,
+            error: (error as Error).name,
+          });
+        }),
+      );
+    }
 
     return NextResponse.json({ ok: true, outcome });
   } catch (error) {

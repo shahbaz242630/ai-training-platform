@@ -4,6 +4,7 @@ import { PGlite } from "@electric-sql/pglite";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { queueForBooking } from "@/data/communications";
 import { recordWithdrawal } from "@/data/withdrawals";
+import { bookingReference } from "@/domain/booking/withdrawal";
 import type { QueryRunner } from "@/data/db";
 import { MockEmailProvider } from "@/domain/messaging/mock-provider";
 import { resetLogSink, setLogSink, type LogRecord } from "@/lib/logger";
@@ -57,6 +58,7 @@ vi.mock("@/data/db", async (importOriginal) => ({
     db.transaction((tx) => work(tx as unknown as QueryRunner)),
 }));
 
+import { calendarUid } from "./deliver";
 import { POST } from "./route";
 
 let runner: QueryRunner;
@@ -624,7 +626,8 @@ describe("moving a session", () => {
     expect(sent?.text).toContain("final");
     expect(sent?.html).not.toContain("/book/manage?t=");
     const ics = (sent?.attachments?.[0]?.content ?? "").replace(/\r\n /g, "");
-    expect(ics).toContain(`UID:booking-${bookingId}@zaaheen.com`);
+    expect(ics).toContain(`UID:${calendarUid(bookingId)}`);
+    expect(ics).not.toContain(bookingId);
     expect(ics).toContain("SEQUENCE:1");
   });
 });
@@ -643,10 +646,13 @@ describe("the add-to-calendar file", () => {
     expect(files[0]?.name).toMatch(/\.ics$/);
     expect(files[0]?.contentType).toBe("text/calendar");
     const ics = (files[0]?.content ?? "").replace(/\r\n /g, "");
-    expect(ics).toContain(`UID:booking-${bookingId}@zaaheen.com`);
+    expect(ics).toContain(`UID:${calendarUid(bookingId)}`);
     expect(ics).toContain("URL:https://teams.example/join");
     expect(ics).toMatch(/DTSTART:\d{8}T\d{6}Z/);
     expect(ics).not.toContain("ATTENDEE");
+    // Calendars are shared; the reference plus the owner's email would open the withdrawal form.
+    expect(ics).not.toContain("Booking reference");
+    expect(ics).not.toContain(bookingReference(bookingId));
   });
 
   it("is not attached to a reminder", async () => {

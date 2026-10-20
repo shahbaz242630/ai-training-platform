@@ -36,7 +36,22 @@ import type { QueryRunner } from "@/data/db";
 const state = vi.hoisted(() => ({
   configured: true,
   databaseDown: false,
+  // Work the route hands to after(): run once the response is out, as Next.js does.
+  afterResponse: [] as (() => unknown)[],
 }));
+
+vi.mock("next/server", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("next/server")>()),
+  after: (task: () => unknown) => {
+    state.afterResponse.push(task);
+  },
+}));
+
+/** Run what the route left for after the response, as the server would. */
+async function afterTheResponse(): Promise<void> {
+  const tasks = state.afterResponse.splice(0);
+  for (const task of tasks) await task();
+}
 
 const provider = new MockPaymentProvider();
 let db: PGlite;
@@ -199,7 +214,12 @@ async function deliver(body: MockEventBody, signature?: string | null, forwarded
       body: raw,
     }),
   );
-  return { status: response.status, body: (await response.json()) as Record<string, unknown> };
+  const answered = {
+    status: response.status,
+    body: (await response.json()) as Record<string, unknown>,
+  };
+  await afterTheResponse();
+  return answered;
 }
 
 const paidEvent = (orderId: string, slotHoldId: string, extra: Partial<MockEventBody> = {}) => ({
@@ -731,5 +751,34 @@ describe("a dispute that arrived before the payment", () => {
       [orderId],
     );
     expect(booking.rows[0]?.status).toBe("cancelled");
+  });
+});
+
+/*
+  Stripe asks for a fast 2xx and holds the customer on its spinner until it
+  has one (audit s101 P8). The calendar, which talks to Microsoft, runs after
+  the answer has gone.
+*/
+describe("answering Stripe", () => {
+  it("answers before the calendar is asked, and the booking is confirmed straight after", async () => {
+    const { orderId, slotHoldId } = await pendingOrder();
+    const raw = mockEventBody(paidEvent(orderId, slotHoldId));
+
+    const response = await POST(
+      new Request("https://example.test/api/webhooks/stripe", {
+        method: "POST",
+        headers: new Headers({ "stripe-signature": provider.sign(raw) }),
+        body: raw,
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    const booking = () =>
+      db.query<{ status: string }>("select status from bookings where order_id = $1", [orderId]);
+    expect((await booking()).rows[0]?.status).toBe("scheduled");
+    expect(state.afterResponse).toHaveLength(1);
+
+    await afterTheResponse();
+    expect((await booking()).rows[0]?.status).toBe("confirmed");
   });
 });

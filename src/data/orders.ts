@@ -200,3 +200,28 @@ export async function pendingCheckoutSessionsFor(
   );
   return result.rows.map((row) => row.stripe_checkout_session_id);
 }
+
+/**
+ * Checkouts still open whose time the customer has given up by starting
+ * another (audit s101 P10): the order is pending, its hold was released and
+ * nothing else holds a time for it. Ending them is what stops a customer with
+ * two tabs paying twice; checkout tries once, and the sweep keeps trying for
+ * as long as a checkout can live (30 minutes, plus a margin). Ids only.
+ */
+export async function abandonedCheckoutSessions(
+  runner: QueryRunner,
+  now: Date,
+): Promise<readonly string[]> {
+  const result = await runner.query<{ stripe_checkout_session_id: string }>(
+    `select o.stripe_checkout_session_id
+       from orders o
+      where o.payment_status = 'pending'
+        and o.stripe_checkout_session_id is not null
+        and o.created_at > $1::timestamptz - interval '35 minutes'
+        and exists (select 1 from slot_holds h where h.order_id = o.id and h.status = 'released')
+        and not exists (select 1 from slot_holds h
+                         where h.order_id = o.id and h.status in ('held', 'converted'))`,
+    [now],
+  );
+  return result.rows.map((row) => row.stripe_checkout_session_id);
+}

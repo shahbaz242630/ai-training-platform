@@ -652,9 +652,9 @@ async function releaseHeldSlotQuietly(holdId: string): Promise<void> {
 
 /**
  * End the checkouts behind holds this customer has just given up by starting
- * another. Best effort: a failure is logged and never stops the new checkout,
- * because the old session still ends at its own expiry, and a payment that
- * lands on it anyway is the recoverable "paid, awaiting a time" state.
+ * another. Best effort here: a failure is logged and never stops the new
+ * checkout, and the five-minute sweep keeps asking Stripe to end it
+ * (abandoned-checkouts-step), so a second tab cannot stay payable.
  */
 async function endReleasedCheckouts(
   released: readonly ReleasedHold[],

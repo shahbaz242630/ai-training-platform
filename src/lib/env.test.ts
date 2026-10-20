@@ -52,3 +52,32 @@ describe("serverEnv", () => {
     expect(env.MS_CLIENT_SECRET).toBeUndefined();
   });
 });
+
+/*
+  The request gate's own settings (audit s101 #21). They are read on their own
+  and never throw: the gate runs on every request, and one bad value elsewhere
+  must not take every page down with it.
+*/
+describe("gateSettings", () => {
+  async function freshGate() {
+    vi.resetModules();
+    return (await import("./env")).gateSettings();
+  }
+
+  it("still answers when another setting is invalid", async () => {
+    process.env.NEXT_PUBLIC_SITE_URL = "https://example.test";
+    process.env.HEARTBEAT_URL = "not a url at all";
+    process.env.ORIGIN_SECRET = "s".repeat(40);
+    expect((await freshGate()).originSecret).toBe("s".repeat(40));
+  });
+
+  it("treats a secret too short to be safe as unset, so the site stays open", async () => {
+    process.env.ORIGIN_SECRET = "short";
+    expect((await freshGate()).originSecret).toBeNull();
+  });
+
+  it("is off when nothing is set", async () => {
+    delete process.env.ORIGIN_SECRET;
+    expect((await freshGate()).originSecret).toBeNull();
+  });
+});

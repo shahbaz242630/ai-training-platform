@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { logger } from "./logger";
 
 /**
  * Server-side environment validation.
@@ -114,4 +115,33 @@ export function serverEnv(): z.infer<typeof serverSchema> {
   }
   cachedServerEnv ??= parse(serverSchema, process.env, "server");
   return cachedServerEnv;
+}
+
+/**
+ * The two values the request gate (src/proxy.ts) needs, read on their own and
+ * never throwing. The gate runs on every request, so it must not depend on
+ * every other setting being valid: one mistyped value elsewhere would turn
+ * every page, and the payment webhook, into an error.
+ *
+ * ORIGIN_SECRET is the secret Cloudflare adds to every request it passes on
+ * (header x-zaaheen-origin, a Cloudflare request header rule); set, a request
+ * without it was sent straight to the host and is refused (audit s101 #21).
+ * Set it only after the Cloudflare rule is live: unset is the way back. It is
+ * read only here, not in the server schema, so a bad value cannot fail the
+ * rest of the settings. A malformed secret (shorter than 32 characters) is
+ * reported and treated as unset: the site stays open rather than refusing
+ * everyone.
+ */
+export function gateSettings(): {
+  readonly nodeEnv: string | undefined;
+  readonly originSecret: string | null;
+} {
+  const secret = process.env.ORIGIN_SECRET?.trim() ?? "";
+  if (secret !== "" && secret.length < 32) {
+    logger.error("ORIGIN_SECRET is set but shorter than 32 characters; the gate is off");
+  }
+  return {
+    nodeEnv: process.env.NODE_ENV,
+    originSecret: secret.length >= 32 ? secret : null,
+  };
 }
