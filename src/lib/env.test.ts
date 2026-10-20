@@ -78,7 +78,24 @@ describe("gateSettings", () => {
 
   it("is off when nothing is set", async () => {
     delete process.env.ORIGIN_SECRET;
-    expect((await freshGate()).originSecret).toBeNull();
+    delete process.env.STAGING_PASSWORD;
+    const gate = await freshGate();
+    expect(gate.originSecret).toBeNull();
+    expect(gate.staging).toEqual({ kind: "off" });
+  });
+
+  /*
+    The staging lock (audit s104 OUT-1). A value too short to be safe closes
+    the site instead of opening it: an open staging host is what it prevents.
+  */
+  it("locks staging with a long enough password", async () => {
+    process.env.STAGING_PASSWORD = "p".repeat(20);
+    expect((await freshGate()).staging).toEqual({ kind: "on", password: "p".repeat(20) });
+  });
+
+  it("refuses everyone when the staging password is too short, never opening", async () => {
+    process.env.STAGING_PASSWORD = "short";
+    expect((await freshGate()).staging).toEqual({ kind: "broken" });
   });
 });
 

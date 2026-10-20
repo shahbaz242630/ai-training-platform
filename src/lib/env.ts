@@ -135,6 +135,7 @@ export function serverEnv(): z.infer<typeof serverSchema> {
 export function gateSettings(): {
   readonly nodeEnv: string | undefined;
   readonly originSecret: string | null;
+  readonly staging: StagingGate;
 } {
   const secret = process.env.ORIGIN_SECRET?.trim() ?? "";
   if (secret !== "" && secret.length < 32) {
@@ -143,7 +144,41 @@ export function gateSettings(): {
   return {
     nodeEnv: process.env.NODE_ENV,
     originSecret: secret.length >= 32 ? secret : null,
+    staging: stagingGate(),
   };
+}
+
+/**
+ * STAGING_PASSWORD closes the whole site to anyone without it (audit s104
+ * OUT-1). Staging takes bookings with test cards but writes the REAL calendar,
+ * so a stranger's test booking would block a real slot, and it sends real
+ * mail from the desk mailbox. Set on staging only.
+ *
+ * Unlike ORIGIN_SECRET, a value too short to be safe closes the site rather
+ * than opening it: a staging host left open is the very thing this prevents,
+ * and a locked one is noticed at once.
+ *
+ * Nothing limits guesses, so the value must be random (24+ characters from a
+ * generator), and plain ASCII: Safari mishandles other characters in a
+ * browser's password box for this kind of lock.
+ */
+export type StagingGate =
+  | { readonly kind: "off" }
+  | { readonly kind: "on"; readonly password: string }
+  | { readonly kind: "broken" };
+
+export const MIN_STAGING_PASSWORD = 16;
+
+function stagingGate(): StagingGate {
+  const password = process.env.STAGING_PASSWORD?.trim() ?? "";
+  if (password === "") return { kind: "off" };
+  if (password.length < MIN_STAGING_PASSWORD) {
+    logger.error(
+      `STAGING_PASSWORD is shorter than ${MIN_STAGING_PASSWORD} characters; every page is refused`,
+    );
+    return { kind: "broken" };
+  }
+  return { kind: "on", password };
 }
 
 /**
