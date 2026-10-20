@@ -55,15 +55,18 @@ export async function verifyTurnstile({
   token,
   secret,
   expectedHostname,
+  purpose = "checkout",
   fetchImpl = fetch,
 }: {
   token: unknown;
   secret: string;
   expectedHostname: string;
+  /** Which step asked, for the log lines only (audit s104 review). */
+  purpose?: ChallengePurpose;
   fetchImpl?: typeof fetch;
 }): Promise<ChallengeOutcome> {
   if (typeof token !== "string" || token.length === 0 || token.length > MAX_TOKEN_LENGTH) {
-    logger.warn("checkout refused: no usable person-check token");
+    logger.warn(`${purpose} refused: no usable person-check token`);
     return REFUSED;
   }
 
@@ -99,7 +102,7 @@ export async function verifyTurnstile({
       if (answer.action === TURNSTILE_ACTION && hostname === expectedHostname.toLowerCase()) {
         return { ok: true };
       }
-      logger.warn("checkout refused: the person check was solved for something else", {
+      logger.warn(`${purpose} refused: the person check was solved for something else`, {
         action: typeof answer.action === "string" ? answer.action : null,
         hostname,
       });
@@ -110,14 +113,14 @@ export async function verifyTurnstile({
     // A wrong secret or a malformed request is our fault and refuses every
     // customer: an error, so it is noticed. A failed check is the customer's.
     if (codes.some((code) => OUR_FAULT.has(String(code)))) {
-      logger.error("checkout refused: the person check is misconfigured", { codes });
+      logger.error(`${purpose} refused: the person check is misconfigured`, { codes });
     } else {
-      logger.warn("checkout refused: the person check did not pass", { codes });
+      logger.warn(`${purpose} refused: the person check did not pass`, { codes });
     }
     return REFUSED;
   }
 
-  logger.error("the person check could not be made; checkout refused");
+  logger.error(`the person check could not be made; ${purpose} refused`);
   return UNREACHABLE;
 }
 
@@ -131,15 +134,20 @@ export interface ChallengeRefusal {
   readonly message: string;
 }
 
+/** The two steps that ask: entering details (audit s104 COA-1) and starting checkout. */
+export type ChallengePurpose = "lead capture" | "checkout";
+
 /**
- * The checkout's question: may this request take a hold? `null` means yes
- * (or the check is switched off); otherwise what to tell the customer.
+ * The booking's question: may this request write a lead, or take a hold?
+ * `null` means yes (or the check is switched off); otherwise what to tell the
+ * customer.
  */
 export async function checkoutChallenge({
   settings,
   token,
   siteUrl,
   contact,
+  purpose = "checkout",
   fetchImpl = fetch,
 }: {
   settings: TurnstileSettings | null;
@@ -148,6 +156,8 @@ export async function checkoutChallenge({
   siteUrl: string;
   /** How to reach a person, for when the check cannot be made at all. */
   contact: string;
+  /** Which step asked, so the log lines can be counted apart. */
+  purpose?: ChallengePurpose;
   fetchImpl?: typeof fetch;
 }): Promise<ChallengeRefusal | null> {
   if (settings === null) return null;
@@ -155,6 +165,7 @@ export async function checkoutChallenge({
     token,
     secret: settings.secret,
     expectedHostname: new URL(siteUrl).hostname,
+    purpose,
     fetchImpl,
   });
   if (outcome.ok) return null;

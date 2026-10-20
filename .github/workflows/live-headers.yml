@@ -33,9 +33,19 @@ jobs:
       # After a production push Hostinger takes a few minutes to deploy, and a
       # slow deploy must not read as broken headers: up to four tries, three
       # minutes apart. On the daily run, one try.
+      #
+      # Two protections are on only while a host setting is set (audit s104
+      # COA-3), so losing the setting must fail this too.
+      #   ORIGIN_IP         repository SECRET: the host's address, which skips
+      #                     Cloudflare. A variable would print in this public
+      #                     repo's logs; a secret is masked. Straight to it must get 403.
+      #   EXPECT_TURNSTILE  repository variable, "true" once the live person-check keys are set
+      # Unset, that check is skipped. The script never prints the address.
       - name: Production
         env:
           EVENT: ${{ github.event_name }}
+          ORIGIN_IP: ${{ secrets.ORIGIN_IP }}
+          EXPECT_TURNSTILE: ${{ vars.EXPECT_TURNSTILE }}
         run: |
           tries=1
           if [ "$EVENT" = "push" ]; then tries=4; sleep 240; fi

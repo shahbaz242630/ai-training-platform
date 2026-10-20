@@ -236,3 +236,26 @@ describe("checkoutChallenge", () => {
     }
   });
 });
+
+/*
+  The log lines name the step that asked (audit s104 review): lead capture
+  now asks too, and the refusals are only useful as a signal when the two can
+  be counted apart.
+*/
+describe("the log lines", () => {
+  it("name lead capture when it asked, and checkout by default", async () => {
+    const warn = vi.spyOn(logger, "warn").mockImplementation(() => undefined);
+    try {
+      const settings = { secret: "s", siteKey: "k" };
+      const base = { settings, token: undefined, siteUrl: "https://example.test", contact: "c" };
+      await checkoutChallenge({ ...base, purpose: "lead capture" });
+      await checkoutChallenge(base);
+      expect(warn.mock.calls.map((call) => call[0])).toEqual([
+        "lead capture refused: no usable person-check token",
+        "checkout refused: no usable person-check token",
+      ]);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+});

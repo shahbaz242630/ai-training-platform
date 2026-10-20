@@ -23,7 +23,8 @@ export type DeskAlertKind =
   | "paid_booking_needs_time"
   | "withdrawal_needs_decision"
   | "payment_events_missing"
-  | "dispute_needs_response";
+  | "dispute_needs_response"
+  | "booking_protection";
 
 /** At most this many emails a run, failed tries included, so an outage cannot become a flood. */
 export const MAX_ALERT_SENDS_PER_RUN = 10;
@@ -91,6 +92,18 @@ async function listOpenAlerts(runner: QueryRunner, kind: DeskAlertKind): Promise
     lastAttemptAt: row.last_attempt_at,
     claimedUntil: row.claimed_until,
   }));
+}
+
+/**
+ * The subjects with an alert open now. A step whose problem is a level (a
+ * count, a size) keeps it present until it is well clear, so a value hovering
+ * at the line does not open and close an alert, and email, on every run.
+ */
+export async function openSubjectKeys(
+  runner: QueryRunner,
+  kind: DeskAlertKind,
+): Promise<ReadonlySet<string>> {
+  return new Set((await listOpenAlerts(runner, kind)).map((alert) => alert.subjectKey));
 }
 
 /** Open the alert for a problem, or return the id of the one already open. */

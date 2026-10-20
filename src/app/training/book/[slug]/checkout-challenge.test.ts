@@ -88,3 +88,71 @@ describe("the booking page", () => {
     expect(failure.slice(0, 400)).toContain("renewChallenge()");
   });
 });
+
+/*
+  The same check at the details step (audit s104 COA-1). Entering details
+  writes a customer and an intake row; with no check, a script spread over
+  one free IPv6 /48 (65,536 /64 buckets) could fill the database's 500 MB in
+  about an hour, and a full database stops checkout, settlement and every
+  email. After the rate limit and the shape check, so a typo does not spend
+  the token; before anything is written.
+*/
+describe("the person check in lead capture", () => {
+  const lead = action.slice(
+    action.indexOf("export async function captureLeadAction"),
+    action.indexOf("export async function startCheckoutAction"),
+  );
+  const at = (needle: string) => {
+    const index = lead.indexOf(needle);
+    expect(index, needle).toBeGreaterThan(-1);
+    return index;
+  };
+
+  it("is asked with the server's settings, and a refusal writes nothing", () => {
+    expect(lead).toMatch(
+      /\n\s*const challenge = await checkoutChallenge\(\{\s*settings: turnstileSettings\(\),\s*token: submitted\.turnstileToken,\s*siteUrl: clientEnv\.NEXT_PUBLIC_SITE_URL,/,
+    );
+    expect(lead).toMatch(
+      /if \(challenge !== null\) \{?\s*return \{ ok: false, errors: \[\{ field: "form", message: challenge\.message \}\] \}/,
+    );
+  });
+
+  it("comes after the rate limit and the shape check, and before anything is written", () => {
+    const check = at("checkoutChallenge(");
+    expect(check).toBeGreaterThan(at("limiter.check("));
+    expect(check).toBeGreaterThan(at("parsePrePaymentIntake("));
+    expect(check).toBeLessThan(at("captureLead(runner"));
+    expect(check).toBeLessThan(at("writeLeadSession("));
+    expect(lead.split("checkoutChallenge(").length - 1).toBe(1);
+  });
+
+  it("checks the details without the token, so the strict schema still refuses extras", () => {
+    expect(lead).toMatch(/parsePrePaymentIntake\(submitted\.details\)/);
+  });
+});
+
+describe("the details step in the booking box", () => {
+  const panel = read("src/components/training/BookingPanel.tsx");
+  const details = panel.slice(panel.indexOf("function continueToSlots"));
+
+  it("sends the token with the details, and asks for a fresh one after a refusal", () => {
+    expect(details).toMatch(
+      /captureLeadAction\(\{\s*\.\.\.draft,\s*timezone: timeZone,\s*turnstileToken: challengeToken \?\? undefined/,
+    );
+    const failure = details.slice(details.indexOf("if (!result.ok) {"));
+    expect(failure.slice(0, 200)).toContain("renewChallenge()");
+  });
+
+  it("drops the spent token before the time step mounts its own check", () => {
+    expect(details).toMatch(/setChallengeToken\(null\);\s*setStep\("slot"\);/);
+  });
+
+  it("shows the check on the details step and waits for it", () => {
+    const step = panel.slice(
+      panel.indexOf('{step === "details" ? ('),
+      panel.indexOf("Continue to choose a time"),
+    );
+    expect(step).toContain("<TurnstileWidget");
+    expect(step).toMatch(/disabled=\{saving \|\| waitingForCheck\}/);
+  });
+});

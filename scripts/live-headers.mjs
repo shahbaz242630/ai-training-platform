@@ -14,6 +14,7 @@
  *
  * The checks are a pure function, exported so they are tested offline.
  */
+import https from "node:https";
 import { fileURLToPath } from "node:url";
 
 /** A static page (its own policy) and a booking page (a fresh nonce on every request). */
@@ -89,8 +90,49 @@ export function nonceOf(csp) {
   return /'nonce-([A-Za-z0-9+/=]+)'/.exec(csp ?? "")?.[1] ?? null;
 }
 
-/** Fetch every page from the live site and report. Returns the exit code. */
-export async function run({ base, fetchImpl = fetch, log = console.log, error = console.error }) {
+/**
+ * Whether a booking page hands the browser a person-check site key. The check
+ * is on from a host setting alone, so losing that setting switches it off
+ * with no other sign (audit s104 COA-3); the page's own data is the proof.
+ */
+export function hasTurnstileKey(html) {
+  return /turnstileSiteKey\\?"\s*:\s*\\?"0x[0-9A-Za-z_-]{10,}/.test(html);
+}
+
+/**
+ * The status the host answers with when asked directly, skipping Cloudflare.
+ * The origin gate (audit s101 #21) must answer 403. The host's certificate
+ * names the site, so it is checked as for any request (verified 2026-10-20).
+ */
+export function probeOrigin(ip, host, path = "/training") {
+  return new Promise((resolve) => {
+    const request = https.request(
+      { host: ip, servername: host, path, headers: { Host: host } },
+      (response) => {
+        response.resume();
+        resolve(response.statusCode ?? null);
+      },
+    );
+    request.setTimeout(15_000, () => request.destroy());
+    request.on("error", () => resolve(null));
+    request.end();
+  });
+}
+
+/**
+ * Fetch every page from the live site and report. Returns the exit code.
+ * Two optional checks (audit s104 COA-3): `expectTurnstile`, that the booking
+ * page carries the person check's key; `originProbe`, that a request skipping
+ * Cloudflare is refused.
+ */
+export async function run({
+  base,
+  fetchImpl = fetch,
+  log = console.log,
+  error = console.error,
+  expectTurnstile = false,
+  originProbe = null,
+}) {
   const root = base.replace(/\/+$/, "");
   const problems = [];
   for (const page of PAGES) {
@@ -100,6 +142,9 @@ export async function run({ base, fetchImpl = fetch, log = console.log, error = 
       continue;
     }
     problems.push(...checkHeaders(page, (name) => response.headers.get(name)));
+    if (page.nonce && expectTurnstile && !hasTurnstileKey(await response.text())) {
+      problems.push(`${page.path}: no person-check key on the page; is TURNSTILE_SECRET_KEY set?`);
+    }
     if (page.nonce) {
       // A nonce served from a cache is a nonce an attacker can read and reuse.
       const again = await fetchImpl(`${root}${page.path}`, { redirect: "manual" });
@@ -116,6 +161,14 @@ export async function run({ base, fetchImpl = fetch, log = console.log, error = 
       }
     }
   }
+  if (originProbe !== null) {
+    const status = await originProbe();
+    if (status !== 403) {
+      problems.push(
+        `straight to the host (skipping Cloudflare): status ${status ?? "no answer"}, want 403; is ORIGIN_SECRET set?`,
+      );
+    }
+  }
   if (problems.length > 0) {
     error(`Live security headers on ${root}: ${problems.length} problem(s)`);
     for (const p of problems) error(`  - ${p}`);
@@ -126,7 +179,14 @@ export async function run({ base, fetchImpl = fetch, log = console.log, error = 
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
-  run({ base: process.argv[2] ?? "https://coaching.zaaheen.com" }).then((code) => {
+  const base = process.argv[2] ?? "https://coaching.zaaheen.com";
+  // Workflow variables, set once each protection is on (see live-headers.yml).
+  const originIp = process.env.ORIGIN_IP?.trim() ?? "";
+  run({
+    base,
+    expectTurnstile: process.env.EXPECT_TURNSTILE === "true",
+    originProbe: originIp === "" ? null : () => probeOrigin(originIp, new URL(base).hostname),
+  }).then((code) => {
     process.exitCode = code;
   });
 }

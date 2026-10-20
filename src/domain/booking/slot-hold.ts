@@ -51,7 +51,14 @@ export const DEFAULT_HOLD_TTL_MINUTES = 35;
   Real demand is a few checkouts an hour; raise these with it.
 */
 export const MAX_LIVE_HOLDS_PER_ADDRESS = 3;
-export const MAX_LIVE_HOLDS = 10;
+/*
+  The diary's cap was 10 (audit s104 PAY-1): at the cap EVERY new customer is
+  turned away, so a low cap made a total outage the cheapest attack (10 holds
+  from 4 networks every 35 minutes). At 30 it takes three times the networks
+  and solved person checks, and the sweep tells the desk at 80% of it
+  (protection-step). Real customers never come near it.
+*/
+export const MAX_LIVE_HOLDS = 30;
 
 export interface SlotHold {
   readonly id: string;

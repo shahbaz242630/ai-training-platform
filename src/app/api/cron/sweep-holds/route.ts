@@ -32,6 +32,7 @@ import { watchCalendar } from "./calendar-watch-step";
 import { endAbandonedCheckouts } from "./abandoned-checkouts-step";
 import { disputeStep, queueChooseNewTime } from "./dispute-step";
 import { heartbeatFailed, heartbeatStep } from "./heartbeat-step";
+import { protectionAlerts } from "./protection-step";
 import { reconcilePendingOrders } from "./reconcile-step";
 import { declineUrlFor, withdrawalDecisionAlerts } from "./withdrawal-decision-step";
 import { authoriseCronRequest } from "@/lib/cron-auth";
@@ -252,6 +253,18 @@ export async function POST(request: Request): Promise<NextResponse> {
     });
 
     /*
+      The booking's own protections (audit s104): a diary filling with unpaid
+      holds, or a database filling up, told to the desk. Both are otherwise
+      silent until customers are turned away or everything stops.
+    */
+    const protection = await protectionAlerts({
+      transaction: withTransaction,
+      email: getEmailProvider,
+      clock: () => new Date(),
+      desk: supportEmail,
+    });
+
+    /*
       What the privacy notice says we stop keeping, deleted on schedule. Every
       step is keyed on time, so a run with nothing due changes nothing.
     */
@@ -285,6 +298,7 @@ export async function POST(request: Request): Promise<NextResponse> {
       chooseTimeEmails,
       disputes,
       withdrawalDecisions,
+      protection,
       reconciliation,
       abandonedCheckouts,
       schema,
