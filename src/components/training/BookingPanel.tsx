@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useCallback, useEffect, useMemo, useState, useTransition } from "react";
 import { SlotPicker, type SelectedSlot } from "./SlotPicker";
 import { TurnstileWidget } from "./TurnstileWidget";
 import { useCustomerTimeZone } from "./useCustomerTimeZone";
@@ -103,6 +103,11 @@ export function BookingPanel({
   // Set when the check has been waiting a long time (a blocker, a privacy
   // browser): the customer is then told how to carry on instead of waiting.
   const [challengeSlow, setChallengeSlow] = useState(false);
+  // A token arriving or dropped ends any "taking longer" message; a new wait starts the clock again (audit s104 review).
+  const takeToken = useCallback((token: string | null) => {
+    setChallengeToken(token);
+    setChallengeSlow(false);
+  }, []);
   const renewChallenge = () => {
     setChallengeToken(null);
     setChallengeSlow(false);
@@ -159,12 +164,21 @@ export function BookingPanel({
     }
 
     startSaving(async () => {
-      const result = await captureLeadAction({ ...draft, timezone: timeZone });
+      const result = await captureLeadAction({
+        ...draft,
+        timezone: timeZone,
+        turnstileToken: challengeToken ?? undefined,
+      });
       if (!result.ok) {
+        // Whatever went wrong, the token may have been spent.
+        if (challengeNeeded) renewChallenge();
         setErrors(result.errors ?? []);
         return;
       }
       setErrors([]);
+      // Spent here; the time step's own check fetches a fresh one as it mounts.
+      setChallengeSlow(false);
+      setChallengeToken(null);
       setStep("slot");
     });
   }
@@ -228,12 +242,25 @@ export function BookingPanel({
   const ticksComplete = agreed && (!needsExpressRequest || expressRequest);
   const waitingForCheck = challengeNeeded && challengeToken === null;
 
-  // Fifteen seconds without a token is not a normal check.
+  // Fifteen seconds without a token is not a normal check, on either step.
   useEffect(() => {
-    if (!waitingForCheck || step !== "slot") return;
+    if (!waitingForCheck) return;
     const timer = window.setTimeout(() => setChallengeSlow(true), 15_000);
     return () => window.clearTimeout(timer);
   }, [waitingForCheck, step]);
+
+  // Why a Continue button is waiting, so it never looks broken. Used on both steps.
+  const checkStatus = (
+    <p aria-live="polite" className="text-ink-muted mt-2 text-[12.5px] empty:hidden">
+      {waitingForCheck && !challengeSlow && "Checking your connection…"}
+      {waitingForCheck && challengeSlow && (
+        <>
+          This is taking longer than usual. Please refresh the page, or email{" "}
+          <ContactLink showAddress /> and we will book you in.
+        </>
+      )}
+    </p>
+  );
 
   /*
     Said once, at the top, before anybody types anything. Letting somebody
@@ -345,14 +372,29 @@ export function BookingPanel({
             <p className="text-error mt-4 text-[12.5px] leading-relaxed">{formError}</p>
           )}
 
+          {/*
+            The details step's own check (audit s104 COA-1): entering details
+            writes to the database, so it costs a solved check too. Unmounted
+            when the step changes; the time step mounts a fresh one.
+          */}
+          {turnstileSiteKey !== null && (
+            <TurnstileWidget
+              siteKey={turnstileSiteKey}
+              renewKey={challengeRenew}
+              onToken={takeToken}
+              scrollOnInteractive={false}
+            />
+          )}
+
           <button
             type="button"
             onClick={continueToSlots}
-            disabled={saving}
+            disabled={saving || waitingForCheck}
             className="bg-ink hover:bg-deep-soft text-on-deep mt-5 w-full rounded-full px-6 py-3.5 text-[15.5px] font-medium transition-colors duration-150 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {saving ? "Saving…" : "Continue to choose a time"}
           </button>
+          {checkStatus}
         </div>
       ) : (
         <>
@@ -365,6 +407,7 @@ export function BookingPanel({
               onClick={() => {
                 setStep("details");
                 setChallengeToken(null);
+                setChallengeSlow(false);
               }}
               className="text-accent hover:text-accent-hover shrink-0 text-[13px] font-medium underline underline-offset-[3px]"
             >
@@ -411,7 +454,7 @@ export function BookingPanel({
               <TurnstileWidget
                 siteKey={turnstileSiteKey}
                 renewKey={challengeRenew}
-                onToken={setChallengeToken}
+                onToken={takeToken}
               />
             )}
             {slotError !== null && (
@@ -500,16 +543,7 @@ export function BookingPanel({
                 >
                   {reserving ? "Taking you to payment…" : "Continue to payment"}
                 </button>
-                {/* Why the button is waiting, so it never looks broken. */}
-                <p aria-live="polite" className="text-ink-muted mt-2 text-[12.5px] empty:hidden">
-                  {waitingForCheck && !challengeSlow && "Checking your connection…"}
-                  {waitingForCheck && challengeSlow && (
-                    <>
-                      This is taking longer than usual. Please refresh the page, or email{" "}
-                      <ContactLink showAddress /> and we will book you in.
-                    </>
-                  )}
-                </p>
+                {checkStatus}
                 <p className="text-ink-muted mt-3 text-[12.5px] leading-[1.55]">
                   Choosing a time reserves nothing on its own. Your slot is held while you pay, and
                   the booking is confirmed only once the payment is verified.

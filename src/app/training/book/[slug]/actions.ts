@@ -101,9 +101,20 @@ async function callerKey(): Promise<string> {
   return limitKeyFrom(headerList.get("x-forwarded-for"));
 }
 
+/** The person-check token, taken off the details so the strict schema sees only the details. */
+function splitChallengeToken(input: unknown): { details: unknown; turnstileToken: unknown } {
+  if (typeof input !== "object" || input === null || Array.isArray(input)) {
+    return { details: input, turnstileToken: undefined };
+  }
+  const { turnstileToken, ...details } = input as Record<string, unknown>;
+  return { details, turnstileToken };
+}
+
 export async function captureLeadAction(input: unknown): Promise<CaptureLeadResult> {
   const rate = limiter.check(await callerKey(), new Date());
   if (!rate.allowed) {
+    // No address: the count of these lines over time is the signal (audit s104 COA-2).
+    logger.warn("lead capture refused: rate limited");
     return {
       ok: false,
       errors: [
@@ -116,9 +127,28 @@ export async function captureLeadAction(input: unknown): Promise<CaptureLeadResu
   }
 
   // Validated here rather than trusted from the browser. The strict schema
-  // also refuses any field it was not asked for.
-  const parsed = parsePrePaymentIntake(input);
+  // also refuses any field it was not asked for, so the token comes off first.
+  const submitted = splitChallengeToken(input);
+  const parsed = parsePrePaymentIntake(submitted.details);
   if (!parsed.ok) return { ok: false, errors: parsed.errors };
+
+  /*
+    The person check (audit s104 COA-1), before anything is written. Details
+    write a customer and an intake row; unchecked, a script spread over one
+    free IPv6 /48 could fill the database within the hour, and a full database
+    stops checkout, settlement and every email. Off while
+    TURNSTILE_SECRET_KEY is unset, like checkout's.
+  */
+  const challenge = await checkoutChallenge({
+    settings: turnstileSettings(),
+    token: submitted.turnstileToken,
+    siteUrl: clientEnv.NEXT_PUBLIC_SITE_URL,
+    contact: contactLine(),
+    purpose: "lead capture",
+  });
+  if (challenge !== null) {
+    return { ok: false, errors: [{ field: "form", message: challenge.message }] };
+  }
 
   try {
     const captured = await withTransaction((runner) =>
@@ -218,6 +248,7 @@ export interface StartCheckoutResult {
 export async function startCheckoutAction(input: unknown): Promise<StartCheckoutResult> {
   const rate = checkoutLimiter.check(await callerKey(), new Date());
   if (!rate.allowed) {
+    logger.warn("checkout refused: rate limited");
     return {
       ok: false,
       reason: "rate_limited",
@@ -372,6 +403,17 @@ export async function startCheckoutAction(input: unknown): Promise<StartCheckout
       limits: { maxPerAddress: MAX_LIVE_HOLDS_PER_ADDRESS, maxLive: MAX_LIVE_HOLDS, now },
     });
 
+    if (!outcome.ok && (outcome.reason === "address_limit" || outcome.reason === "diary_busy")) {
+      /*
+        A jammed diary must never be silent (audit s104 COA-2). The line names
+        the cap only; the sweep's protection alert tells the desk when unpaid
+        holds stay near the diary's cap.
+      */
+      logger.warn("checkout refused: hold limit reached", {
+        reason: outcome.reason,
+        sessionSlug: session.slug,
+      });
+    }
     if (!outcome.ok && outcome.reason === "address_limit") {
       return {
         ok: false,

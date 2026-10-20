@@ -174,6 +174,11 @@ class HoldLimitReached extends Error {
   }
 }
 
+/** Unpaid holds live now: the count the diary's cap is checked against (and the sweep's watch, audit s104). */
+export function countLiveHolds(runner: QueryRunner, now: Date): Promise<number> {
+  return countLive(runner, now);
+}
+
 async function countLive(runner: QueryRunner, now: Date, clientAddress?: string): Promise<number> {
   const result = await runner.query<{ n: number }>(
     clientAddress === undefined

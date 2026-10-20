@@ -38,12 +38,19 @@ export function TurnstileWidget({
   siteKey,
   renewKey,
   onToken,
+  scrollOnInteractive = true,
 }: {
   siteKey: string;
   /** Changes whenever the booking box needs a new token. */
   renewKey: number;
-  /** A stable setter (a state dispatch): the token, or null when there is none. */
+  /** A stable setter (a state dispatch or a useCallback): the token, or null when there is none. */
   onToken: (token: string | null) => void;
+  /**
+   * Scroll the box into view when Cloudflare wants a click. Off on the details
+   * step: it mounts as the page loads, and on a phone it would pull a reader
+   * from the description to the bottom of the form (audit s104 review).
+   */
+  scrollOnInteractive?: boolean;
 }) {
   const container = useRef<HTMLDivElement>(null);
   const widgetId = useRef<string | null>(null);
@@ -62,13 +69,15 @@ export function TurnstileWidget({
       callback: (token: string) => onToken(token),
       "expired-callback": () => onToken(null),
       "error-callback": () => onToken(null),
-      "before-interactive-callback": () => box.scrollIntoView({ block: "nearest" }),
+      "before-interactive-callback": () => {
+        if (scrollOnInteractive) box.scrollIntoView({ block: "nearest" });
+      },
     });
     return () => {
       if (widgetId.current !== null) turnstile.remove(widgetId.current);
       widgetId.current = null;
     };
-  }, [ready, siteKey, onToken]);
+  }, [ready, siteKey, onToken, scrollOnInteractive]);
 
   useEffect(() => {
     if (renewKey > 0 && widgetId.current !== null) window.turnstile?.reset(widgetId.current);
