@@ -113,7 +113,18 @@ nodeLinker: hoisted
 # `next` and failed the production dependency audit on 2026-10-07. Forced to
 # the fixed versions, each published more than a week earlier, so the release-age
 # wait above still holds. Remove each once `next` pulls the fixed version.
+#
+# brace-expansion below 1.1.21 and 4.x-5.x below 5.0.12 (six advisories, four
+# high: denial of service through nested or comma-heavy brace patterns) reach
+# us only through ESLint's minimatch, matching our own file globs on a
+# developer machine or in CI. Invisible until the dependency graph could read
+# this lockfile (audit s101 #20); forced to the fixed versions anyway, both
+# published 2026-09-14. Remove each once eslint pulls the fixed version.
+# (braces 3.0.3, the same kind of flaw through @next/eslint-plugin-next's
+# fast-glob, has no fixed release yet; lint-only, so it waits for one.)
 overrides:
+  "brace-expansion@<1.1.21": "1.1.21"
+  "brace-expansion@>=4.0.0 <5.0.12": "5.0.12"
   "js-yaml@>=4.0.0 <4.3.2": "4.3.2"
   "sharp@<0.35.5": "0.35.5"
   "source-map-js@>=1.0.0 <1.2.2": "1.2.2"
