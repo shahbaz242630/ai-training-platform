@@ -19,7 +19,9 @@ const scriptSrcOf = (policy: string) =>
 describe("the policy with a nonce", () => {
   it("allows only scripts carrying the nonce, and never inline ones", () => {
     const script = scriptSrcOf(cspFor("production", "abc123"));
-    expect(script).toBe("script-src 'self' 'nonce-abc123' 'strict-dynamic'");
+    expect(script).toBe(
+      "script-src 'self' 'nonce-abc123' 'strict-dynamic' https://challenges.cloudflare.com",
+    );
     expect(script).not.toContain("'unsafe-inline'");
     expect(script).not.toContain("'unsafe-eval'");
   });
@@ -31,14 +33,30 @@ describe("the policy with a nonce", () => {
     }
   });
 
-  it("changes nothing but script-src", () => {
+  it("changes nothing but script-src and the person check's frame", () => {
     const withNonce = cspFor("production", "n")
       .split("; ")
-      .filter((d) => !d.startsWith("script-src"));
+      .filter((d) => !d.startsWith("script-src") && !d.startsWith("frame-src"));
     const without = cspFor("production")
       .split("; ")
       .filter((d) => !d.startsWith("script-src"));
     expect(withNonce).toEqual(without);
+  });
+
+  /*
+    The person check at checkout start (audit s101 #3) loads Cloudflare's
+    script and shows its frame. Allowed on the booking pages only; every other
+    page still allows no frame from anywhere but itself.
+  */
+  it("allows the person check's script and frame on the booking pages only", () => {
+    const withNonce = cspFor("production", "n").split("; ");
+    expect(withNonce).toContain("frame-src https://challenges.cloudflare.com");
+    expect(scriptSrcOf(cspFor("production", "n"))).toBe(
+      "script-src 'self' 'nonce-n' 'strict-dynamic' https://challenges.cloudflare.com",
+    );
+    const without = cspFor("production");
+    expect(without).not.toContain("challenges.cloudflare.com");
+    expect(without).not.toContain("frame-src");
   });
 });
 

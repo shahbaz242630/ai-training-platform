@@ -14,7 +14,8 @@ import {
 } from "@/lib/client-address";
 import { logger } from "@/lib/logger";
 import { recordAudit } from "@/lib/audit";
-import { clientEnv, serverEnv } from "@/lib/env";
+import { clientEnv, serverEnv, turnstileSettings } from "@/lib/env";
+import { checkoutChallenge } from "@/lib/turnstile";
 import { currentOwnerKey, writeLeadSession, readLeadSession } from "@/lib/lead-session";
 import {
   attachCalendarEvent,
@@ -187,6 +188,7 @@ export interface StartCheckoutResult {
     | "diary_busy"
     | "no_lead"
     | "unavailable"
+    | "challenge_failed"
     | "failed";
   readonly message?: string;
   /**
@@ -300,6 +302,22 @@ export async function startCheckoutAction(input: unknown): Promise<StartCheckout
           ? "Our terms have just been updated. Please refresh the page to read them before booking."
           : "Please tick the boxes to agree to the terms before paying.",
     };
+  }
+
+  /*
+    The person check (audit s101 #3 part 2), BEFORE any slot is looked at or
+    held: a caller who has not passed it never takes a slot off the calendar.
+    After the cheap refusals above, so a forgotten tick does not spend the
+    customer's single-use token. Off while TURNSTILE_SECRET_KEY is unset.
+  */
+  const challenge = await checkoutChallenge({
+    settings: turnstileSettings(),
+    token: parsed.data.turnstileToken,
+    siteUrl: clientEnv.NEXT_PUBLIC_SITE_URL,
+    contact: contactLine(),
+  });
+  if (challenge !== null) {
+    return { ok: false, reason: "challenge_failed", message: challenge.message };
   }
 
   const headerList = await headers();

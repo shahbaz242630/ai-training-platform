@@ -83,6 +83,24 @@ describe("reserveSlotRequestSchema", () => {
   });
 
   /*
+    The person check's token travels with the request (audit s101 #3). It is
+    optional here on purpose: whether it is REQUIRED is the server's decision
+    (turnstileSettings), and a missing one is refused there with words that
+    say so, not as "that time is no longer available". Oversized ones are
+    refused there too, so the cap here only keeps a request small.
+  */
+  it("carries the person check's token when there is one", () => {
+    const parsed = reserveSlotRequestSchema.safeParse({ ...valid, turnstileToken: "tok" });
+    expect(parsed.success && parsed.data.turnstileToken).toBe("tok");
+  });
+
+  it("refuses a token that is not text, or far too long to be one", () => {
+    for (const turnstileToken of [42, null, { a: 1 }, "x".repeat(8193)]) {
+      expect(reserveSlotRequestSchema.safeParse({ ...valid, turnstileToken }).success).toBe(false);
+    }
+  });
+
+  /*
     Strict rather than stripping. A handler that silently drops unknown keys is
     how an extra field rides along into whatever the next change spreads into a
     record.
