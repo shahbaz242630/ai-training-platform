@@ -236,6 +236,10 @@ export interface MockEventBody {
   readonly providerDisputeId?: string;
   readonly disputeStatus?: string;
   readonly disputeReason?: string;
+  /** Early fraud warning events only (audit s104 PAY-4). */
+  readonly providerWarningId?: string;
+  readonly fraudType?: string;
+  readonly actionable?: boolean;
 }
 
 const REFUND_TYPES = new Set(["refund.created", "refund.updated", "refund.failed"]);
@@ -275,6 +279,20 @@ function parseMockEvent(rawBody: string): PaymentEvent {
       amountFils: body.amountFils ?? 0,
       currency: (body.currency ?? "AED").toUpperCase(),
       status: body.refundStatus ?? "pending",
+    };
+  }
+
+  if (body.type === "radar.early_fraud_warning.created") {
+    return {
+      kind: "fraud_warning",
+      eventId: body.id,
+      type: body.type,
+      occurredAt,
+      ignorable: false,
+      providerWarningId: body.providerWarningId ?? "issfr_mock",
+      paymentIntentId: body.paymentIntentId ?? null,
+      fraudType: body.fraudType ?? "made_with_stolen_card",
+      actionable: body.actionable ?? true,
     };
   }
 

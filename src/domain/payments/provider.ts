@@ -145,7 +145,28 @@ export interface DisputeEvent {
   readonly snapshot: DisputeSnapshot;
 }
 
-export type PaymentEvent = CheckoutEvent | RefundEvent | DisputeEvent;
+/**
+ * The card network's early warning that a payment was probably made with a
+ * stolen card (audit s104 PAY-4), usually days before any chargeback. The
+ * event is signed, so its copy is acted on: nothing in it changes later
+ * except `actionable`, which only ever goes from true to false.
+ */
+export interface FraudWarningEvent {
+  readonly kind: "fraud_warning";
+  readonly eventId: string;
+  readonly type: string;
+  readonly occurredAt: Date;
+  readonly ignorable: false;
+  readonly providerWarningId: string;
+  /** The payment warned about. Null for a bare charge, which is never ours. */
+  readonly paymentIntentId: string | null;
+  /** The network's category, e.g. "made_with_stolen_card". Kept for the desk. */
+  readonly fraudType: string;
+  /** False once the payment is disputed or refunded in full: nothing left to prevent. */
+  readonly actionable: boolean;
+}
+
+export type PaymentEvent = CheckoutEvent | RefundEvent | DisputeEvent | FraudWarningEvent;
 
 /**
  * A dispute as the processor has it now.

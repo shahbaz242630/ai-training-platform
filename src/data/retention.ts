@@ -42,6 +42,8 @@ async function deleteOrders(
   // First: a refund points at both its order and its withdrawal notice.
   await runner.query(`delete from refunds where order_id in (${orderIds})`, params);
   await runner.query(`delete from payment_disputes where order_id in (${orderIds})`, params);
+  // After the refunds: a refund a fraud warning queued points at the warning.
+  await runner.query(`delete from fraud_warnings where order_id in (${orderIds})`, params);
   // A desk decision points at its notice, so it goes before the notice does.
   await runner.query(
     `delete from withdrawal_decisions
@@ -82,12 +84,14 @@ export async function purgeExpiredPersonalData(
       left join bookings b on b.order_id = o.id
       left join refunds r on r.order_id = o.id
       left join payment_disputes d on d.order_id = o.id
+      left join fraud_warnings f on f.order_id = o.id
      group by o.customer_id
     having extract(year from max(greatest(o.created_at, o.updated_at,
                                           coalesce(b.scheduled_end, o.created_at),
                                           coalesce(b.updated_at, o.created_at),
                                           coalesce(r.updated_at, o.created_at),
-                                          coalesce(d.updated_at, o.created_at)))
+                                          coalesce(d.updated_at, o.created_at),
+                                          coalesce(f.created_at, o.created_at)))
                    at time zone 'Asia/Dubai')
            + ${RECORD_YEARS + 1} <= extract(year from $1::timestamptz at time zone 'Asia/Dubai')`;
   const expiredCustomerIds = (
@@ -170,6 +174,17 @@ export async function purgeExpiredPersonalData(
     `delete from desk_alerts
       where resolved_at is not null and resolved_at < $1::timestamptz - interval '1 year'
       returning id`,
+    [now],
+  );
+
+  /*
+    A fraud warning about a payment that was never ours has no order to go
+    with, so it goes once the record period would have ended (review s104).
+  */
+  await runner.query(
+    `delete from fraud_warnings
+      where order_id is null
+        and received_at < $1::timestamptz - make_interval(years => ${RECORD_YEARS + 1})`,
     [now],
   );
 

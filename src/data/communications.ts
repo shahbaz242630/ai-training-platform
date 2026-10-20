@@ -228,7 +228,8 @@ export async function loadCommunicationContext(
             c.marketing_consent, c.marketing_consent_confirmed_at,
             c.unsubscribed_at, o.gross_amount_fils,
             k.terms_version, k.key_terms, k.express_request_text, o.payment_status,
-            exists (select 1 from payment_disputes d where d.order_id = o.id) as disputed
+            (exists (select 1 from payment_disputes d where d.order_id = o.id)
+             or exists (select 1 from fraud_warnings f where f.order_id = o.id)) as disputed
        from bookings b
        join orders o on o.id = b.order_id
        join customers c on c.id = o.customer_id

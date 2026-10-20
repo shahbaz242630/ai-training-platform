@@ -31,6 +31,7 @@ import { recordAudit } from "@/lib/audit";
 import { watchCalendar } from "./calendar-watch-step";
 import { endAbandonedCheckouts } from "./abandoned-checkouts-step";
 import { disputeStep, queueChooseNewTime } from "./dispute-step";
+import { fraudWarningAlerts } from "./fraud-warning-step";
 import { heartbeatFailed, heartbeatStep } from "./heartbeat-step";
 import { protectionAlerts } from "./protection-step";
 import { reconcilePendingOrders } from "./reconcile-step";
@@ -243,6 +244,14 @@ export async function POST(request: Request): Promise<NextResponse> {
       desk: supportEmail,
     });
 
+    // Early fraud warnings (audit s104 PAY-4), told to the desk; any refund went with the refunds above.
+    const fraudWarnings = await fraudWarningAlerts({
+      transaction: withTransaction,
+      email: getEmailProvider,
+      clock: () => new Date(),
+      desk: supportEmail,
+    });
+
     // And a withdrawal whose card is not from the UK or the EU, waiting for a person.
     const withdrawalDecisions = await withdrawalDecisionAlerts({
       transaction: withTransaction,
@@ -298,6 +307,7 @@ export async function POST(request: Request): Promise<NextResponse> {
       chooseTimeEmails,
       disputes,
       withdrawalDecisions,
+      fraudWarnings,
       protection,
       reconciliation,
       abandonedCheckouts,

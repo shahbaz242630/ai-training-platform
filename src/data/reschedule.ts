@@ -215,7 +215,8 @@ export async function loadBookingForManage(
   }>(
     `select b.status, b.session_slug, b.scheduled_start, b.scheduled_end, b.reschedule_count,
             b.customer_timezone, o.payment_status,
-            exists (select 1 from payment_disputes d where d.order_id = o.id) as disputed
+            (exists (select 1 from payment_disputes d where d.order_id = o.id)
+             or exists (select 1 from fraud_warnings f where f.order_id = o.id)) as disputed
        from bookings b
        join orders o on o.id = b.order_id
       where b.id = $1`,
