@@ -55,7 +55,7 @@ export const FAQS: readonly Faq[] = [
     id: "session-six",
     question: "What is required for Session 6?",
     answer:
-      "Session 6 is an advanced implementation session rather than an introductory one. It assumes Session 5 or equivalent experience, and depending on your project, Sessions 3 or 4 may also be relevant. You need a real project to work on. If the fit is not right, a more suitable session will be recommended before you book.",
+      "Session 6 is an advanced implementation session rather than an introductory one. It assumes Session 5 or equivalent experience, and depending on your project, Sessions 3 or 4 may also be relevant. You need a real project to work on. If you are not sure it fits, email knowledgecentre@zaaheen.com before you book and we will suggest the right session.",
   },
   {
     id: "build-for-me",
@@ -67,7 +67,7 @@ export const FAQS: readonly Faq[] = [
     id: "prepare",
     question: "What should I prepare?",
     answer:
-      "After booking you will receive a short preparation checklist and an intake form. Bring a real task or project rather than a hypothetical one - the sessions are far more valuable when applied to work you actually need to do.",
+      "When you book, a short form asks what you want from the session, and your confirmation email says what to have ready. Bring a real task or project rather than a hypothetical one: the sessions are far more valuable when applied to work you actually need to do.",
   },
   {
     id: "cancellation",

@@ -28,7 +28,7 @@ export async function generateMetadata({
   const { slug } = await params;
   const session = getSessionBySlug(slug);
   return {
-    title: session ? `Confirming - ${session.title}` : "Confirming your booking",
+    title: session ? `Confirming: ${session.title}` : "Confirming your booking",
     robots: { index: false, follow: false },
   };
 }
@@ -54,7 +54,7 @@ export default async function ConfirmingPage({
               Session {session.code.slice(1)} · verifying payment
             </p>
             <h1 className="text-ink mb-6 font-serif text-[clamp(34px,4.2vw,46px)] leading-[1.1] font-[450] tracking-[-0.02em] text-balance">
-              Thank you - we are confirming your booking
+              Thank you. We are confirming your booking
             </h1>
 
             <p className="text-ink-soft text-[17px] leading-[1.65]">

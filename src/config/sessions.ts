@@ -204,7 +204,7 @@ export const SESSIONS: readonly SessionType[] = [
     ],
     prerequisites: ["ai-builder-tech-stack"],
     prerequisiteNote:
-      "Advanced implementation session - prerequisites apply. Session 5 or equivalent experience is normally required, and depending on the project Sessions 3 and/or 4 may also be needed. This session covers the defined live session, not unlimited engineering work.",
+      "Advanced implementation session: prerequisites apply. Session 5 or equivalent experience is normally required, and depending on the project Sessions 3 and/or 4 may also be needed. This session covers the defined live session, not unlimited engineering work.",
     active: true,
     displayOrder: 6,
     stripePriceIdEnvKey: "STRIPE_PRICE_S6",
