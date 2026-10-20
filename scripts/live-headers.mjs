@@ -104,17 +104,20 @@ export function hasTurnstileKey(html) {
  * The origin gate (audit s101 #21) must answer 403. The host's certificate
  * names the site, so it is checked as for any request (verified 2026-10-20).
  */
-export function probeOrigin(ip, host, path = "/training") {
+export function probeOrigin(ip, host, path = "/training", port = 443) {
   return new Promise((resolve) => {
     const request = https.request(
-      { host: ip, servername: host, path, headers: { Host: host } },
+      { host: ip, port, servername: host, path, headers: { Host: host } },
       (response) => {
         response.resume();
         resolve(response.statusCode ?? null);
       },
     );
-    request.setTimeout(15_000, () => request.destroy());
-    request.on("error", () => resolve(null));
+    // Why there was no answer, never the address: the run log is public (audit s104 follow-up).
+    request.setTimeout(15_000, () =>
+      request.destroy(Object.assign(new Error("timeout"), { code: "TIMEOUT" })),
+    );
+    request.on("error", (error) => resolve(`no answer (${error.code ?? "error"})`));
     request.end();
   });
 }

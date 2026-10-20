@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { lockPayment } from "@/data/payment-lock";
 import { withTransaction } from "@/data/db";
 import { applyDisputeEffects, recordDispute } from "@/data/disputes";
 import { claimWebhookEvent, markWebhookProcessed } from "@/data/webhook-events";
@@ -55,6 +56,8 @@ export async function handleDisputeEvent(
     const outcome = await withTransaction(async (runner) => {
       const claim = await claimWebhookEvent(runner, event.eventId, event.type);
       if (!claim.isFirstDelivery) return "duplicate" as const;
+      // Before anything reads the order by its payment: settlement may be writing it now.
+      await lockPayment(runner, dispute.paymentIntentId);
       const now = new Date();
       const recorded = await recordDispute(runner, dispute, now);
       const cancelled =

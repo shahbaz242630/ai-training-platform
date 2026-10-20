@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
+import { lockPayment } from "@/data/payment-lock";
 import { withTransaction } from "@/data/db";
+import { holdRefundEvent } from "@/data/held-refunds";
 import { applyRefundEvent } from "@/data/refunds";
 import { reportRefundEvent } from "@/data/refund-issuer";
 import { claimWebhookEvent, markWebhookProcessed } from "@/data/webhook-events";
@@ -25,7 +27,17 @@ export async function handleRefundEvent(event: RefundEvent): Promise<NextRespons
     const outcome = await withTransaction(async (runner) => {
       const claim = await claimWebhookEvent(runner, event.eventId, event.type);
       if (!claim.isFirstDelivery) return "duplicate" as const;
-      const applied = await applyRefundEvent(runner, event, new Date());
+      // Before anything reads the order by its payment: settlement may be writing it now.
+      await lockPayment(runner, event.paymentIntentId);
+      const now = new Date();
+      const applied = await applyRefundEvent(runner, event, now);
+      /*
+        A dashboard refund (no metadata of ours) for a payment no order has
+        yet: held, and applied when the payment settles (audit s104 PAY-2).
+      */
+      if (applied.result === "unknown_order" && event.orderId === null) {
+        await holdRefundEvent(runner, event, now);
+      }
       await markWebhookProcessed(runner, event.eventId);
       return applied;
     });

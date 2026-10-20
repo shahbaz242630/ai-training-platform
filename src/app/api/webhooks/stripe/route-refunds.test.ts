@@ -151,6 +151,20 @@ describe("a refund we cannot place", () => {
     expect(result).toEqual({ status: 200, body: { ok: true, outcome: "unknown_order" } });
     expect(actions()).toEqual(["admin.action"]);
     expect(logs.some((l) => l.level === "error")).toBe(true);
+    // Held for the payment, in case it is ours and has not settled yet (audit s104 PAY-2).
+    const held = await db.query(`select 1 from held_refund_events where payment_intent_id = $1`, [
+      "pi_nobody_knows",
+    ]);
+    expect(held.rows).toHaveLength(1);
+  });
+
+  it("does not hold one that carries our metadata: that one is ours or nobody's", async () => {
+    const intent = `pi_${randomUUID()}`;
+    await deliver(refundEvent({ orderId: randomUUID(), paymentIntentId: intent }));
+    const held = await db.query(`select 1 from held_refund_events where payment_intent_id = $1`, [
+      intent,
+    ]);
+    expect(held.rows).toHaveLength(0);
   });
 
   it("refuses one that names our order but another payment", async () => {

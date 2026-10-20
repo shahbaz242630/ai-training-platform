@@ -23,6 +23,20 @@ import { cookies } from "next/headers";
 
 const COOKIE_NAME = "lead";
 
+/*
+  In production the name carries the __Host- prefix (audit s104 COA-5): the
+  browser then accepts it only from this host, Secure, path "/", with no
+  Domain, so no other zaaheen.com host can plant one for us to read. Browsers
+  refuse the prefix without Secure, so development (plain http) keeps the
+  bare name; production never reads the bare one.
+*/
+const HOST_COOKIE_NAME = `__Host-${COOKIE_NAME}`;
+
+/** The cookie's name where the app runs: prefixed wherever it is Secure. */
+export function leadCookieName(isProduction: boolean): string {
+  return isProduction ? HOST_COOKIE_NAME : COOKIE_NAME;
+}
+
 /**
  * Long enough to finish a booking that was interrupted by a phone call, short
  * enough that a shared machine does not hand the next person a stranger
@@ -78,13 +92,13 @@ export function newOwnerKey(): string {
  * again (the Edit button) makes a new intake but is still the same browser, so
  * its earlier hold must stay its own to give back.
  */
-export async function currentOwnerKey(): Promise<string> {
-  return (await readLeadSession())?.ownerKey ?? newOwnerKey();
+export async function currentOwnerKey(isProduction: boolean): Promise<string> {
+  return (await readLeadSession(isProduction))?.ownerKey ?? newOwnerKey();
 }
 
 export async function writeLeadSession(session: LeadSession, isProduction: boolean): Promise<void> {
   const jar = await cookies();
-  jar.set(COOKIE_NAME, encodeLeadSession(session), {
+  jar.set(leadCookieName(isProduction), encodeLeadSession(session), {
     httpOnly: true,
     sameSite: "lax",
     /*
@@ -101,7 +115,8 @@ export async function writeLeadSession(session: LeadSession, isProduction: boole
   });
 }
 
-export async function readLeadSession(): Promise<LeadSession | null> {
+/** Only the name this environment writes: production never reads a bare cookie another host could plant. */
+export async function readLeadSession(isProduction: boolean): Promise<LeadSession | null> {
   const jar = await cookies();
-  return decodeLeadSession(jar.get(COOKIE_NAME)?.value);
+  return decodeLeadSession(jar.get(leadCookieName(isProduction))?.value);
 }

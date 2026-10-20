@@ -155,17 +155,17 @@ describe("the lead cookie", () => {
 
   it("reads back a cookie it wrote", async () => {
     const { mod } = await setup(`${CUSTOMER}.${INTAKE}.${OWNER}`);
-    expect(await mod.readLeadSession()).toEqual(SESSION);
+    expect(await mod.readLeadSession(false)).toEqual(SESSION);
   });
 
   it("reads nothing when the cookie is absent", async () => {
     const { mod } = await setup();
-    expect(await mod.readLeadSession()).toBeNull();
+    expect(await mod.readLeadSession(false)).toBeNull();
   });
 
   it("reads nothing when the cookie was tampered with", async () => {
     const { mod } = await setup("not-a-pair");
-    expect(await mod.readLeadSession()).toBeNull();
+    expect(await mod.readLeadSession(false)).toBeNull();
   });
 
   /*
@@ -175,16 +175,63 @@ describe("the lead cookie", () => {
   */
   it("keeps the browser's owner key when the details are entered again", async () => {
     const { mod } = await setup(`${CUSTOMER}.${INTAKE}.${OWNER}`);
-    expect(await mod.currentOwnerKey()).toBe(OWNER);
+    expect(await mod.currentOwnerKey(false)).toBe(OWNER);
   });
 
   it("makes a fresh owner key when the browser has none, or a broken one", async () => {
     const none = await setup();
-    const fresh = await none.mod.currentOwnerKey();
+    const fresh = await none.mod.currentOwnerKey(false);
     expect(fresh).toMatch(/^[0-9a-f-]{36}$/);
     expect(fresh).not.toBe(OWNER);
 
     const old = await setup(`${CUSTOMER}.${INTAKE}`);
-    expect(await old.mod.currentOwnerKey()).not.toBe(INTAKE);
+    expect(await old.mod.currentOwnerKey(false)).not.toBe(INTAKE);
+  });
+});
+
+/*
+  The __Host- prefix in production (audit s104 COA-5): the browser accepts it
+  only from this host, so no other zaaheen.com host can plant a booking cookie
+  for us to read. Development keeps the bare name, as browsers refuse the
+  prefix without Secure.
+*/
+describe("the cookie's name", () => {
+  const jar = (stored: Record<string, string>) => {
+    const set: { name: string }[] = [];
+    vi.resetModules();
+    vi.doMock("next/headers", () => ({
+      cookies: () =>
+        Promise.resolve({
+          get: (name: string) => (name in stored ? { name, value: stored[name] } : undefined),
+          set: (name: string) => set.push({ name }),
+        }),
+    }));
+    return set;
+  };
+  const VALUE = `${CUSTOMER}.${INTAKE}.${OWNER}`;
+
+  afterEach(() => {
+    vi.doUnmock("next/headers");
+  });
+
+  it("is __Host-lead in production, and lead only outside it", async () => {
+    const prod = jar({});
+    await (await import("./lead-session")).writeLeadSession(SESSION, true);
+    expect(prod).toEqual([{ name: "__Host-lead" }]);
+    const dev = jar({});
+    await (await import("./lead-session")).writeLeadSession(SESSION, false);
+    expect(dev).toEqual([{ name: "lead" }]);
+  });
+
+  it("in production ignores a bare cookie another host could have planted", async () => {
+    jar({ lead: VALUE });
+    const mod = await import("./lead-session");
+    expect(await mod.readLeadSession(true)).toBeNull();
+    expect(await mod.currentOwnerKey(true)).not.toBe(OWNER);
+  });
+
+  it("in production reads its own prefixed cookie", async () => {
+    jar({ "__Host-lead": VALUE });
+    expect(await (await import("./lead-session")).readLeadSession(true)).toEqual(SESSION);
   });
 });

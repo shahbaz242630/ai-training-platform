@@ -1,9 +1,11 @@
 import type { QueryRunner } from "@/data/db";
+import { lockPayment } from "@/data/payment-lock";
 import { withTransaction } from "@/data/db";
 import { queueForOrder } from "@/data/communications";
 import { bookingIdsForOrder, confirmBookingOnCalendar } from "@/data/confirmation";
 import { linkDisputesAtSettlement } from "@/data/disputes";
 import { linkFraudWarningsAtSettlement } from "@/data/fraud-warnings";
+import { applyHeldRefunds } from "@/data/held-refunds";
 import { releaseFailedOrder, settlePaidOrder, type SettlementOutcome } from "@/data/settlement";
 import { messagesOnSettlement } from "@/domain/messaging/schedule";
 import type { CheckoutSnapshot } from "@/domain/payments/provider";
@@ -43,6 +45,13 @@ export async function applyCheckoutOutcome(
     // Waiting is the whole answer. The webhook still records its delivery as finished.
     return "awaiting_payment";
   }
+
+  /*
+    The payment's own lock first, then the order's (review s104): a refund,
+    dispute or fraud warning about this payment processed at this moment
+    waits, and then finds the order this settlement wrote.
+  */
+  await lockPayment(runner, event.paymentIntentId);
 
   const settled: SettlementOutcome =
     event.outcome === "paid"
@@ -92,6 +101,25 @@ export async function applyCheckoutOutcome(
     await linkDisputesAtSettlement(runner, event.orderId, event.paymentIntentId, now);
     // An early fraud warning too: linked for the desk to decide, and online moves stop.
     await linkFraudWarningsAtSettlement(runner, event.orderId, event.paymentIntentId);
+    /*
+      And a refund that came before the payment (audit s104 PAY-2), applied
+      now as if it had arrived now: refunded in full, the session is cancelled
+      before any confirmation goes out.
+    */
+    for (const applied of await applyHeldRefunds(runner, event.paymentIntentId, now)) {
+      const context = {
+        orderId: event.orderId,
+        result: applied.result,
+        orderMove: applied.orderMove,
+        cancelledBookings: applied.cancelledBookings.length,
+      };
+      // Error level for anything but applied: its held row is gone, so this line is the trace.
+      if (applied.result === "applied") {
+        logger.warn("a refund that came before its payment was applied at settlement", context);
+      } else {
+        logger.error("a refund that came before its payment could not be applied", context);
+      }
+    }
   }
 
   return settled;
