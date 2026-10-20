@@ -1,0 +1,53 @@
+name: Dependency graph
+
+# Hands GitHub the app's real dependency list (audit s101 #20). pnpm 11 writes
+# the lockfile as two YAML documents and GitHub reads only the first, pnpm's
+# own install, so without this Dependabot never sees Next.js, Stripe or pg.
+# scripts/dependency-snapshot.mjs reads the app's document and submits it;
+# Dependabot alerts then cover what we ship. A failure fails this workflow,
+# and GitHub emails the repository owner.
+#
+# Runs when the dependencies change on main, and weekly so a missed or failed
+# run is put right on its own. Never on pull requests: their token cannot
+# write, and only main's dependencies matter for alerts.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - pnpm-lock.yaml
+      - package.json
+      - scripts/dependency-snapshot.mjs
+      - .github/workflows/dependency-graph.yml
+  schedule:
+    - cron: "15 4 * * 1"
+  workflow_dispatch:
+
+concurrency:
+  group: dependency-graph
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  submit:
+    name: Submit dependencies
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # The dependency submission API needs write permission on the repository.
+    # Granted to this one job only; it checks out without keeping the token,
+    # installs nothing and runs one script of ours with no dependencies.
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version-file: .nvmrc
+      - name: Submit the app's dependencies
+        run: node scripts/dependency-snapshot.mjs
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
