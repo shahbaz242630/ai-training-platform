@@ -19,7 +19,8 @@ export interface DemoSession {
 
 const LOOP = 10.5;
 const PICK = 2;
-const SLOTS = ["Mon 19:00", "Tue 20:30", "Wed 19:00", "Thu 21:00", "Sat 11:00", "Sat 14:00"];
+// Only the real start times, 19:00 and 21:00 GST (write-up audit s105).
+const SLOTS = ["Mon 19:00", "Tue 21:00", "Wed 19:00", "Thu 21:00", "Sat 19:00", "Sun 21:00"];
 const SLOT_PICK = 2;
 const TICK_MS = 80;
 

@@ -23,11 +23,11 @@ export function followUpSubject(props: Pick<FollowUpEmailProps, "sessionTitle">)
 export function FollowUpEmail(props: FollowUpEmailProps) {
   return (
     <EmailLayout
-      preview="Thank you for today. A few things to do while it is fresh."
+      preview="Thank you for your session. A few things to do while it is fresh."
       companyName={props.companyName}
       supportEmail={props.supportEmail}
     >
-      <h1 style={emailStyles.heading}>Thank you for today, {props.firstName}.</h1>
+      <h1 style={emailStyles.heading}>Thank you for your session, {props.firstName}.</h1>
       <p style={emailStyles.paragraph}>
         The most useful thing you can do now is use what we covered on a real piece of your own work
         in the next day or two, while it is fresh. If you get stuck on something we touched on,

@@ -64,7 +64,7 @@ import { offeredSlots } from "./availability";
  * another one", and distinguishing them out loud only tells somebody probing
  * the endpoint which of their guesses was closer.
  */
-const SLOT_GONE_MESSAGE = "Sorry - that time has just been taken. Please choose another.";
+const SLOT_GONE_MESSAGE = "Sorry, that time has just been taken. Please choose another.";
 
 /**
  * Capturing somebody's details when they start a booking.
