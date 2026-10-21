@@ -23,7 +23,7 @@ export function SiteFooter() {
               <span className="font-serif text-[19px] font-medium">{companyName()}</span>
             </p>
             <p className="text-ink-muted mt-3 text-[14.5px] leading-relaxed">
-              Private 1-to-1 AI training and implementation coaching. {SITE.serviceArea}.
+              Private 1-to-1 AI coaching and implementation help. {SITE.serviceArea}.
             </p>
             <p className="text-ink-faint mt-3 font-mono text-[13px]">{supportEmail()}</p>
           </div>

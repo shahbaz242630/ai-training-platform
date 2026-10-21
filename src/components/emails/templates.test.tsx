@@ -102,9 +102,19 @@ describe("renderTemplate", () => {
     const email = await renderTemplate("booking_confirmation", { ...model, manageUrl: null });
 
     expect(email.text).toContain(
-      "Need a different time? You can move your session once, free, up to 24 hours before it starts: reply to this email.",
+      "Need a different time? You can move your session once, free, at least 24 hours before it starts: reply to this email.",
     );
     expect(email.text).not.toContain("we will help");
+  });
+
+  it("states the one free move once, with its link, when the confirmation has one", async () => {
+    const email = await renderTemplate("booking_confirmation", {
+      ...model,
+      manageUrl: "https://coaching.example/training/manage/abc",
+    });
+
+    expect(email.text.match(/move your session once/gi)).toHaveLength(1);
+    expect(email.text).toContain("Reschedule my session");
   });
 
   it("renders the follow-up, naming the next session only when there is one", async () => {

@@ -36,7 +36,7 @@ export function Hero() {
         <Container className="grid grid-cols-1 items-center gap-14 pt-14 pb-16 sm:pt-[88px] sm:pb-24 lg:grid-cols-2">
           <div className="flex flex-col">
             <p className="text-accent mb-[22px] flex flex-wrap gap-2.5 font-mono text-[13px]">
-              <span>Private 1-to-1 AI training</span>
+              <span>Private 1-to-1 AI coaching</span>
               <span className="text-on-deep-muted" aria-hidden="true">
                 /
               </span>
