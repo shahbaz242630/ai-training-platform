@@ -118,8 +118,8 @@ export function PaymentReceivedEmail(props: PaymentReceivedEmailProps) {
       ) : null}
       <p style={emailStyles.paragraph}>
         Your confirmation, with the link to join and a file to add the session to your calendar,
-        will follow by email. If it has not arrived within one working day, reply to this message
-        and we will sort it out.
+        will follow by email. If it has not arrived within an hour, reply to this message and we
+        will sort it out.
       </p>
       <p style={emailStyles.muted}>
         Times are shown in your own time zone. We are in Dubai, Gulf Standard Time, four hours ahead

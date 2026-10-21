@@ -17,7 +17,7 @@ export const metadata: Metadata = {
   openGraph: {
     title: "Learn how to work with AI, not just talk to it",
     description:
-      "Private 1-to-1 practical AI training and implementation coaching in Dubai. Evening sessions, 90 minutes, online.",
+      "Private 1-to-1 practical AI coaching in Dubai. Evening sessions, 90 minutes, online.",
     type: "website",
   },
 };

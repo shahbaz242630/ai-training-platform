@@ -19,7 +19,7 @@ export const FAQS: readonly Faq[] = [
     id: "technical-experience",
     question: "Do I need technical experience?",
     answer:
-      "Not for Sessions 1 to 3. They are built for people who use AI day to day and want dependable results, and they assume no coding background. Sessions 5 and 6 are more technical: Session 5 covers how modern AI applications are assembled, and Session 6 works on a real project you already have.",
+      "Not for Sessions 1 to 4. Sessions 1 to 3 are built for people who use AI day to day and want dependable results, and they assume no coding background. Session 4 suits people who are comfortable with AI tools and want them to take actions, not just answer; it needs no coding, because the agent does the coding for you. Sessions 5 and 6 are more technical: Session 5 covers how modern AI applications are assembled, and Session 6 works on a real project you already have.",
   },
   {
     id: "which-session",
@@ -48,8 +48,7 @@ export const FAQS: readonly Faq[] = [
   {
     id: "combine-sessions",
     question: "Can I combine two sessions?",
-    answer:
-      "Not at the moment. Sessions are currently sold one at a time. Combined two-session pathways are planned, but they are not available yet and are not listed on this page.",
+    answer: "Not at the moment. Sessions are currently sold one at a time.",
   },
   {
     id: "session-six",

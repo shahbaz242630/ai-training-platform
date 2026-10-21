@@ -17,7 +17,7 @@ const STEPS = [
   },
   {
     title: "Join privately and leave with next steps",
-    body: `${DELIVERY.durationMinutes} minutes one to one over Microsoft Teams, followed by a written summary of what to do next.`,
+    body: `${DELIVERY.durationMinutes} minutes one to one over Microsoft Teams, followed by an email with your next steps.`,
   },
 ];
 

@@ -53,16 +53,14 @@ export function BookingConfirmationEmail(props: BookingConfirmationEmailProps) {
         Have the tools you want to work with open and signed in, and bring one real task from your
         own work. We will spend the time on that, not on slides.
       </p>
-      {/* Once the move is used, BookingRights below says the time is final. */}
-      {props.rights.moved ? null : props.rights.manageUrl ? (
+      {/*
+        BookingRights below states the one free move, with the reschedule link
+        when there is one, or says the time is final once the move is used.
+        Only a confirmation without a link adds how to ask for the move.
+      */}
+      {props.rights.moved || props.rights.manageUrl ? null : (
         <p style={emailStyles.muted}>
-          Need a different time? You can move your session once, free, up to{" "}
-          {props.rights.moveNoticeHours} hours before it starts:{" "}
-          <a href={props.rights.manageUrl}>Reschedule my session</a>.
-        </p>
-      ) : (
-        <p style={emailStyles.muted}>
-          Need a different time? You can move your session once, free, up to{" "}
+          Need a different time? You can move your session once, free, at least{" "}
           {props.rights.moveNoticeHours} hours before it starts: reply to this email.
         </p>
       )}

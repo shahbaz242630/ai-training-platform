@@ -28,7 +28,7 @@ export function buildTrainingJsonLd(site: SitePlaceholders = SITE): string | nul
     "@type": "Service",
     name: session.title,
     description: session.summary,
-    serviceType: "AI training and implementation coaching",
+    serviceType: "AI coaching",
     provider: { "@id": `${origin}/#organization` },
     areaServed: site.serviceArea,
     offers: {

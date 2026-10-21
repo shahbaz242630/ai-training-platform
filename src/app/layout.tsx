@@ -32,7 +32,7 @@ export const metadata: Metadata = {
     template: `%s · ${companyName()}`,
   },
   description:
-    "Private 1-to-1 practical AI training and implementation coaching in Dubai. Research, prompting, coding agents, AI agents, technology stacks and production deployment.",
+    "Private 1-to-1 practical AI coaching in Dubai. Research, prompting, coding agents, AI agents, technology stacks and production deployment.",
   /*
     Every page: noindex, follow (SEARCH in config/site.ts, the booking desk
     only). robots.ts lets crawlers in so they can read it.

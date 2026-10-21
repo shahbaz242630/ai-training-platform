@@ -264,7 +264,8 @@ describe("buildSnapshot", () => {
   });
 
   it("refuses to run without the workflow's context", () => {
-    const { GITHUB_SHA: _, ...partial } = ENV;
+    const partial = { ...ENV };
+    delete partial.GITHUB_SHA;
     expect(() => buildSnapshot(parseLockfile(LOCK), partial, NOW)).toThrow(/GITHUB_SHA/);
   });
 });
