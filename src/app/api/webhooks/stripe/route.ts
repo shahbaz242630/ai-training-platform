@@ -106,7 +106,7 @@ export async function POST(request: Request): Promise<NextResponse> {
       logger.error("a stripe webhook failed signature verification");
       return NextResponse.json({ error: "Invalid signature" }, { status: 400 });
     }
-    logger.error("a stripe webhook could not be read", { error: (error as Error).message });
+    logger.error("a stripe webhook could not be read", { error: (error as Error).name });
     return NextResponse.json({ error: "Unreadable" }, { status: 400 });
   }
 
@@ -200,7 +200,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     */
     logger.error("a stripe webhook could not be settled", {
       eventId: event.eventId,
-      error: (error as Error).message,
+      error: (error as Error).name,
     });
     return NextResponse.json({ error: "Could not settle" }, { status: 500 });
   }

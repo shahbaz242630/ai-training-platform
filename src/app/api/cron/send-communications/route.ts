@@ -83,7 +83,7 @@ export async function POST(request: Request): Promise<NextResponse> {
 
     return NextResponse.json({ ok: true, claimed, ...outcomes, failedInTotal });
   } catch (error) {
-    logger.error("the send run could not complete", { error: (error as Error).message });
+    logger.error("the send run could not complete", { error: (error as Error).name });
     return NextResponse.json({ error: "Send run failed" }, { status: 500 });
   }
 }

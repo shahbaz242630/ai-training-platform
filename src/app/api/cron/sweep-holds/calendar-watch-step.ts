@@ -92,7 +92,7 @@ export async function watchCalendar(deps: CalendarWatchDeps): Promise<CalendarWa
         calendar = deps.calendar();
       } catch (error) {
         logger.error("the calendar is not configured, so the Outlook watch cannot run", {
-          error: (error as Error).message,
+          error: (error as Error).name,
         });
         return { error: "calendar not configured" };
       }

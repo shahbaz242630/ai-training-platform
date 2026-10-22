@@ -66,7 +66,7 @@ export default async function ManagePage({ searchParams }: PageProps<"/training/
       offered: offeredSlots,
     }).catch((error: unknown) => {
       logger.error("the manage page could not load a booking", {
-        error: (error as Error).message,
+        error: (error as Error).name,
       });
       return { ok: false as const, message: MESSAGES.BROKEN };
     });

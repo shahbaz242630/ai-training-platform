@@ -111,9 +111,16 @@ nodeLinker: hoisted
 # published 2026-09-14. Remove each once eslint pulls the fixed version.
 # (braces 3.0.3, the same kind of flaw through @next/eslint-plugin-next's
 # fast-glob, has no fixed release yet; lint-only, so it waits for one.)
+#
+# vite below 8.2.4 (Dependabot alerts #8-#13: launch-editor command and %
+# escaping, fs.allow and wasm-instance file reads, custom-middleware cross
+# origin) reaches us only through vitest, i.e. the test runner and a dev
+# server on a developer machine; the production build never runs vite.
+# Forced to the fixed version anyway (s108). Remove once vitest pulls it.
 overrides:
   "brace-expansion@<1.1.21": "1.1.21"
   "brace-expansion@>=4.0.0 <5.0.12": "5.0.12"
   "js-yaml@>=4.0.0 <4.3.2": "4.3.2"
   "sharp@<0.35.5": "0.35.5"
   "source-map-js@>=1.0.0 <1.2.2": "1.2.2"
+  "vite@<8.2.4": "8.2.4"

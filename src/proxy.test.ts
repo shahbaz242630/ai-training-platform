@@ -90,13 +90,13 @@ describe("proxy", () => {
     expect(nonces.size).toBe(50);
   });
 
-  it("gives a nonce only to a booking page being rendered, not a prefetch or another page", () => {
+  it("gives a nonce to every booking page request, a prefetch included, and to no other page", () => {
     const at = (path: string, headers: Record<string, string> = {}) =>
       new NextRequest(`https://example.test${path}`, { headers });
     expect(needsNonce(at(`${NONCE_PATH_PREFIX}ai-foundations`))).toBe(true);
     expect(needsNonce(at("/training"))).toBe(false);
-    expect(needsNonce(at(`${NONCE_PATH_PREFIX}x`, { "next-router-prefetch": "1" }))).toBe(false);
-    expect(needsNonce(at(`${NONCE_PATH_PREFIX}x`, { purpose: "prefetch" }))).toBe(false);
+    expect(needsNonce(at(`${NONCE_PATH_PREFIX}x`, { "next-router-prefetch": "1" }))).toBe(true);
+    expect(needsNonce(at(`${NONCE_PATH_PREFIX}x`, { purpose: "prefetch" }))).toBe(true);
     // Any other page passes straight through, with no policy from here.
     expect(proxy(at("/training")).headers.get("Content-Security-Policy")).toBeNull();
   });

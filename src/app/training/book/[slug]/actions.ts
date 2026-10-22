@@ -185,7 +185,7 @@ export async function captureLeadAction(input: unknown): Promise<CaptureLeadResu
 
     return { ok: true };
   } catch (error) {
-    logger.error("lead capture failed", { error: (error as Error).message });
+    logger.error("lead capture failed", { error: (error as Error).name });
     return {
       ok: false,
       errors: [
@@ -506,7 +506,7 @@ export async function startCheckoutAction(input: unknown): Promise<StartCheckout
       return { ok: false, reason: "slot_taken", message: SLOT_GONE_MESSAGE };
     }
 
-    logger.error("checkout could not be started", { error: (error as Error).message });
+    logger.error("checkout could not be started", { error: (error as Error).name });
     return {
       ok: false,
       reason: "failed",
@@ -658,7 +658,7 @@ async function blockCalendarForHold(args: {
   } catch (error) {
     logger.error("the calendar is not configured; the hold is protected by the database only", {
       holdId: args.holdId,
-      error: (error as Error).message,
+      error: (error as Error).name,
     });
     return "unblocked";
   }
@@ -684,7 +684,7 @@ async function blockCalendarForHold(args: {
       await provider.releaseSlot(outcome.calendarEventId).catch((error: unknown) => {
         logger.error("an orphaned tentative event could not be removed", {
           calendarEventId: outcome.calendarEventId,
-          error: (error as Error).message,
+          error: (error as Error).name,
         });
       });
     }
@@ -710,7 +710,7 @@ async function releaseHeldSlotQuietly(holdId: string): Promise<void> {
   } catch (error) {
     logger.error("a slot hold could not be released after a failed checkout", {
       holdId,
-      error: (error as Error).message,
+      error: (error as Error).name,
     });
   }
 }
@@ -742,7 +742,7 @@ async function endReleasedCheckouts(
     sessions = await withTransaction((runner) => pendingCheckoutSessionsFor(runner, orderIds));
   } catch (error) {
     logger.error("could not look up the checkouts behind released holds", {
-      error: (error as Error).message,
+      error: (error as Error).name,
     });
     return;
   }
@@ -752,7 +752,7 @@ async function endReleasedCheckouts(
       await payments.expireCheckout(session);
     } catch (error) {
       logger.error("an earlier checkout could not be ended; it expires by itself", {
-        error: (error as Error).message,
+        error: (error as Error).name,
       });
     }
   }

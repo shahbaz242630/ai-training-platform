@@ -320,7 +320,7 @@ export async function POST(request: Request): Promise<NextResponse> {
       exactly the shape the ZAP checker lesson warned about: a missing result
       is a failure, never a pass.
     */
-    logger.error("slot hold sweep failed", { error: (error as Error).message });
+    logger.error("slot hold sweep failed", { error: (error as Error).name });
     // The monitor hears it too: a sweep failing every run looks, from outside, like one that runs.
     await heartbeatFailed();
     return NextResponse.json({ error: "Sweep failed" }, { status: 500 });
@@ -333,7 +333,7 @@ function calendarOrNull(purpose: string): SchedulingProvider | null {
     return getSchedulingProvider();
   } catch (error) {
     logger.error(`the calendar is not configured, so ${purpose} must wait`, {
-      error: (error as Error).message,
+      error: (error as Error).name,
     });
     return null;
   }
@@ -358,7 +358,7 @@ async function releaseCalendarEvents(now: Date): Promise<{ released: number; fai
       logger.error("a tentative calendar event could not be deleted and still blocks its slot", {
         holdId: hold.id,
         calendarEventId: hold.calendarEventId,
-        error: (error as Error).message,
+        error: (error as Error).name,
       });
     }
   }
@@ -391,7 +391,7 @@ async function retryConfirmations(
       counts.failed += 1;
       logger.error("a paid booking could not be confirmed on the calendar; will retry", {
         bookingId,
-        error: (error as Error).message,
+        error: (error as Error).name,
       });
     }
   }
@@ -425,7 +425,7 @@ async function applyCalendarMoves(): Promise<{ moved: number; missing: number; f
       counts.failed += 1;
       logger.error("a moved session's calendar event still shows the old time; will retry", {
         bookingId: booking.bookingId,
-        error: (error as Error).message,
+        error: (error as Error).name,
       });
     }
   }
@@ -553,7 +553,7 @@ async function purgeOrReport(now: Date): Promise<PurgeReport | { error: string }
   try {
     return await withTransaction((runner) => purgeExpiredPersonalData(runner, now));
   } catch (error) {
-    logger.error("personal data purge failed", { error: (error as Error).message });
+    logger.error("personal data purge failed", { error: (error as Error).name });
     return { error: "purge failed" };
   }
 }
