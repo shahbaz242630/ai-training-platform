@@ -138,7 +138,7 @@ export async function confirmOnCalendar(orderId: string): Promise<void> {
   } catch (error) {
     logger.error("the calendar is not configured; confirmation is deferred to the sweep", {
       orderId,
-      error: (error as Error).message,
+      error: (error as Error).name,
     });
     return;
   }
@@ -156,7 +156,7 @@ export async function confirmOnCalendar(orderId: string): Promise<void> {
     } catch (error) {
       logger.error("calendar confirmation failed after settlement; the sweep will retry", {
         bookingId,
-        error: (error as Error).message,
+        error: (error as Error).name,
       });
     }
   }

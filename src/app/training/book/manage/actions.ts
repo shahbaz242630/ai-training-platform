@@ -65,7 +65,7 @@ async function guarded(
       offered: offeredSlots,
     });
   } catch (error) {
-    logger.error(failure, { error: (error as Error).message });
+    logger.error(failure, { error: (error as Error).name });
     return { ok: false, message: MESSAGES.BROKEN };
   }
 }

@@ -59,7 +59,7 @@ export default async function BookSessionPage({ params }: PageProps<"/training/b
     slots = await offeredSlotsForPage(session.durationMinutes, now);
   } catch (error) {
     availabilityFailed = true;
-    logger.error("availability could not be read", { error: (error as Error).message });
+    logger.error("availability could not be read", { error: (error as Error).name });
   }
 
   /*

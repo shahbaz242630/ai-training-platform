@@ -230,7 +230,7 @@ export async function confirmMove(
     // Left flagged in the database: the next sweep moves the event.
     logger.warn("a moved session's calendar event will be moved by the next sweep", {
       bookingId,
-      error: (error as Error).message,
+      error: (error as Error).name,
     });
   }
 

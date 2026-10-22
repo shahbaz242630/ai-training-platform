@@ -91,7 +91,7 @@ export async function verifyTurnstile({
     } catch (error) {
       logger.warn("the person check could not be reached", {
         attempt,
-        error: (error as Error).message,
+        error: (error as Error).name,
       });
       continue;
     }

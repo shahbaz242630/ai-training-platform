@@ -31,7 +31,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version-file: .nvmrc
           cache: pnpm
@@ -65,11 +65,14 @@ jobs:
           cp .zap/rules.tsv zap-out/rules.tsv
           chmod -R 777 zap-out
 
+      # Pinned by digest (audit s101 I4): a mutable tag could swap the scanner
+      # under us. To refresh: resolve the current stable digest on ghcr.io and
+      # replace it here in its own pull request.
       - name: ZAP baseline scan
         run: |
           docker run --rm --network host \
             -v "$PWD/zap-out:/zap/wrk/:rw" \
-            ghcr.io/zaproxy/zaproxy:stable \
+            ghcr.io/zaproxy/zaproxy:stable@sha256:5ccfff9a411743ab2615136a2edd7416bec9ce41572fa94e935df38c14adb2b6 \
             zap-baseline.py \
               -t http://localhost:3000/training \
               -c rules.tsv \
@@ -82,7 +85,7 @@ jobs:
 
       - name: Upload ZAP report
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: zap-report
           path: |

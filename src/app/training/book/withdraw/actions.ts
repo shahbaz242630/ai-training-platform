@@ -51,7 +51,7 @@ export async function lookUpWithdrawalAction(
   try {
     return await lookUpWithdrawal(input, flowDeps());
   } catch (error) {
-    logger.error("withdrawal lookup failed", { error: (error as Error).message });
+    logger.error("withdrawal lookup failed", { error: (error as Error).name });
     return {
       ok: false,
       message: "Something went wrong on our side. Please try again in a moment.",
@@ -128,7 +128,7 @@ export async function confirmWithdrawalAction(
     }
     return { ok: true, receipt: result.receipt };
   } catch (error) {
-    logger.error("withdrawal could not be recorded", { error: (error as Error).message });
+    logger.error("withdrawal could not be recorded", { error: (error as Error).name });
     return {
       ok: false,
       message: "Something went wrong on our side. Please try again in a moment.",

@@ -26,8 +26,10 @@ import { gateSettings } from "@/lib/env";
  *    injected script cannot know a value that changes on every request. The
  *    booking pages are rendered per request already, which a nonce requires.
  *    next.config.mjs sends these paths every other security header but no
- *    policy of its own, so the response carries exactly this one. Prefetches
- *    are not rendered pages and get none.
+ *    policy of its own, so the response carries exactly this one. That holds
+ *    for every request under the prefix, a prefetch included (audit s101 I1):
+ *    links into the booking pages never prefetch (lib/link-prefetch.ts), and
+ *    a response with no policy at all would be the weaker outcome.
  */
 
 /** The header Cloudflare's request rule sets. Lower case, as Headers reads it. */
@@ -89,11 +91,9 @@ export function proxy(request: NextRequest): NextResponse {
   return response;
 }
 
-/** A booking page being rendered, not prefetched. */
+/** Any request for a booking page, a prefetch included. */
 export function needsNonce(request: NextRequest): boolean {
-  if (!request.nextUrl.pathname.startsWith(NONCE_PATH_PREFIX)) return false;
-  if (request.headers.has("next-router-prefetch")) return false;
-  return request.headers.get("purpose") !== "prefetch";
+  return request.nextUrl.pathname.startsWith(NONCE_PATH_PREFIX);
 }
 
 /**
