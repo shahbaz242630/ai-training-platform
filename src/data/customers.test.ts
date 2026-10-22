@@ -2,7 +2,14 @@ import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { PGlite } from "@electric-sql/pglite";
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { captureLead, promoteIntakeToCustomer, recordIntake, upsertCustomer } from "./customers";
+import {
+  captureLead,
+  confirmMarketingConsent,
+  promoteIntakeToCustomer,
+  recordIntake,
+  unsubscribeCustomer,
+  upsertCustomer,
+} from "./customers";
 import type { QueryRunner } from "./db";
 import type { PrePaymentIntake } from "@/domain/intake/pre-payment-intake";
 
@@ -405,5 +412,66 @@ describe("when the database returns nothing at all", () => {
     await expect(
       recordIntake(returnsNoRows, "some-customer-id", intake({ primaryGoal: "A goal." })),
     ).rejects.toThrow(/impossible/);
+  });
+});
+
+describe("confirming and stopping emails about new sessions", () => {
+  const consentRow = (id: string) =>
+    db
+      .query<{
+        marketing_consent: boolean;
+        marketing_consent_confirmed_at: Date | null;
+        unsubscribed_at: Date | null;
+      }>(
+        "select marketing_consent, marketing_consent_confirmed_at, unsubscribed_at from customers where id = $1",
+        [id],
+      )
+      .then((result) => result.rows[0]!);
+
+  const customerWithConsent = async (email: string, consent: boolean) => {
+    const { id } = await upsertCustomer(runner, intake({ email }), NOW);
+    await db.query(
+      "update customers set marketing_consent = $2, marketing_consent_at = $3 where id = $1",
+      [id, consent, consent ? NOW : null],
+    );
+    return id;
+  };
+
+  it("confirms a recorded request once, keeping the first time", async () => {
+    const id = await customerWithConsent("confirm-once@example.com", true);
+    expect(await confirmMarketingConsent(runner, id, NOW)).toBe(true);
+    expect(await confirmMarketingConsent(runner, id, LATER)).toBe(false);
+    expect((await consentRow(id)).marketing_consent_confirmed_at).toEqual(NOW);
+  });
+
+  it("cannot confirm what was never asked for", async () => {
+    const id = await customerWithConsent("never-asked@example.com", false);
+    expect(await confirmMarketingConsent(runner, id, NOW)).toBe(false);
+    expect((await consentRow(id)).marketing_consent_confirmed_at).toBeNull();
+  });
+
+  it("never confirms over an unsubscribe", async () => {
+    const id = await customerWithConsent("unsub-first@example.com", true);
+    await unsubscribeCustomer(runner, id, NOW);
+    expect(await confirmMarketingConsent(runner, id, LATER)).toBe(false);
+    expect((await consentRow(id)).marketing_consent_confirmed_at).toBeNull();
+  });
+
+  it("unsubscribes, keeping the first time, and touches nothing else", async () => {
+    const id = await customerWithConsent("unsub@example.com", true);
+    await confirmMarketingConsent(runner, id, NOW);
+    await unsubscribeCustomer(runner, id, NOW);
+    await unsubscribeCustomer(runner, id, LATER);
+    const row = await consentRow(id);
+    expect(row.unsubscribed_at).toEqual(NOW);
+    // The record of what they once agreed to stays: only sending stops.
+    expect(row.marketing_consent).toBe(true);
+    expect(row.marketing_consent_confirmed_at).toEqual(NOW);
+  });
+
+  it("does nothing for an id that is not a customer", async () => {
+    const nobody = "0b9d6bcd-bbfd-4b2d-9b5d-ab8dfbbd4bed";
+    expect(await confirmMarketingConsent(runner, nobody, NOW)).toBe(false);
+    await expect(unsubscribeCustomer(runner, nobody, NOW)).resolves.toBeUndefined();
   });
 });

@@ -1,0 +1,35 @@
+import type { Metadata } from "next";
+import { serverEnv } from "@/lib/env";
+import { unsubscribeAction, type LinkOutcome } from "../actions";
+import { EmailLinkPage } from "../EmailLinkPage";
+import { isUsableLink } from "../flow";
+
+/*
+  Under /training/book/ so it gets the per-request nonce policy and the booking
+  pages' rate rule, like every other page that acts on somebody's details.
+*/
+export const dynamic = "force-dynamic";
+
+export const metadata: Metadata = {
+  title: "Stop emails about new sessions",
+  robots: { index: false, follow: false },
+};
+
+const OUTCOMES: ReadonlySet<string> = new Set<LinkOutcome>(["done", "invalid", "busy", "error"]);
+
+export default async function Page({
+  searchParams,
+}: PageProps<"/training/book/email/unsubscribe">) {
+  const { t, outcome } = await searchParams;
+  const secret = serverEnv().MANAGE_LINK_SECRET ?? null;
+  return (
+    <EmailLinkPage
+      purpose="unsubscribe"
+      token={isUsableLink(t, "unsubscribe", secret) ? (t as string) : null}
+      outcome={
+        typeof outcome === "string" && OUTCOMES.has(outcome) ? (outcome as LinkOutcome) : null
+      }
+      action={unsubscribeAction}
+    />
+  );
+}

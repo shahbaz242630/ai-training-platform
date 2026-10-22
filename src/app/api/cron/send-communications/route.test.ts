@@ -843,3 +843,60 @@ describe("the choose-a-time email, when it cannot honestly go", () => {
     }
   });
 });
+
+/*
+  Occasional emails about new sessions need the address's owner to confirm
+  them. The booking confirmation carries that one link, and only while the
+  customer asked for them and has neither confirmed nor withdrawn.
+*/
+describe("confirming emails about new sessions", () => {
+  const CONFIRM = "http://localhost:3000/training/book/email/confirm?t=e1.confirm.";
+
+  async function confirmationFor(options: { consent: boolean; set?: string }) {
+    const { bookingId, email } = await scheduledBooking({
+      meetingUrl: "https://teams.example/join",
+      consent: options.consent,
+    });
+    if (options.set) {
+      await db.query(`update customers set ${options.set} = now() where email = $1`, [email]);
+    }
+    await queueForBooking(runner, bookingId, [
+      { templateKey: "booking_confirmation", scheduledFor: PAST },
+    ]);
+    await run();
+    return provider.sent.at(-1);
+  }
+
+  it("asks the customer who ticked the box to confirm their address", async () => {
+    const sent = await confirmationFor({ consent: true });
+    expect(sent?.html).toContain(CONFIRM);
+    expect(sent?.text).toContain("Confirm that this is your email address");
+  });
+
+  it("asks nobody who did not tick it, already confirmed, or unsubscribed", async () => {
+    for (const options of [
+      { consent: false },
+      { consent: true, set: "marketing_consent_confirmed_at" },
+      { consent: true, set: "unsubscribed_at" },
+    ]) {
+      const sent = await confirmationFor(options);
+      expect(sent?.html).not.toContain("/book/email/confirm");
+    }
+  });
+
+  it("carries no link that cannot work when no secret is configured", async () => {
+    state.manageSecret = undefined;
+    const sent = await confirmationFor({ consent: true });
+    expect(sent?.html).not.toContain("/book/email/confirm");
+  });
+
+  it("is never in a reminder", async () => {
+    const { bookingId } = await scheduledBooking({
+      meetingUrl: "https://teams.example/join",
+      consent: true,
+    });
+    await queueForBooking(runner, bookingId, [{ templateKey: "reminder_24h", scheduledFor: PAST }]);
+    await run();
+    expect(provider.sent.at(-1)?.html).not.toContain("/book/email/confirm");
+  });
+});

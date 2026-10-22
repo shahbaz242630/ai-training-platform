@@ -179,6 +179,8 @@ export interface CommunicationContext {
   /** How many times the customer has moved this booking: 0 while their one move is unused. */
   readonly rescheduleCount: number;
   readonly customerTimezone: string;
+  /** The customer the booking belongs to, by their random id. */
+  readonly customerId: string;
   readonly email: string;
   readonly firstName: string;
   readonly marketingConsent: boolean;
@@ -210,6 +212,7 @@ export async function loadCommunicationContext(
     meeting_url: string | null;
     reschedule_count: number;
     customer_timezone: string;
+    customer_id: string;
     email: string;
     first_name: string;
     marketing_consent: boolean;
@@ -224,7 +227,7 @@ export async function loadCommunicationContext(
   }>(
     `select b.id as booking_id, b.status, b.session_slug, b.scheduled_start, b.scheduled_end,
             b.meeting_url, b.reschedule_count, b.customer_timezone,
-            c.email, coalesce(i.first_name, c.first_name) as first_name,
+            c.id as customer_id, c.email, coalesce(i.first_name, c.first_name) as first_name,
             c.marketing_consent, c.marketing_consent_confirmed_at,
             c.unsubscribed_at, o.gross_amount_fils,
             k.terms_version, k.key_terms, k.express_request_text, o.payment_status,
@@ -251,6 +254,7 @@ export async function loadCommunicationContext(
     meetingUrl: row.meeting_url,
     rescheduleCount: row.reschedule_count,
     customerTimezone: row.customer_timezone,
+    customerId: row.customer_id,
     email: row.email,
     firstName: row.first_name,
     marketingConsent: row.marketing_consent,
