@@ -17,6 +17,12 @@ const REMINDER_24H_MINUTES = 24 * 60;
 const REMINDER_3H_MINUTES = 3 * 60;
 /** Long enough that a session which overran has still ended; short enough that the day is still in mind. */
 const FOLLOW_UP_DELAY_MINUTES = 60;
+/**
+ * The two emails about the next session in the series, a month apart, then
+ * nothing. Queued with the others; whether each may go is decided when it is
+ * due (consent, a later booking, a next session existing), not now.
+ */
+const NEXT_SESSION_NUDGE_DAYS = [30, 60] as const;
 
 export interface ScheduledMessage {
   readonly templateKey: TemplateKey;
@@ -61,6 +67,12 @@ export function messagesOnConfirmation(input: ConfirmationInput): readonly Sched
     templateKey: "follow_up",
     scheduledFor: addMinutes(input.scheduledEnd, FOLLOW_UP_DELAY_MINUTES),
   });
+  for (const [index, days] of NEXT_SESSION_NUDGE_DAYS.entries()) {
+    messages.push({
+      templateKey: index === 0 ? "next_session_nudge_1" : "next_session_nudge_2",
+      scheduledFor: addMinutes(input.scheduledEnd, days * 24 * 60),
+    });
+  }
 
   return messages;
 }

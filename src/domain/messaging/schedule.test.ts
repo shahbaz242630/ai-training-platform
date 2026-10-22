@@ -27,6 +27,14 @@ describe("messagesOnConfirmation", () => {
       { templateKey: "reminder_24h", scheduledFor: new Date(start.getTime() - hours(24)) },
       { templateKey: "reminder_3h", scheduledFor: new Date(start.getTime() - hours(3)) },
       { templateKey: "follow_up", scheduledFor: new Date(end.getTime() + hours(1)) },
+      {
+        templateKey: "next_session_nudge_1",
+        scheduledFor: new Date(end.getTime() + hours(30 * 24)),
+      },
+      {
+        templateKey: "next_session_nudge_2",
+        scheduledFor: new Date(end.getTime() + hours(60 * 24)),
+      },
     ]);
   });
 
@@ -39,7 +47,13 @@ describe("messagesOnConfirmation", () => {
       (m) => m.templateKey,
     );
 
-    expect(keys).toEqual(["booking_confirmation", "reminder_3h", "follow_up"]);
+    expect(keys).toEqual([
+      "booking_confirmation",
+      "reminder_3h",
+      "follow_up",
+      "next_session_nudge_1",
+      "next_session_nudge_2",
+    ]);
   });
 
   it("keeps only the confirmation and follow-up for a session starting within three hours", () => {
@@ -50,7 +64,12 @@ describe("messagesOnConfirmation", () => {
       (m) => m.templateKey,
     );
 
-    expect(keys).toEqual(["booking_confirmation", "follow_up"]);
+    expect(keys).toEqual([
+      "booking_confirmation",
+      "follow_up",
+      "next_session_nudge_1",
+      "next_session_nudge_2",
+    ]);
   });
 
   it("schedules in UTC, untouched by any time zone", () => {

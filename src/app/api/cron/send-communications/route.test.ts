@@ -105,7 +105,12 @@ afterEach(() => {
 let counter = 0;
 
 async function scheduledBooking(
-  options: { meetingUrl?: string | null; times?: boolean; consent?: boolean } = {},
+  options: {
+    meetingUrl?: string | null;
+    times?: boolean;
+    consent?: boolean;
+    slug?: string;
+  } = {},
 ) {
   counter += 1;
   const customer = await db.query<{ id: string }>(
@@ -116,24 +121,30 @@ async function scheduledBooking(
   const customerId = customer.rows[0]?.id ?? "";
   const order = await db.query<{ id: string }>(
     `insert into orders (customer_id, order_type, session_slug, gross_amount_fils, payment_status)
-     values ($1, 'single', 'claude-claude-code', 149900, 'paid') returning id`,
-    [customerId],
+     values ($1, 'single', $2, 149900, 'paid') returning id`,
+    [customerId, options.slug ?? "claude-claude-code"],
   );
   const withTimes = options.times ?? true;
   // A distinct slot per booking: bookings that overlap are refused by the database.
   const start = new Date(Date.UTC(2027, 2, 10, 14, 0) + counter * 3 * 60 * 60_000);
   const booking = await db.query<{ id: string }>(
     `insert into bookings (order_id, session_slug, sequence, status, scheduled_start, scheduled_end, customer_timezone, meeting_url)
-     values ($1, 'claude-claude-code', 1, $2, $3, $4, 'Europe/London', $5) returning id`,
+     values ($1, $6, 1, $2, $3, $4, 'Europe/London', $5) returning id`,
     [
       order.rows[0]?.id,
       withTimes ? "scheduled" : "awaiting_schedule",
       withTimes ? start : null,
       withTimes ? new Date(start.getTime() + 90 * 60_000) : null,
       options.meetingUrl ?? null,
+      options.slug ?? "claude-claude-code",
     ],
   );
-  return { bookingId: booking.rows[0]?.id ?? "", email: `send${counter}@example.com` };
+  return {
+    bookingId: booking.rows[0]?.id ?? "",
+    email: `send${counter}@example.com`,
+    customerId,
+    orderId: order.rows[0]?.id ?? "",
+  };
 }
 
 const PAST = new Date(Date.now() - 60_000);
@@ -365,6 +376,11 @@ describe("what is refused before a provider is involved", () => {
     expect((await rowFor(bookingId, "booking_confirmation"))?.status).toBe("sent");
   });
 
+  /*
+    Changed with the emails about the next session: marketing is queued for
+    everybody and decided when due, so a refusal is the ordinary outcome. It
+    is withdrawn (cancelled), never sent, and not left for a person.
+  */
   it("refuses a marketing message for a customer with no recorded consent", async () => {
     const { bookingId } = await scheduledBooking({ consent: false });
     await queueForBooking(runner, bookingId, [{ templateKey: "newsletter", scheduledFor: PAST }]);
@@ -372,7 +388,7 @@ describe("what is refused before a provider is involved", () => {
     await run();
 
     expect(provider.sent).toEqual([]);
-    expect((await rowFor(bookingId, "newsletter"))?.last_error).toMatch(/not_allowed: marketing/);
+    expect((await rowFor(bookingId, "newsletter"))?.status).toBe("cancelled");
   });
 
   it("leaves a message for a booking with no time to a person rather than guessing", async () => {
@@ -910,5 +926,132 @@ describe("confirming emails about new sessions", () => {
     await queueForBooking(runner, bookingId, [{ templateKey: "reminder_24h", scheduledFor: PAST }]);
     await run();
     expect(provider.sent.at(-1)?.html).not.toContain("/book/email/confirm");
+  });
+});
+
+/*
+  The two emails about the next session in the series. They are marketing:
+  queued for everybody, and only sent when due to somebody whose consent the
+  address's owner confirmed, who has not unsubscribed, and who has not
+  already booked the next session or anything further on.
+*/
+describe("emails about the next session", () => {
+  async function nudgeFor(
+    options: {
+      consent?: boolean;
+      set?: string;
+      slug?: string;
+      which?: "next_session_nudge_1" | "next_session_nudge_2";
+    } = {},
+  ) {
+    const booked = await scheduledBooking({
+      meetingUrl: "https://teams.example/join",
+      consent: options.consent ?? true,
+      ...(options.slug ? { slug: options.slug } : {}),
+    });
+    for (const column of (options.set ?? "marketing_consent_confirmed_at").split(",")) {
+      if (column) {
+        await db.query(`update customers set ${column} = now() where id = $1`, [booked.customerId]);
+      }
+    }
+    const key = options.which ?? "next_session_nudge_1";
+    await queueForBooking(runner, booked.bookingId, [{ templateKey: key, scheduledFor: PAST }]);
+    return { ...booked, key };
+  }
+
+  it("sends the first to a confirmed customer: the next session, its link, and a way out", async () => {
+    const { bookingId, key } = await nudgeFor();
+    await run();
+
+    const sent = provider.sent.at(-1);
+    expect(sent?.subject).toBe(
+      "Ready for the next step after Claude, Claude Code & Advanced Workflows?",
+    );
+    expect(sent?.text).toContain(
+      "It is a month since your Claude, Claude Code & Advanced Workflows session.",
+    );
+    expect(sent?.html).toContain("http://localhost:3000/training/book/ai-agents");
+    expect(sent?.html).toContain(
+      "http://localhost:3000/training/book/email/unsubscribe?t=e1.unsubscribe.",
+    );
+    expect(sent?.text).toContain("you asked for occasional emails about new sessions");
+    expect(sent?.text).not.toContain("about a session you booked");
+    expect((await rowFor(bookingId, key))?.status).toBe("sent");
+  });
+
+  it("sends the second, which says it is the last", async () => {
+    await nudgeFor({ which: "next_session_nudge_2" });
+    await run();
+    const sent = provider.sent.at(-1);
+    expect(sent?.subject).toBe("AI Agents & Autonomous Workflows is there when you're ready");
+    expect(sent?.text).toContain("We won't email you about it again.");
+  });
+
+  it("withdraws it quietly, sending nothing, without confirmed consent or after unsubscribing", async () => {
+    for (const options of [
+      { consent: false, set: "" },
+      { consent: true, set: "" },
+      { consent: true, set: "marketing_consent_confirmed_at,unsubscribed_at" },
+    ]) {
+      const before = provider.sent.length;
+      const { bookingId, key } = await nudgeFor(options);
+      await run();
+      expect(provider.sent.length).toBe(before);
+      expect((await rowFor(bookingId, key))?.status).toBe("cancelled");
+    }
+    // An ordinary outcome, so nobody is alerted about these emails.
+    const aboutThese = logs.filter(
+      (l) => l.level === "error" && String(l.context?.templateKey).startsWith("next_session"),
+    );
+    expect(aboutThese).toEqual([]);
+  });
+
+  it("withdraws it after the last session in the series", async () => {
+    const { bookingId, key } = await nudgeFor({ slug: "production-ai-deployment" });
+    await run();
+    expect((await rowFor(bookingId, key))?.status).toBe("cancelled");
+  });
+
+  it("withdraws it when the customer already booked the next session or one further on", async () => {
+    const { bookingId, key, customerId } = await nudgeFor();
+    const order = await db.query<{ id: string }>(
+      `insert into orders (customer_id, order_type, session_slug, gross_amount_fils, payment_status)
+       values ($1, 'single', 'ai-builder-tech-stack', 149900, 'paid') returning id`,
+      [customerId],
+    );
+    const start = new Date(Date.UTC(2028, 0, 5, 14, 0) + counter * 3 * 60 * 60_000);
+    await db.query(
+      `insert into bookings (order_id, session_slug, sequence, status, scheduled_start, scheduled_end, customer_timezone)
+       values ($1, 'ai-builder-tech-stack', 1, 'scheduled', $2, $3, 'Europe/London')`,
+      [order.rows[0]?.id, start, new Date(start.getTime() + 90 * 60_000)],
+    );
+    const before = provider.sent.length;
+    await run();
+    expect(provider.sent.length).toBe(before);
+    expect((await rowFor(bookingId, key))?.status).toBe("cancelled");
+  });
+
+  it("is not sent about a cancelled booking", async () => {
+    const { bookingId, key } = await nudgeFor();
+    await db.query("update bookings set status = 'cancelled' where id = $1", [bookingId]);
+    await run();
+    expect((await rowFor(bookingId, key))?.status).toBe("cancelled");
+  });
+
+  it("is left for a person when no unsubscribe link can be signed", async () => {
+    state.emailLinkSecret = undefined;
+    const { bookingId, key } = await nudgeFor();
+    const before = provider.sent.length;
+    await run();
+    expect(provider.sent.length).toBe(before);
+    expect((await rowFor(bookingId, key))?.status).toBe("failed");
+  });
+
+  it("leaves the footer of booking emails as it was", async () => {
+    const { bookingId } = await scheduledBooking({ meetingUrl: "https://teams.example/join" });
+    await queueForBooking(runner, bookingId, [{ templateKey: "reminder_24h", scheduledFor: PAST }]);
+    await run();
+    expect(provider.sent.at(-1)?.text).toContain("about a session you booked");
+    expect(provider.sent.at(-1)?.html).not.toContain("/book/email/unsubscribe");
   });
 });

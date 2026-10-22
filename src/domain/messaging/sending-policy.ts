@@ -34,6 +34,8 @@ export type TemplateKey =
   | "payment_receipt"
   | "follow_up"
   | "session_offers"
+  | "next_session_nudge_1"
+  | "next_session_nudge_2"
   | "newsletter";
 
 /**
@@ -60,6 +62,9 @@ export const TEMPLATE_KINDS: Readonly<Record<TemplateKey, MessageKind>> = {
 
   // Anything else. These need consent.
   session_offers: "marketing",
+  // A month and two months after a session: the next session in the series.
+  next_session_nudge_1: "marketing",
+  next_session_nudge_2: "marketing",
   newsletter: "marketing",
 };
 

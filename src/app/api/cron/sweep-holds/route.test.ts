@@ -299,7 +299,8 @@ describe("paid bookings the calendar step did not finish", () => {
       "select count(*)::text as n from communication_log where booking_id = $1",
       [bookingId],
     );
-    expect(Number(queued.rows[0]?.n)).toBe(4);
+    // Confirmation, two reminders, the follow-up and the two next-session emails.
+    expect(Number(queued.rows[0]?.n)).toBe(6);
   });
 
   it("counts a failure and moves on when the calendar is unreachable", async () => {

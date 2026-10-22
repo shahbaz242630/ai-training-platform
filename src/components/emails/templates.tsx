@@ -19,6 +19,7 @@ import {
 import { BookingConfirmationEmail, bookingConfirmationSubject } from "./BookingConfirmationEmail";
 import { FollowUpEmail, followUpSubject } from "./FollowUpEmail";
 import { ManageLinkEmail, manageLinkSubject } from "./ManageLinkEmail";
+import { NextSessionEmail, nextSessionSubject } from "./NextSessionEmail";
 import { RefundIssuedEmail, refundIssuedSubject } from "./RefundIssuedEmail";
 import {
   CancellationConfirmationEmail,
@@ -290,6 +291,24 @@ export async function renderWithdrawalAcknowledgement(
       companyName={companyName()}
       supportEmail={supportEmail()}
     />,
+  );
+}
+
+/** One of the two emails about the next session in the series (marketing). */
+export interface NextSessionEmailModel {
+  readonly which: 1 | 2;
+  readonly firstName: string;
+  readonly sessionTitle: string;
+  readonly nextSessionTitle: string;
+  readonly nextSessionSummary: string;
+  readonly nextSessionUrl: string;
+  readonly unsubscribeUrl: string;
+}
+
+export async function renderNextSession(model: NextSessionEmailModel): Promise<RenderedEmail> {
+  return rendered(
+    nextSessionSubject(model),
+    <NextSessionEmail {...model} companyName={companyName()} supportEmail={supportEmail()} />,
   );
 }
 
