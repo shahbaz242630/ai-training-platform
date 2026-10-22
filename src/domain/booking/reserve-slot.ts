@@ -27,8 +27,12 @@ export const reserveSlotRequestSchema = z
       .object({
         agreedToTerms: z.boolean(),
         expressRequest: z.boolean(),
-        /** The details step's "I have read the prerequisites" box. */
-        prerequisitesConfirmed: z.boolean(),
+        /**
+         * The details step's "I have read the prerequisites" box. Absent
+         * from a page opened before the box existed: read as unticked, so
+         * that page is told the terms changed, not that its time is gone.
+         */
+        prerequisitesConfirmed: z.boolean().default(false),
         /** The terms version the page was built with, to catch a stale page. */
         termsVersion: z.string().min(1).max(40),
       })

@@ -87,6 +87,20 @@ describe("reserveSlotRequestSchema", () => {
     expect(reserveSlotRequestSchema.safeParse(valid).success).toBe(true);
   });
 
+  // A page opened before the box existed must be told to refresh, not that its time is gone.
+  it("reads a page without the prerequisites box as unticked, so the terms check answers it", () => {
+    const oldConsent = {
+      agreedToTerms: true,
+      expressRequest: false,
+      termsVersion: "2026-10-08",
+    };
+    const parsed = reserveSlotRequestSchema.safeParse({ ...valid, consent: oldConsent });
+    expect(parsed.success).toBe(true);
+    if (!parsed.success) return;
+    expect(parsed.data.consent.prerequisitesConfirmed).toBe(false);
+    expect(consentRefusal(parsed.data.consent, false, "2026-10-22")).toBe("terms_changed");
+  });
+
   /*
     The person check's token travels with the request (audit s101 #3). It is
     optional here on purpose: whether it is REQUIRED is the server's decision
