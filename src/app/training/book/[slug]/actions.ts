@@ -30,7 +30,7 @@ import {
   persistPendingOrder,
   SlotHoldNoLongerLiveError,
 } from "@/data/orders";
-import { getSessionBySlug } from "@/config/sessions";
+import { getSessionBySlug, prerequisiteLines } from "@/config/sessions";
 import { contactLine } from "@/components/ui/ContactLink";
 import { resolvePrice } from "@/domain/pricing/resolve-price";
 import { createOrder } from "@/domain/booking/order";
@@ -331,7 +331,9 @@ export async function startCheckoutAction(input: unknown): Promise<StartCheckout
       message:
         refusal === "terms_changed"
           ? "Our terms have just been updated. Please refresh the page to read them before booking."
-          : "Please tick the boxes to agree to the terms before paying.",
+          : refusal === "prerequisites_required"
+            ? "Please choose Edit and confirm you have read the prerequisites before paying."
+            : "Please tick the boxes to agree to the terms before paying.",
     };
   }
 
@@ -355,6 +357,8 @@ export async function startCheckoutAction(input: unknown): Promise<StartCheckout
   const consent = {
     withinCancellationPeriod,
     expressRequest: parsed.data.consent.expressRequest,
+    // The lines the page showed, from the catalogue, never from the browser.
+    prerequisitesText: prerequisiteLines(session).join("\n"),
     acceptedAt: now,
     ipAddress: clientAddressFrom(headerList.get("x-forwarded-for")),
     userAgent: headerList.get("user-agent"),
@@ -528,6 +532,7 @@ async function createOrderAndCheckout(args: {
   consent: {
     withinCancellationPeriod: boolean;
     expressRequest: boolean;
+    prerequisitesText: string;
     acceptedAt: Date;
     ipAddress: string | null;
     userAgent: string | null;

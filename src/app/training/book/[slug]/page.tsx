@@ -5,7 +5,7 @@ import { SiteFooter } from "@/components/layout/SiteFooter";
 import { Container } from "@/components/ui/Container";
 import { ButtonLink } from "@/components/ui/Button";
 import { BookingPanel } from "@/components/training/BookingPanel";
-import { getSessionBySlug, getActiveSessions } from "@/config/sessions";
+import { getSessionBySlug, getActiveSessions, prerequisiteLines } from "@/config/sessions";
 import { formatAed } from "@/lib/money";
 import { offeredSlotsForPage } from "./availability";
 import { paymentsAreConfigured } from "@/domain/payments/factory";
@@ -111,24 +111,19 @@ export default async function BookSessionPage({ params }: PageProps<"/training/b
                 </div>
               </dl>
 
-              <div className="mt-8">
-                <h2 className="text-accent font-mono text-xs font-normal">
-                  What this session covers
-                </h2>
-                <ul className="mt-3.5 space-y-[9px]">
-                  {session.topics.map((topic) => (
-                    <li
-                      key={topic}
-                      className="text-ink-soft flex gap-2.5 text-[15px] leading-normal"
-                    >
-                      <span
-                        className="bg-accent-dot mt-2 size-[5px] shrink-0 rounded-full"
-                        aria-hidden="true"
-                      />
-                      {topic}
-                    </li>
-                  ))}
-                </ul>
+              {/*
+                What the session covers and what it needs, side by side so the
+                prerequisites are seen before booking (founder, 2026-10-22);
+                stacked on a phone. The booking box asks for a tick that they
+                were read, and the booking record keeps these exact lines.
+              */}
+              <div className="mt-8 grid grid-cols-[minmax(0,1fr)] gap-8 sm:grid-cols-2">
+                <BulletList heading="What this session covers" items={session.topics} />
+                <BulletList
+                  id="prerequisites"
+                  heading="Prerequisites"
+                  items={prerequisiteLines(session)}
+                />
               </div>
 
               <div className="mt-10">
@@ -170,5 +165,34 @@ export default async function BookSessionPage({ params }: PageProps<"/training/b
       </main>
       <SiteFooter />
     </>
+  );
+}
+
+function BulletList({
+  heading,
+  items,
+  id,
+}: {
+  heading: string;
+  items: readonly string[];
+  id?: string;
+}) {
+  return (
+    <div id={id} className="scroll-mt-24">
+      <h2 className="text-ink decoration-accent text-[18px] font-semibold underline decoration-2 underline-offset-[6px]">
+        {heading}
+      </h2>
+      <ul className="mt-3.5 space-y-[9px]">
+        {items.map((item) => (
+          <li key={item} className="text-ink-soft flex gap-2.5 text-[15px] leading-normal">
+            <span
+              className="bg-accent-dot mt-2 size-[5px] shrink-0 rounded-full"
+              aria-hidden="true"
+            />
+            {item}
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }

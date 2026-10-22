@@ -75,7 +75,12 @@ describe("reserveSlotRequestSchema", () => {
   const valid = {
     slug: "ai-foundations",
     slotStart: "2027-05-10T14:00:00.000Z",
-    consent: { agreedToTerms: true, expressRequest: false, termsVersion: "2026-09-27" },
+    consent: {
+      agreedToTerms: true,
+      expressRequest: false,
+      prerequisitesConfirmed: true,
+      termsVersion: "2026-09-27",
+    },
   };
 
   it("accepts a well formed request", () => {
@@ -132,7 +137,12 @@ describe("the consent a booking carries", () => {
   const valid = {
     slug: "ai-foundations",
     slotStart: "2027-05-10T14:00:00.000Z",
-    consent: { agreedToTerms: true, expressRequest: false, termsVersion: "2026-09-27" },
+    consent: {
+      agreedToTerms: true,
+      expressRequest: false,
+      prerequisitesConfirmed: true,
+      termsVersion: "2026-09-27",
+    },
   };
 
   it("refuses a request with no consent at all", () => {
@@ -153,9 +163,15 @@ describe("the consent a booking carries", () => {
 
 describe("consentRefusal", () => {
   const v = "2026-09-27";
-  const ticks = (agreedToTerms: boolean, expressRequest: boolean, termsVersion = v) => ({
+  const ticks = (
+    agreedToTerms: boolean,
+    expressRequest: boolean,
+    termsVersion = v,
+    prerequisitesConfirmed = true,
+  ) => ({
     agreedToTerms,
     expressRequest,
+    prerequisitesConfirmed,
     termsVersion,
   });
 
@@ -172,6 +188,11 @@ describe("consentRefusal", () => {
   it("requires the express request for a session inside the 14 days", () => {
     expect(consentRefusal(ticks(true, false), true, v)).toBe("consent_required");
     expect(consentRefusal(ticks(true, true), true, v)).toBeNull();
+  });
+
+  it("always requires the prerequisites box", () => {
+    expect(consentRefusal(ticks(true, false, v, false), false, v)).toBe("prerequisites_required");
+    expect(consentRefusal(ticks(true, true, v, false), true, v)).toBe("prerequisites_required");
   });
 
   it("refuses a page built with older terms", () => {

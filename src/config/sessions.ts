@@ -27,8 +27,15 @@ export interface SessionType {
   readonly audience: string;
   readonly outcome: string;
   readonly topics: readonly string[];
+  /** Slugs of the sessions this one builds on. */
   readonly prerequisites: readonly string[];
   readonly prerequisiteNote?: string;
+  /**
+   * What somebody needs before this session, one line each, shown beside the
+   * topics on the booking page (founder, 2026-10-22). Written one session at
+   * a time; a session without any shows NO_PREREQUISITES.
+   */
+  readonly requirements?: readonly string[];
   readonly active: boolean;
   readonly displayOrder: number;
   /** Populated from env/config once Stripe prices exist. */
@@ -61,6 +68,13 @@ export const SESSIONS: readonly SessionType[] = [
       "Structuring work for AI-assisted building",
     ],
     prerequisites: [],
+    requirements: [
+      "Your own personal computer or laptop. Please do not use a company laptop.",
+      "A paid Claude subscription (Pro, about US$20 a month).",
+      "A paid ChatGPT subscription (Plus, about US$20 a month).",
+      "Free accounts with Kimi, DeepSeek and Gemini, set up before the session.",
+      "The ChatGPT and Claude desktop apps, downloaded and installed before the session.",
+    ],
     active: true,
     displayOrder: 1,
     stripePriceIdEnvKey: "STRIPE_PRICE_S1",
@@ -89,6 +103,12 @@ export const SESSIONS: readonly SessionType[] = [
       "Iterative build and testing patterns",
     ],
     prerequisites: [],
+    requirements: [
+      "Your own personal computer or laptop. Please do not use a company laptop.",
+      "The ChatGPT desktop app, downloaded and installed before the session.",
+      "A paid ChatGPT subscription (Plus, about US$20 a month).",
+      "An OpenAI API account set up. If you do not have one yet, we will help you set it up step by step.",
+    ],
     active: true,
     displayOrder: 2,
     stripePriceIdEnvKey: "STRIPE_PRICE_S2",
@@ -117,6 +137,12 @@ export const SESSIONS: readonly SessionType[] = [
       "Choosing the right ecosystem for a task",
     ],
     prerequisites: [],
+    requirements: [
+      "Your own personal computer or laptop. Please do not use a company laptop.",
+      "The Claude desktop app, downloaded and installed before the session.",
+      "A paid Claude subscription (Pro, about US$20 a month).",
+      "An Anthropic API (Claude Console) account set up. If you do not have one yet, we will help you set it up step by step.",
+    ],
     active: true,
     displayOrder: 3,
     stripePriceIdEnvKey: "STRIPE_PRICE_S3",
@@ -144,6 +170,15 @@ export const SESSIONS: readonly SessionType[] = [
       "Safety boundaries and human approval",
     ],
     prerequisites: [],
+    requirements: [
+      "Your own personal computer or laptop. Please do not use a company laptop.",
+      "The Hermes agent desktop app, downloaded and installed before the session.",
+      "Claude Code (the command-line tool) installed and set up.",
+      "A paid ChatGPT subscription (Plus, about US$20 a month).",
+      "A paid Claude subscription (Pro, about US$20 a month).",
+      "Docker Desktop, downloaded and installed.",
+      "A Telegram account set up.",
+    ],
     active: true,
     displayOrder: 4,
     stripePriceIdEnvKey: "STRIPE_PRICE_S4",
@@ -174,6 +209,17 @@ export const SESSIONS: readonly SessionType[] = [
       "Environments, secrets, monitoring and deployment",
     ],
     prerequisites: [],
+    requirements: [
+      "Your own personal computer or laptop. Please do not use a company laptop.",
+      "A GitHub account.",
+      "A Supabase account (the free plan is fine).",
+      "A Hostinger account. Creating the account is free; hosting itself needs a paid plan.",
+      "A Cloudflare account (the free plan is fine).",
+      "A Clerk account (the free plan is fine).",
+      "Docker Desktop, downloaded and installed.",
+      "An uptime monitoring account (a free plan is fine).",
+      "A Vercel account (the free plan is fine).",
+    ],
     active: true,
     displayOrder: 5,
     stripePriceIdEnvKey: "STRIPE_PRICE_S5",
@@ -205,6 +251,15 @@ export const SESSIONS: readonly SessionType[] = [
     prerequisites: ["ai-builder-tech-stack"],
     prerequisiteNote:
       "Advanced implementation session: prerequisites apply. Session 5 or equivalent experience is normally required, and depending on the project Sessions 3 and/or 4 may also be needed. This session covers the defined live session, not unlimited engineering work.",
+    requirements: [
+      "Your own personal computer or laptop. Please do not use a company laptop.",
+      "A GitHub account with your project's repository set up.",
+      "Your project chosen and ready to work on.",
+      "This is AI-supported deployment, so a paid Claude subscription that includes Claude Code, of at least US$20 a month. The US$100 a month plan is better.",
+      "A paid ChatGPT subscription of at least US$20 a month. A higher plan is better.",
+      "Free accounts with Vercel and Supabase.",
+      "Free accounts set up on Microsoft Azure, AWS and Google Cloud Console.",
+    ],
     active: true,
     displayOrder: 6,
     stripePriceIdEnvKey: "STRIPE_PRICE_S6",
@@ -217,6 +272,21 @@ export function getSessionBySlug(slug: string): SessionType | undefined {
 
 export function getSessionByCode(code: SessionType["code"]): SessionType | undefined {
   return SESSIONS.find((s) => s.code === code);
+}
+
+export const NO_PREREQUISITES = "There are no prerequisites for this session.";
+
+/**
+ * The prerequisites exactly as the booking page shows them. The booking
+ * record stores these same lines, so the page must render this and add
+ * nothing of its own.
+ */
+export function prerequisiteLines(session: SessionType): readonly string[] {
+  const lines = [
+    ...(session.requirements ?? []),
+    ...(session.prerequisiteNote === undefined ? [] : [session.prerequisiteNote]),
+  ];
+  return lines.length > 0 ? lines : [NO_PREREQUISITES];
 }
 
 export function getActiveSessions(): readonly SessionType[] {

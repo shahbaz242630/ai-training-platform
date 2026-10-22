@@ -92,6 +92,9 @@ export function BookingPanel({
   // Never pre-ticked. What they say is stored word for word by the server.
   const [agreed, setAgreed] = useState(false);
   const [expressRequest, setExpressRequest] = useState(false);
+  // Asked on the details step, recorded with the booking (founder, 2026-10-22).
+  const [prerequisitesRead, setPrerequisitesRead] = useState(false);
+  const [prerequisitesMissed, setPrerequisitesMissed] = useState(false);
 
   /*
     The person check (audit s101 #3). A token is single-use, so every refusal
@@ -163,8 +166,13 @@ export function BookingPanel({
     // This is NOT the boundary - the server validates the same payload again,
     // because a browser can be told anything.
     const local = parsePrePaymentIntake({ ...draft, timezone: timeZone });
+    setPrerequisitesMissed(!prerequisitesRead);
     if (!local.ok) {
       setErrors(local.errors);
+      return;
+    }
+    if (!prerequisitesRead) {
+      setErrors([]);
       return;
     }
 
@@ -206,7 +214,12 @@ export function BookingPanel({
       const result = await startCheckoutAction({
         slug,
         slotStart: wanted,
-        consent: { agreedToTerms: agreed, expressRequest, termsVersion: TERMS_VERSION },
+        consent: {
+          agreedToTerms: agreed,
+          expressRequest,
+          prerequisitesConfirmed: prerequisitesRead,
+          termsVersion: TERMS_VERSION,
+        },
         turnstileToken: challengeToken ?? undefined,
       });
 
@@ -348,7 +361,7 @@ export function BookingPanel({
             className="mt-3.5"
           />
           <Field
-            label="What do you want to get out of this session?"
+            label="Your goal for this session, and a real task you'd like to work on"
             value={draft.primaryGoal}
             onChange={(value) => set("primaryGoal", value)}
             error={errorFor("primaryGoal")}
@@ -357,11 +370,40 @@ export function BookingPanel({
           />
 
           {/*
+            Required, never pre-ticked. The server refuses checkout without
+            it and stores the prerequisites shown with the booking.
+          */}
+          <label className="mt-4 flex cursor-pointer items-start gap-2.5">
+            <input
+              type="checkbox"
+              checked={prerequisitesRead}
+              onChange={(event) => {
+                setPrerequisitesRead(event.target.checked);
+                if (event.target.checked) setPrerequisitesMissed(false);
+              }}
+              aria-invalid={prerequisitesMissed}
+              className="accent-accent-ring mt-0.5 h-4 w-4 shrink-0"
+            />
+            <span className="text-ink-soft text-[13px] leading-[1.55]">
+              I have read the{" "}
+              <a href="#prerequisites" className="text-accent underline underline-offset-[3px]">
+                prerequisites
+              </a>{" "}
+              for this session.
+            </span>
+          </label>
+          {prerequisitesMissed && (
+            <p className="text-error mt-1.5 text-[12.5px] leading-relaxed">
+              Please confirm you have read the prerequisites.
+            </p>
+          )}
+
+          {/*
             Unticked by default and never pre-ticked. Emails about a session
             somebody paid for are transactional; anything sent later is
             marketing, and that needs a recorded opt-in.
           */}
-          <label className="mt-4 flex cursor-pointer items-start gap-2.5">
+          <label className="mt-3 flex cursor-pointer items-start gap-2.5">
             <input
               type="checkbox"
               checked={draft.marketingConsent}

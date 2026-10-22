@@ -27,6 +27,8 @@ export const reserveSlotRequestSchema = z
       .object({
         agreedToTerms: z.boolean(),
         expressRequest: z.boolean(),
+        /** The details step's "I have read the prerequisites" box. */
+        prerequisitesConfirmed: z.boolean(),
         /** The terms version the page was built with, to catch a stale page. */
         termsVersion: z.string().min(1).max(40),
       })
@@ -55,7 +57,9 @@ export type ConsentRefusal =
   /** A required box was not ticked. */
   | "consent_required"
   /** The page was built with older terms than the ones now published. */
-  | "terms_changed";
+  | "terms_changed"
+  /** The prerequisites box on the details step was not ticked. */
+  | "prerequisites_required";
 
 /**
  * Were the right boxes ticked for this slot?
@@ -63,7 +67,8 @@ export type ConsentRefusal =
  * The agreement is always required. The express request is required whenever
  * the session starts inside the cancellation period, which the caller decides
  * from the slot on the server. A page built with older terms is refused rather
- * than recorded against terms the customer never saw.
+ * than recorded against terms the customer never saw. The prerequisites box
+ * is always required too.
  */
 export function consentRefusal(
   consent: ReserveSlotRequest["consent"],
@@ -73,6 +78,7 @@ export function consentRefusal(
   if (consent.termsVersion !== currentTermsVersion) return "terms_changed";
   if (!consent.agreedToTerms) return "consent_required";
   if (withinCancellationPeriod && !consent.expressRequest) return "consent_required";
+  if (!consent.prerequisitesConfirmed) return "prerequisites_required";
   return null;
 }
 
