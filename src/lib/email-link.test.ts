@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createManageToken, readManageToken } from "./manage-link";
-import { createEmailLinkToken, readEmailLinkToken } from "./email-link";
+import { createEmailLinkToken, emailLinkKeys, readEmailLinkToken } from "./email-link";
 
 const SECRET = "s".repeat(32);
 const OTHER_SECRET = "t".repeat(32);
@@ -49,6 +49,27 @@ describe("email links", () => {
     const token = createEmailLinkToken({ purpose: "unsubscribe", customerId: CUSTOMER }, SECRET);
     expect(token.split(".")).toHaveLength(4);
     expect(token).not.toContain("@");
+  });
+
+  it("keeps old links working when the secret is replaced", () => {
+    const old = createEmailLinkToken(
+      { purpose: "unsubscribe", customerId: CUSTOMER },
+      OTHER_SECRET,
+    );
+    const keys = emailLinkKeys(SECRET, OTHER_SECRET);
+    expect(keys.sign).toBe(SECRET);
+    expect(readEmailLinkToken(old, "unsubscribe", keys.read)).toBe(CUSTOMER);
+    // Without the previous secret, the old link no longer reads.
+    expect(
+      readEmailLinkToken(old, "unsubscribe", emailLinkKeys(SECRET, undefined).read),
+    ).toBeNull();
+  });
+
+  it("signs nothing and reads nothing with no secret configured", () => {
+    const keys = emailLinkKeys(undefined, undefined);
+    expect(keys.sign).toBeNull();
+    const token = createEmailLinkToken({ purpose: "confirm", customerId: CUSTOMER }, SECRET);
+    expect(readEmailLinkToken(token, "confirm", keys.read)).toBeNull();
   });
 
   it("refuses a short secret rather than signing weakly", () => {

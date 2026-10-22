@@ -7,7 +7,7 @@ import { withTransaction } from "@/data/db";
 import { recordAudit } from "@/lib/audit";
 import { limitKeyFrom } from "@/lib/client-address";
 import { serverEnv } from "@/lib/env";
-import type { EmailLinkPurpose } from "@/lib/email-link";
+import { emailLinkKeys, type EmailLinkPurpose } from "@/lib/email-link";
 import { logger } from "@/lib/logger";
 import { createRateLimiter } from "@/lib/rate-limit";
 import { actOnEmailLink } from "./flow";
@@ -25,6 +25,11 @@ const PAGES: Readonly<Record<EmailLinkPurpose, string>> = {
   unsubscribe: `${TRAINING_BASE}/book/email/unsubscribe`,
 };
 
+function linkSecrets(): readonly string[] {
+  const env = serverEnv();
+  return emailLinkKeys(env.EMAIL_LINK_SECRET, env.EMAIL_LINK_SECRET_PREVIOUS).read;
+}
+
 async function act(purpose: EmailLinkPurpose, form: FormData): Promise<LinkOutcome> {
   const address = limitKeyFrom((await headers()).get("x-forwarded-for"));
   if (!limiter.check(address, new Date()).allowed) return "busy";
@@ -35,7 +40,7 @@ async function act(purpose: EmailLinkPurpose, form: FormData): Promise<LinkOutco
       {
         transaction: withTransaction,
         now: new Date(),
-        secret: serverEnv().MANAGE_LINK_SECRET ?? null,
+        secrets: linkSecrets(),
       },
     );
     if (!result.ok) return "invalid";

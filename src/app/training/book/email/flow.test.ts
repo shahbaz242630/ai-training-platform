@@ -19,7 +19,7 @@ function fakeDeps(rows: unknown[] = [{ id: CUSTOMER }]) {
   const deps: EmailLinkDeps = {
     transaction: (work) => work(runner),
     now: NOW,
-    secret: SECRET,
+    secrets: [SECRET],
   };
   return { deps, statements };
 }
@@ -52,27 +52,27 @@ describe("the buttons behind our email links", () => {
   });
 
   it("does nothing at all for a link of the other kind, a bad link, or no secret", async () => {
-    const cases: [Parameters<typeof actOnEmailLink>[0], unknown, string | null][] = [
-      ["unsubscribe", { token: token("confirm") }, SECRET],
-      ["confirm", { token: token("unsubscribe") }, SECRET],
-      ["confirm", { token: "e1.confirm.nope.nope" }, SECRET],
-      ["confirm", { token: "" }, SECRET],
-      ["confirm", { token: "x".repeat(500) }, SECRET],
-      ["confirm", null, SECRET],
-      ["confirm", { token: token("confirm") }, null],
+    const cases: [Parameters<typeof actOnEmailLink>[0], unknown, readonly string[]][] = [
+      ["unsubscribe", { token: token("confirm") }, [SECRET]],
+      ["confirm", { token: token("unsubscribe") }, [SECRET]],
+      ["confirm", { token: "e1.confirm.nope.nope" }, [SECRET]],
+      ["confirm", { token: "" }, [SECRET]],
+      ["confirm", { token: "x".repeat(500) }, [SECRET]],
+      ["confirm", null, [SECRET]],
+      ["confirm", { token: token("confirm") }, []],
     ];
-    for (const [purpose, raw, secret] of cases) {
+    for (const [purpose, raw, secrets] of cases) {
       const { deps, statements } = fakeDeps();
-      expect(await actOnEmailLink(purpose, raw, { ...deps, secret })).toEqual({ ok: false });
+      expect(await actOnEmailLink(purpose, raw, { ...deps, secrets })).toEqual({ ok: false });
       expect(statements).toHaveLength(0);
     }
   });
 
   it("only shows the button for a link that would work", () => {
-    expect(isUsableLink(token("confirm"), "confirm", SECRET)).toBe(true);
-    expect(isUsableLink(token("confirm"), "unsubscribe", SECRET)).toBe(false);
-    expect(isUsableLink(undefined, "confirm", SECRET)).toBe(false);
-    expect(isUsableLink(["a", "b"], "confirm", SECRET)).toBe(false);
-    expect(isUsableLink(token("confirm"), "confirm", null)).toBe(false);
+    expect(isUsableLink(token("confirm"), "confirm", [SECRET])).toBe(true);
+    expect(isUsableLink(token("confirm"), "unsubscribe", [SECRET])).toBe(false);
+    expect(isUsableLink(undefined, "confirm", [SECRET])).toBe(false);
+    expect(isUsableLink(["a", "b"], "confirm", [SECRET])).toBe(false);
+    expect(isUsableLink(token("confirm"), "confirm", [])).toBe(false);
   });
 });

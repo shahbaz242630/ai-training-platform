@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { emailLinkKeys } from "@/lib/email-link";
 import { serverEnv } from "@/lib/env";
 import { confirmEmailsAction, type LinkOutcome } from "../actions";
 import { EmailLinkPage } from "../EmailLinkPage";
@@ -19,11 +20,12 @@ const OUTCOMES: ReadonlySet<string> = new Set<LinkOutcome>(["done", "invalid", "
 
 export default async function Page({ searchParams }: PageProps<"/training/book/email/confirm">) {
   const { t, outcome } = await searchParams;
-  const secret = serverEnv().MANAGE_LINK_SECRET ?? null;
+  const env = serverEnv();
+  const secrets = emailLinkKeys(env.EMAIL_LINK_SECRET, env.EMAIL_LINK_SECRET_PREVIOUS).read;
   return (
     <EmailLinkPage
       purpose="confirm"
-      token={isUsableLink(t, "confirm", secret) ? (t as string) : null}
+      token={isUsableLink(t, "confirm", secrets) ? (t as string) : null}
       outcome={
         typeof outcome === "string" && OUTCOMES.has(outcome) ? (outcome as LinkOutcome) : null
       }

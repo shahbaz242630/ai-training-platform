@@ -32,7 +32,7 @@ import { nextAttemptAt } from "@/domain/messaging/schedule";
 import { decideSendTemplate, type TemplateKey } from "@/domain/messaging/sending-policy";
 import { clientEnv, serverEnv } from "@/lib/env";
 import { logger } from "@/lib/logger";
-import { createEmailLinkToken } from "@/lib/email-link";
+import { createEmailLinkToken, emailLinkKeys } from "@/lib/email-link";
 import { createManageToken } from "@/lib/manage-link";
 import { addDays } from "@/lib/time";
 import { CHOOSE_TIME_LINK_DAYS } from "@/components/emails/desk-alerts";
@@ -338,7 +338,7 @@ function manageUrlFor(bookingId: string, sessionStart: Date): string | null {
 /**
  * The link that confirms the occasional emails about new sessions, offered
  * only while the customer asked for them and has neither confirmed nor
- * withdrawn. Null without a signing secret, like the booking link.
+ * withdrawn. Null without the email-link secret, like the booking link.
  */
 export function confirmEmailsUrlFor(
   context: Pick<
@@ -348,7 +348,8 @@ export function confirmEmailsUrlFor(
 ): string | null {
   if (!context.marketingConsent) return null;
   if (context.marketingConsentConfirmedAt !== null || context.unsubscribedAt !== null) return null;
-  const secret = serverEnv().MANAGE_LINK_SECRET;
+  const env = serverEnv();
+  const secret = emailLinkKeys(env.EMAIL_LINK_SECRET, env.EMAIL_LINK_SECRET_PREVIOUS).sign;
   if (!secret) return null;
   const token = createEmailLinkToken(
     { purpose: "confirm", customerId: context.customerId },

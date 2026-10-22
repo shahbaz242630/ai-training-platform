@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { emailLinkKeys } from "@/lib/email-link";
 import { serverEnv } from "@/lib/env";
 import { unsubscribeAction, type LinkOutcome } from "../actions";
 import { EmailLinkPage } from "../EmailLinkPage";
@@ -21,11 +22,12 @@ export default async function Page({
   searchParams,
 }: PageProps<"/training/book/email/unsubscribe">) {
   const { t, outcome } = await searchParams;
-  const secret = serverEnv().MANAGE_LINK_SECRET ?? null;
+  const env = serverEnv();
+  const secrets = emailLinkKeys(env.EMAIL_LINK_SECRET, env.EMAIL_LINK_SECRET_PREVIOUS).read;
   return (
     <EmailLinkPage
       purpose="unsubscribe"
-      token={isUsableLink(t, "unsubscribe", secret) ? (t as string) : null}
+      token={isUsableLink(t, "unsubscribe", secrets) ? (t as string) : null}
       outcome={
         typeof outcome === "string" && OUTCOMES.has(outcome) ? (outcome as LinkOutcome) : null
       }

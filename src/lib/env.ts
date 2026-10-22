@@ -64,6 +64,16 @@ const serverSchema = z.object({
     already sent stop working, so set it once per environment.
   */
   MANAGE_LINK_SECRET: optional(z.string().min(32)),
+  /*
+    Signs the links in our emails that confirm or stop occasional emails about
+    new sessions. Separate from the booking-link secret, so changing that one
+    never breaks an unsubscribe link already in somebody's inbox. These links
+    do not expire, so to replace this secret (only if it leaked): put the
+    current value in EMAIL_LINK_SECRET_PREVIOUS first, then set the new one;
+    links signed with either still work. At least 32 characters.
+  */
+  EMAIL_LINK_SECRET: optional(z.string().min(32)),
+  EMAIL_LINK_SECRET_PREVIOUS: optional(z.string().min(32)),
   SENTRY_DSN: optional(z.string()),
   /*
     The outside monitor the five-minute sweep checks in with (audit s101 #7):

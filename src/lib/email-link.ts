@@ -11,7 +11,9 @@ import { createHmac, timingSafeEqual } from "node:crypto";
  * signed text starts with a label of its own, and the shape differs.
  *
  * It does not expire. An unsubscribe link must still work in an email opened
- * months later, and both actions are harmless to repeat.
+ * months later, and both actions are harmless to repeat. For the same reason
+ * reading accepts more than one secret: when the secret is replaced, links
+ * signed with the previous one keep working.
  *
  * Format: e1.<purpose>.<customer id>.<HMAC-SHA256, base64url>
  */
@@ -40,19 +42,39 @@ export function createEmailLinkToken(input: EmailLinkInput, secret: string): str
 export function readEmailLinkToken(
   token: string,
   purpose: EmailLinkPurpose,
-  secret: string,
+  secrets: string | readonly string[],
 ): string | null {
-  assertSecret(secret);
+  const keys = typeof secrets === "string" ? [secrets] : secrets;
+  for (const key of keys) assertSecret(key);
   const parts = token.split(".");
   if (parts.length !== 4) return null;
   const [version, given, customerId, signature] = parts as [string, string, string, string];
   if (version !== VERSION || given !== purpose || !PURPOSES.has(given)) return null;
   if (!UUID.test(customerId)) return null;
 
-  const expected = Buffer.from(sign(`${version}.${given}.${customerId}`, secret));
   const presented = Buffer.from(signature);
-  if (presented.length !== expected.length || !timingSafeEqual(presented, expected)) return null;
-  return customerId;
+  for (const key of keys) {
+    const expected = Buffer.from(sign(`${version}.${given}.${customerId}`, key));
+    if (presented.length === expected.length && timingSafeEqual(presented, expected)) {
+      return customerId;
+    }
+  }
+  return null;
+}
+
+/**
+ * The secrets in use, from the two settings: new links are signed with the
+ * current one; a link signed with either is read. Null to sign when the
+ * current one is not configured, so no email carries a link that cannot work.
+ */
+export function emailLinkKeys(
+  current: string | undefined,
+  previous: string | undefined,
+): { readonly sign: string | null; readonly read: readonly string[] } {
+  return {
+    sign: current ?? null,
+    read: [current, previous].filter((key): key is string => key !== undefined),
+  };
 }
 
 function sign(body: string, secret: string): string {

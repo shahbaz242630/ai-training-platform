@@ -53,7 +53,7 @@ export function EmailLinkPage({ purpose, token, outcome, action }: EmailLinkPage
             <h1 className="text-ink mb-6 font-serif text-[clamp(30px,4vw,42px)] leading-[1.1] font-[450] tracking-[-0.02em] text-balance">
               {words.title}
             </h1>
-            <Body words={words} token={token} outcome={outcome} action={action} />
+            <Body purpose={purpose} words={words} token={token} outcome={outcome} action={action} />
           </div>
         </Container>
       </main>
@@ -63,11 +63,13 @@ export function EmailLinkPage({ purpose, token, outcome, action }: EmailLinkPage
 }
 
 function Body({
+  purpose,
   words,
   token,
   outcome,
   action,
 }: {
+  readonly purpose: EmailLinkPurpose;
   readonly words: (typeof WORDS)[EmailLinkPurpose];
   readonly token: string | null;
   readonly outcome: LinkOutcome | null;
@@ -91,6 +93,9 @@ function Body({
       <p className={paragraph}>
         This link did not work. If you copied it from the email, check that you copied all of it, or
         email <ContactLink showAddress />.
+        {purpose === "unsubscribe"
+          ? " You can also reply “unsubscribe” to any of our emails, and we will stop them."
+          : null}
       </p>
     );
   }

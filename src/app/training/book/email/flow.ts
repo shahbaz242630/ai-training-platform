@@ -16,8 +16,8 @@ import { readEmailLinkToken, type EmailLinkPurpose } from "@/lib/email-link";
 export interface EmailLinkDeps {
   readonly transaction: <T>(work: (runner: QueryRunner) => Promise<T>) => Promise<T>;
   readonly now: Date;
-  /** The server's link secret, or null when none is configured. */
-  readonly secret: string | null;
+  /** The secrets a link may be signed with; empty when none is configured. */
+  readonly secrets: readonly string[];
 }
 
 export type EmailLinkResult =
@@ -30,10 +30,10 @@ const input = z.object({ token: z.string().min(1).max(200) });
 export function isUsableLink(
   token: unknown,
   purpose: EmailLinkPurpose,
-  secret: string | null,
+  secrets: readonly string[],
 ): boolean {
-  if (secret === null || typeof token !== "string" || token.length > 200) return false;
-  return readEmailLinkToken(token, purpose, secret) !== null;
+  if (secrets.length === 0 || typeof token !== "string" || token.length > 200) return false;
+  return readEmailLinkToken(token, purpose, secrets) !== null;
 }
 
 export async function actOnEmailLink(
@@ -42,8 +42,8 @@ export async function actOnEmailLink(
   deps: EmailLinkDeps,
 ): Promise<EmailLinkResult> {
   const parsed = input.safeParse(raw);
-  if (!parsed.success || deps.secret === null) return { ok: false };
-  const customerId = readEmailLinkToken(parsed.data.token, purpose, deps.secret);
+  if (!parsed.success || deps.secrets.length === 0) return { ok: false };
+  const customerId = readEmailLinkToken(parsed.data.token, purpose, deps.secrets);
   if (customerId === null) return { ok: false };
 
   if (purpose === "confirm") {

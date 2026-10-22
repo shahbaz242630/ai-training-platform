@@ -21,13 +21,18 @@ const state = vi.hoisted(() => ({
   emailConfigured: true,
   realIdentity: true,
   manageSecret: "x".repeat(40) as string | undefined,
+  emailLinkSecret: "e".repeat(40) as string | undefined,
 }));
 
 let provider = new MockEmailProvider();
 let db: PGlite;
 
 vi.mock("@/lib/env", () => ({
-  serverEnv: () => ({ CRON_SECRET: state.cronSecret, MANAGE_LINK_SECRET: state.manageSecret }),
+  serverEnv: () => ({
+    CRON_SECRET: state.cronSecret,
+    MANAGE_LINK_SECRET: state.manageSecret,
+    EMAIL_LINK_SECRET: state.emailLinkSecret,
+  }),
   clientEnv: { NEXT_PUBLIC_SITE_ENV: "development", NEXT_PUBLIC_SITE_URL: "http://localhost:3000" },
 }));
 
@@ -85,6 +90,7 @@ beforeEach(() => {
   state.emailConfigured = true;
   state.realIdentity = true;
   state.manageSecret = "x".repeat(40);
+  state.emailLinkSecret = "e".repeat(40);
   provider = new MockEmailProvider();
   logs = [];
   setLogSink((record) => {
@@ -885,9 +891,15 @@ describe("confirming emails about new sessions", () => {
   });
 
   it("carries no link that cannot work when no secret is configured", async () => {
-    state.manageSecret = undefined;
+    state.emailLinkSecret = undefined;
     const sent = await confirmationFor({ consent: true });
     expect(sent?.html).not.toContain("/book/email/confirm");
+  });
+
+  it("does not depend on the booking-link secret", async () => {
+    state.manageSecret = undefined;
+    const sent = await confirmationFor({ consent: true });
+    expect(sent?.html).toContain(CONFIRM);
   });
 
   it("is never in a reminder", async () => {
