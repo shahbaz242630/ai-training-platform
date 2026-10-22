@@ -41,6 +41,7 @@ describe("customer-facing copy", () => {
         s.audience,
         s.prerequisiteNote ?? "",
         ...s.topics,
+        ...(s.requirements ?? []),
       ].join(" ");
       expect(copy, s.code).not.toMatch(BANNED);
     }
