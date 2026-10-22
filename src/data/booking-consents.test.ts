@@ -1,5 +1,6 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
+import { createHash } from "node:crypto";
 import { PGlite } from "@electric-sql/pglite";
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { consentTexts, recordBookingConsent } from "./booking-consents";
@@ -10,11 +11,14 @@ import {
   KEY_TERMS,
   TERMS_VERSION,
 } from "@/config/booking-terms";
+import { NO_PREREQUISITES } from "@/config/sessions";
 
 /**
  * The record a card dispute or a cancellation claim is answered with. Its
  * value is that it holds exactly the words shown, when, and from where.
  */
+
+const PREREQUISITES = NO_PREREQUISITES;
 
 let db: PGlite;
 let runner: QueryRunner;
@@ -60,6 +64,7 @@ describe("recordBookingConsent", () => {
       acceptedAt,
       ipAddress: "203.0.113.7",
       userAgent: "Mozilla/5.0",
+      prerequisitesText: PREREQUISITES,
     });
 
     const row = (
@@ -75,7 +80,31 @@ describe("recordBookingConsent", () => {
     expect(row.express_request).toBe(true);
     expect(new Date(row.accepted_at as string).toISOString()).toBe(acceptedAt.toISOString());
     expect(row.ip_address).toBe("203.0.113.7");
-    expect(row.text_sha256).toBe(consentTexts(true).sha256);
+    expect(row.prerequisites_text).toBe(PREREQUISITES);
+    expect(row.prerequisites_confirmed).toBe(true);
+    expect(row.text_sha256).toBe(consentTexts(true, PREREQUISITES).sha256);
+  });
+
+  // Rows from before the box keep nulls; a stored text is always a tick.
+  it("allows the old rows' nulls and refuses prerequisites without the tick", async () => {
+    const legacy = await newOrder();
+    await db.query(
+      `insert into booking_consents
+         (order_id, terms_version, key_terms, agreement_text, within_cancellation_period,
+          express_request, text_sha256, accepted_at)
+       values ($1, 'v', 'k', 'a', false, false, $2, now())`,
+      [legacy, consentTexts(false).sha256],
+    );
+    const unticked = await newOrder();
+    await expect(
+      db.query(
+        `insert into booking_consents
+           (order_id, terms_version, key_terms, agreement_text, within_cancellation_period,
+            express_request, text_sha256, accepted_at, prerequisites_text, prerequisites_confirmed)
+         values ($1, 'v', 'k', 'a', false, false, $2, now(), 'p', false)`,
+        [unticked, consentTexts(false).sha256],
+      ),
+    ).rejects.toThrow(/booking_consents_prerequisites_together/);
   });
 
   it("stores no express request text when the box was not shown", async () => {
@@ -87,6 +116,7 @@ describe("recordBookingConsent", () => {
       acceptedAt: new Date(),
       ipAddress: null,
       userAgent: null,
+      prerequisitesText: PREREQUISITES,
     });
     const row = (
       await db.query<{ express_request_text: string | null }>(
@@ -108,6 +138,7 @@ describe("recordBookingConsent", () => {
         acceptedAt: new Date(),
         ipAddress: null,
         userAgent: null,
+        prerequisitesText: PREREQUISITES,
       }),
     ).rejects.toThrow(/booking_consents_express_when_needed/);
   });
@@ -121,6 +152,7 @@ describe("recordBookingConsent", () => {
       acceptedAt: new Date(),
       ipAddress: null,
       userAgent: "x".repeat(2000),
+      prerequisitesText: PREREQUISITES,
     });
     const row = (
       await db.query<{ user_agent: string }>(
@@ -136,5 +168,15 @@ describe("consentTexts", () => {
   it("seals a different hash when the words differ", () => {
     expect(consentTexts(true).sha256).not.toBe(consentTexts(false).sha256);
     expect(consentTexts(false).sha256).toMatch(/^[0-9a-f]{64}$/);
+    expect(consentTexts(false, "a").sha256).not.toBe(consentTexts(false, "b").sha256);
+  });
+
+  // The records written before the box existed must still check out.
+  it("seals the earlier hash when there are no prerequisites", () => {
+    const earlier = createHash("sha256")
+      .update([TERMS_VERSION, KEY_TERMS.join("\n"), AGREEMENT_TEXT, ""].join("\u0000"))
+      .digest("hex");
+    expect(consentTexts(false).sha256).toBe(earlier);
+    expect(consentTexts(false, PREREQUISITES).sha256).not.toBe(earlier);
   });
 });

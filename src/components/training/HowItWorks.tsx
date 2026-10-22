@@ -9,7 +9,7 @@ const STEPS = [
   },
   {
     title: "Tell us what you’re working on",
-    body: "A short form captures your goal and a real task, so the session is prepared around your situation.",
+    body: "When you book, tell us your goal and a real task you would like to work on, so the session is prepared around your situation.",
   },
   {
     title: "Pick an evening slot and pay",

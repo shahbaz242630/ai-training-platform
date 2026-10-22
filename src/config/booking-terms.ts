@@ -17,7 +17,7 @@ import { BOOKING_POLICY } from "./site";
 const { moveNoticeHours, moveWindowDays, noShowMinutes, cancellationDays } = BOOKING_POLICY;
 
 /** The date the terms these words point at were published. */
-export const TERMS_VERSION = "2026-10-08";
+export const TERMS_VERSION = "2026-10-22";
 
 /** The bold box directly above the tickboxes, one item per line. */
 export const KEY_TERMS: readonly string[] = [
@@ -27,6 +27,7 @@ export const KEY_TERMS: readonly string[] = [
   `If you have not joined within ${noShowMinutes} minutes of the start, the session counts as used.`,
   "If we cancel, or cannot run the session, you choose a full refund or a new time.",
   `If you live in the UK or the EU, you can cancel within ${cancellationDays} days of booking for a full refund, as long as your session has not taken place.`,
+  "Coaching is for personal use: join on your own computer and accounts, not your employer's. Following your employer's rules on AI is your responsibility, not ours.",
   "Coaching is guidance, not a guaranteed result. Your other legal rights are not affected.",
 ];
 

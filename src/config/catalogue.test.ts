@@ -1,8 +1,47 @@
 import { describe, it, expect } from "vitest";
-import { getSessionByCode, getActiveSessions, getSessionBySlug, SESSIONS } from "./sessions";
+import {
+  getSessionByCode,
+  getActiveSessions,
+  getSessionBySlug,
+  NO_PREREQUISITES,
+  prerequisiteLines,
+  SESSIONS,
+} from "./sessions";
 import { getPathwayBySlug, pathwaySessions, pathwayStandardPriceFils, PATHWAYS } from "./pathways";
 import { formatAed, aedToFils, filsToAed } from "@/lib/money";
 import { isPubliclyConfigured, SITE } from "./site";
+
+/*
+  The booking page shows these lines and the booking record stores them, so
+  what one shows the other must keep.
+*/
+describe("prerequisiteLines", () => {
+  const s1 = getSessionByCode("S1")!;
+  const s6 = getSessionByCode("S6")!;
+
+  it("lists a session's prerequisites in the order written", () => {
+    expect(prerequisiteLines(s1)).toEqual(s1.requirements);
+  });
+
+  it("ends with the note about earlier sessions when there is one", () => {
+    const lines = prerequisiteLines(s6);
+    expect(lines.at(-1)).toBe(s6.prerequisiteNote);
+    expect(lines).toHaveLength((s6.requirements?.length ?? 0) + 1);
+  });
+
+  it("says plainly when a session has none, never an empty list", () => {
+    const bare = { ...s1, requirements: undefined, prerequisiteNote: undefined };
+    expect(prerequisiteLines(bare)).toEqual([NO_PREREQUISITES]);
+    expect(prerequisiteLines({ ...bare, requirements: [] })).toEqual([NO_PREREQUISITES]);
+  });
+
+  it("puts a personal computer first on every session that lists any", () => {
+    for (const s of SESSIONS) {
+      if (s.requirements === undefined) continue;
+      expect(s.requirements[0], s.code).toMatch(/personal computer/);
+    }
+  });
+});
 
 describe("session lookups", () => {
   it("finds a session by code and by slug", () => {
