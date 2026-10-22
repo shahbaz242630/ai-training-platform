@@ -21,13 +21,18 @@ const state = vi.hoisted(() => ({
   emailConfigured: true,
   realIdentity: true,
   manageSecret: "x".repeat(40) as string | undefined,
+  emailLinkSecret: "e".repeat(40) as string | undefined,
 }));
 
 let provider = new MockEmailProvider();
 let db: PGlite;
 
 vi.mock("@/lib/env", () => ({
-  serverEnv: () => ({ CRON_SECRET: state.cronSecret, MANAGE_LINK_SECRET: state.manageSecret }),
+  serverEnv: () => ({
+    CRON_SECRET: state.cronSecret,
+    MANAGE_LINK_SECRET: state.manageSecret,
+    EMAIL_LINK_SECRET: state.emailLinkSecret,
+  }),
   clientEnv: { NEXT_PUBLIC_SITE_ENV: "development", NEXT_PUBLIC_SITE_URL: "http://localhost:3000" },
 }));
 
@@ -85,6 +90,7 @@ beforeEach(() => {
   state.emailConfigured = true;
   state.realIdentity = true;
   state.manageSecret = "x".repeat(40);
+  state.emailLinkSecret = "e".repeat(40);
   provider = new MockEmailProvider();
   logs = [];
   setLogSink((record) => {
@@ -841,5 +847,68 @@ describe("the choose-a-time email, when it cannot honestly go", () => {
     } finally {
       state.manageSecret = "x".repeat(40);
     }
+  });
+});
+
+/*
+  Occasional emails about new sessions need the address's owner to confirm
+  them. The booking confirmation carries that one link, and only while the
+  customer asked for them and has neither confirmed nor withdrawn.
+*/
+describe("confirming emails about new sessions", () => {
+  const CONFIRM = "http://localhost:3000/training/book/email/confirm?t=e1.confirm.";
+
+  async function confirmationFor(options: { consent: boolean; set?: string }) {
+    const { bookingId, email } = await scheduledBooking({
+      meetingUrl: "https://teams.example/join",
+      consent: options.consent,
+    });
+    if (options.set) {
+      await db.query(`update customers set ${options.set} = now() where email = $1`, [email]);
+    }
+    await queueForBooking(runner, bookingId, [
+      { templateKey: "booking_confirmation", scheduledFor: PAST },
+    ]);
+    await run();
+    return provider.sent.at(-1);
+  }
+
+  it("asks the customer who ticked the box to confirm their address", async () => {
+    const sent = await confirmationFor({ consent: true });
+    expect(sent?.html).toContain(CONFIRM);
+    expect(sent?.text).toContain("Confirm that this is your email address");
+  });
+
+  it("asks nobody who did not tick it, already confirmed, or unsubscribed", async () => {
+    for (const options of [
+      { consent: false },
+      { consent: true, set: "marketing_consent_confirmed_at" },
+      { consent: true, set: "unsubscribed_at" },
+    ]) {
+      const sent = await confirmationFor(options);
+      expect(sent?.html).not.toContain("/book/email/confirm");
+    }
+  });
+
+  it("carries no link that cannot work when no secret is configured", async () => {
+    state.emailLinkSecret = undefined;
+    const sent = await confirmationFor({ consent: true });
+    expect(sent?.html).not.toContain("/book/email/confirm");
+  });
+
+  it("does not depend on the booking-link secret", async () => {
+    state.manageSecret = undefined;
+    const sent = await confirmationFor({ consent: true });
+    expect(sent?.html).toContain(CONFIRM);
+  });
+
+  it("is never in a reminder", async () => {
+    const { bookingId } = await scheduledBooking({
+      meetingUrl: "https://teams.example/join",
+      consent: true,
+    });
+    await queueForBooking(runner, bookingId, [{ templateKey: "reminder_24h", scheduledFor: PAST }]);
+    await run();
+    expect(provider.sent.at(-1)?.html).not.toContain("/book/email/confirm");
   });
 });

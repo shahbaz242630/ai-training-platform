@@ -66,6 +66,8 @@ export interface SessionEmailModel {
   readonly nextSessionTitle: string | null;
   /** The customer's own link to move the session; only while a move is still available. */
   readonly manageUrl?: string | null;
+  /** The link confirming the emails about new sessions they asked for; booking confirmation only. */
+  readonly confirmEmailsUrl?: string | null;
   /**
    * The one move is used. An email queued before the move still goes out
    * afterwards, so it must not offer the move again.
@@ -175,6 +177,7 @@ export async function renderTemplate(
           rights={{ ...rights, manageUrl: model.manageUrl ?? null }}
           joinUrl={joinUrl()}
           durationMinutes={model.durationMinutes}
+          confirmEmailsUrl={model.confirmEmailsUrl ?? null}
         />,
       );
 

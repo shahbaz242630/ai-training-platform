@@ -32,6 +32,7 @@ import { nextAttemptAt } from "@/domain/messaging/schedule";
 import { decideSendTemplate, type TemplateKey } from "@/domain/messaging/sending-policy";
 import { clientEnv, serverEnv } from "@/lib/env";
 import { logger } from "@/lib/logger";
+import { createEmailLinkToken, emailLinkKeys } from "@/lib/email-link";
 import { createManageToken } from "@/lib/manage-link";
 import { addDays } from "@/lib/time";
 import { CHOOSE_TIME_LINK_DAYS } from "@/components/emails/desk-alerts";
@@ -232,6 +233,8 @@ async function prepareSessionEmail(
           ? manageUrlFor(context.bookingId, context.scheduledStart)
           : null,
       moved: context.rescheduleCount > 0,
+      confirmEmailsUrl:
+        row.templateKey === "booking_confirmation" ? confirmEmailsUrlFor(context) : null,
     });
     if (row.templateKey === "payment_receipt")
       return { ok: true, email, ...termsAttachment(context) };
@@ -330,6 +333,29 @@ function manageUrlFor(bookingId: string, sessionStart: Date): string | null {
   if (!secret) return null;
   const token = createManageToken({ bookingId, expiresAt: sessionStart }, secret);
   return `${clientEnv.NEXT_PUBLIC_SITE_URL}${TRAINING_BASE}/book/manage?t=${token}`;
+}
+
+/**
+ * The link that confirms the occasional emails about new sessions, offered
+ * only while the customer asked for them and has neither confirmed nor
+ * withdrawn. Null without the email-link secret, like the booking link.
+ */
+export function confirmEmailsUrlFor(
+  context: Pick<
+    CommunicationContext,
+    "customerId" | "marketingConsent" | "marketingConsentConfirmedAt" | "unsubscribedAt"
+  >,
+): string | null {
+  if (!context.marketingConsent) return null;
+  if (context.marketingConsentConfirmedAt !== null || context.unsubscribedAt !== null) return null;
+  const env = serverEnv();
+  const secret = emailLinkKeys(env.EMAIL_LINK_SECRET, env.EMAIL_LINK_SECRET_PREVIOUS).sign;
+  if (!secret) return null;
+  const token = createEmailLinkToken(
+    { purpose: "confirm", customerId: context.customerId },
+    secret,
+  );
+  return `${clientEnv.NEXT_PUBLIC_SITE_URL}${TRAINING_BASE}/book/email/confirm?t=${token}`;
 }
 
 /**

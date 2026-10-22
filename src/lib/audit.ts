@@ -30,6 +30,8 @@ export type AuditAction =
   | "booking.completed"
   | "booking.no_show"
   | "booking.time_chosen_after_loss"
+  | "customer.marketing_confirmed"
+  | "customer.unsubscribed"
   | "webhook.received"
   | "webhook.duplicate_ignored"
   | "webhook.signature_rejected"

@@ -20,6 +20,11 @@ export interface BookingConfirmationEmailProps extends SessionDetailsProps {
   readonly durationMinutes: number;
   readonly companyName: string;
   readonly supportEmail: string;
+  /**
+   * The link that confirms the occasional emails about new sessions the
+   * customer asked for. Only while a request is on record and unconfirmed.
+   */
+  readonly confirmEmailsUrl?: string | null;
 }
 
 export function bookingConfirmationSubject(
@@ -65,6 +70,13 @@ export function BookingConfirmationEmail(props: BookingConfirmationEmailProps) {
         </p>
       )}
       <BookingRights {...props.rights} />
+      {props.confirmEmailsUrl ? (
+        <p style={emailStyles.muted}>
+          You asked to hear from us occasionally about new sessions.{" "}
+          <a href={props.confirmEmailsUrl}>Confirm that this is your email address</a>. Until you
+          do, we send you nothing but emails about this booking.
+        </p>
+      ) : null}
     </EmailLayout>
   );
 }

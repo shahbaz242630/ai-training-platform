@@ -200,3 +200,43 @@ export async function findCustomerById(
     timezone: row.timezone,
   };
 }
+
+/**
+ * The owner of the address confirmed they want occasional emails about new
+ * sessions, by the link sent to it. Only a recorded request can be confirmed,
+ * and never over a withdrawal: somebody who unsubscribed stays unsubscribed
+ * until they opt in again on a booking. Repeating it changes nothing, so the
+ * first confirmation's time is the one kept. True when this call confirmed it.
+ */
+export async function confirmMarketingConsent(
+  runner: QueryRunner,
+  customerId: string,
+  now: Date,
+): Promise<boolean> {
+  const result = await runner.query<{ id: string }>(
+    `update customers
+        set marketing_consent_confirmed_at = $2
+      where id = $1
+        and marketing_consent
+        and unsubscribed_at is null
+        and marketing_consent_confirmed_at is null
+     returning id`,
+    [customerId, now],
+  );
+  return result.rows.length > 0;
+}
+
+/**
+ * The customer asked for no more emails about new sessions. Booking emails
+ * are not affected. Repeating it keeps the first time.
+ */
+export async function unsubscribeCustomer(
+  runner: QueryRunner,
+  customerId: string,
+  now: Date,
+): Promise<void> {
+  await runner.query(
+    `update customers set unsubscribed_at = coalesce(unsubscribed_at, $2) where id = $1`,
+    [customerId, now],
+  );
+}

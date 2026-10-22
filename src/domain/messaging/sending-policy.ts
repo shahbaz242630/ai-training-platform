@@ -109,8 +109,8 @@ export function decideSend(kind: MessageKind, consent: ConsentState): SendDecisi
     Security audit, 2026-09-27: someone who knew a customer's email could pay
     for a session in their name with the box ticked, and the business would
     then have mailed offers on a consent the owner never gave. So a claim is
-    never enough: the owner must have confirmed it. Nothing sets the
-    confirmation yet, so no marketing can be sent until that flow exists.
+    never enough: the owner must have confirmed it, by the link in their
+    booking confirmation (app/training/book/email).
   */
   if (consent.marketingConsentConfirmedAt === null) {
     return { allowed: false, reason: "marketing: consent not confirmed by the address's owner" };
