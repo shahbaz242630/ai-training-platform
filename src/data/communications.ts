@@ -343,3 +343,27 @@ export async function countFailedCommunications(runner: QueryRunner): Promise<nu
   );
   return Number(result.rows[0]?.n ?? 0);
 }
+
+/**
+ * Whether the customer has a booking, in any state but cancelled, for any of
+ * these sessions. An email offering the next session is not sent to somebody
+ * who has already booked it or something further on.
+ */
+export async function customerHasBookedAny(
+  runner: QueryRunner,
+  customerId: string,
+  sessionSlugs: readonly string[],
+): Promise<boolean> {
+  if (sessionSlugs.length === 0) return false;
+  const result = await runner.query<{ found: boolean }>(
+    `select exists (
+       select 1 from bookings b
+         join orders o on o.id = b.order_id
+        where o.customer_id = $1
+          and b.session_slug = any($2::text[])
+          and b.status <> 'cancelled'
+     ) as found`,
+    [customerId, sessionSlugs],
+  );
+  return result.rows[0]?.found === true;
+}

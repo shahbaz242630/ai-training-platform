@@ -41,7 +41,13 @@ export interface MoveInput {
 }
 
 /** The messages whose moment depends on the session's time. */
-const TIMED: readonly TemplateKey[] = ["reminder_24h", "reminder_3h", "follow_up"];
+const TIMED: readonly TemplateKey[] = [
+  "reminder_24h",
+  "reminder_3h",
+  "follow_up",
+  "next_session_nudge_1",
+  "next_session_nudge_2",
+];
 
 export async function moveBooking(runner: QueryRunner, input: MoveInput): Promise<MoveOutcome> {
   /*

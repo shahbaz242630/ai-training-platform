@@ -163,6 +163,8 @@ describe("confirmBookingOnCalendar", () => {
       "reminder_24h",
       "reminder_3h",
       "follow_up",
+      "next_session_nudge_1",
+      "next_session_nudge_2",
     ]);
     expect(audits).toContainEqual(
       expect.objectContaining({ action: "booking.confirmed", subject: `booking:${bookingId}` }),
@@ -210,7 +212,7 @@ describe("confirmBookingOnCalendar", () => {
     const again = await confirmBookingOnCalendar({ bookingId, provider, now: NOW, transaction });
 
     expect(again).toBe("already_confirmed");
-    expect(await queuedFor(bookingId)).toHaveLength(4);
+    expect(await queuedFor(bookingId)).toHaveLength(6);
     expect(audits).toEqual([]);
   });
 

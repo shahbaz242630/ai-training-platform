@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import {
   renderCancellationConfirmation,
   renderChooseNewTime,
+  renderNextSession,
   renderPaymentReceivedNoTime,
   renderRefundIssued,
   renderTemplate,
@@ -15,6 +16,7 @@ import { TRAINING_BASE, supportEmail } from "@/config/site";
 import { withTransaction } from "@/data/db";
 import {
   claimQueuedCommunication,
+  customerHasBookedAny,
   loadCommunicationContext,
   markCommunicationCancelled,
   markCommunicationFailed,
@@ -29,7 +31,11 @@ import { bookingReference } from "@/domain/booking/withdrawal";
 import { buildCalendarFile } from "@/domain/messaging/calendar-file";
 import type { EmailAttachment, EmailProvider } from "@/domain/messaging/provider";
 import { nextAttemptAt } from "@/domain/messaging/schedule";
-import { decideSendTemplate, type TemplateKey } from "@/domain/messaging/sending-policy";
+import {
+  decideSendTemplate,
+  TEMPLATE_KINDS,
+  type TemplateKey,
+} from "@/domain/messaging/sending-policy";
 import { clientEnv, serverEnv } from "@/lib/env";
 import { logger } from "@/lib/logger";
 import { createEmailLinkToken, emailLinkKeys } from "@/lib/email-link";
@@ -52,6 +58,12 @@ const ABOUT_A_WITHDRAWAL: ReadonlySet<TemplateKey> = new Set([
   "withdrawal_acknowledgement",
   "refund_issued",
   "cancellation_confirmation",
+]);
+
+/** The two emails about the next session in the series. */
+const NEXT_SESSION: ReadonlySet<TemplateKey> = new Set([
+  "next_session_nudge_1",
+  "next_session_nudge_2",
 ]);
 
 export interface SendNowInput {
@@ -105,6 +117,21 @@ export async function deliver(
     unsubscribedAt: context.unsubscribedAt,
   });
   if (!decision.allowed) {
+    /*
+      Marketing is queued for everybody and decided when due: consent may be
+      confirmed in the meantime, or withdrawn. Not being allowed is then the
+      ordinary outcome, not a fault, so it is withdrawn quietly rather than
+      left for a person. Anything else refused is still a fault.
+    */
+    if (TEMPLATE_KINDS[row.templateKey] === "marketing") {
+      await withTransaction((runner) => markCommunicationCancelled(runner, row.id));
+      logger.info("marketing message not sent", {
+        communicationId: row.id,
+        templateKey: row.templateKey,
+        reason: decision.reason,
+      });
+      return "withdrawn";
+    }
     return giveUp(row, `not_allowed: ${decision.reason}`, now);
   }
 
@@ -132,9 +159,11 @@ export async function deliver(
           ? await prepareCancellationConfirmation(context)
           : row.templateKey === "choose_new_time"
             ? await prepareChooseNewTime(context, now)
-            : row.templateKey === "payment_receipt" && context.scheduledStart === null
-              ? await preparePaymentReceivedNoTime(context)
-              : await prepareSessionEmail(row, context, now);
+            : NEXT_SESSION.has(row.templateKey)
+              ? await prepareNextSession(row.templateKey, context)
+              : row.templateKey === "payment_receipt" && context.scheduledStart === null
+                ? await preparePaymentReceivedNoTime(context)
+                : await prepareSessionEmail(row, context, now);
   if (!prepared.ok && prepared.withdraw) {
     // No longer true by the time it would go: nothing wrong, nothing to retry.
     await withTransaction((runner) => markCommunicationCancelled(runner, row.id));
@@ -356,6 +385,50 @@ export function confirmEmailsUrlFor(
     secret,
   );
   return `${clientEnv.NEXT_PUBLIC_SITE_URL}${TRAINING_BASE}/book/email/confirm?t=${token}`;
+}
+
+/**
+ * One of the two emails about the next session in the series. Checked again
+ * when due: withdrawn when the catalogue has no next session after this one
+ * (Session 6), or the customer already has a booking for it or anything
+ * further on. It cannot go without its unsubscribe link, so a missing link
+ * secret is a fault for a person, not a quiet skip.
+ */
+async function prepareNextSession(
+  templateKey: TemplateKey,
+  context: CommunicationContext,
+): Promise<Prepared> {
+  const session = getSessionBySlug(context.sessionSlug);
+  if (!session) return { ok: false, reason: "unknown_session" };
+  const next = SESSIONS.find((s) => s.displayOrder === session.displayOrder + 1);
+  if (!next?.active) return { ok: false, reason: "no_next_session", withdraw: true };
+
+  const furtherOn = SESSIONS.filter((s) => s.displayOrder >= next.displayOrder).map((s) => s.slug);
+  const booked = await withTransaction((runner) =>
+    customerHasBookedAny(runner, context.customerId, furtherOn),
+  );
+  if (booked) return { ok: false, reason: "already_booked_further_on", withdraw: true };
+
+  const env = serverEnv();
+  const secret = emailLinkKeys(env.EMAIL_LINK_SECRET, env.EMAIL_LINK_SECRET_PREVIOUS).sign;
+  if (!secret) return { ok: false, reason: "no_email_link_secret" };
+  const unsubscribe = createEmailLinkToken(
+    { purpose: "unsubscribe", customerId: context.customerId },
+    secret,
+  );
+  const site = `${clientEnv.NEXT_PUBLIC_SITE_URL}${TRAINING_BASE}`;
+  return {
+    ok: true,
+    email: await renderNextSession({
+      which: templateKey === "next_session_nudge_1" ? 1 : 2,
+      firstName: context.firstName,
+      sessionTitle: session.title,
+      nextSessionTitle: next.title,
+      nextSessionSummary: next.summary,
+      nextSessionUrl: `${site}/book/${next.slug}`,
+      unsubscribeUrl: `${site}/book/email/unsubscribe?t=${unsubscribe}`,
+    }),
+  };
 }
 
 /**

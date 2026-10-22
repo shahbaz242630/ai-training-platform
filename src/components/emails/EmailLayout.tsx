@@ -21,6 +21,12 @@ export interface EmailLayoutProps {
   readonly companyName: string;
   readonly supportEmail: string;
   readonly children: ReactNode;
+  /**
+   * Set only on an email sent because the customer asked for occasional
+   * emails about new sessions: the footer then says so, with the link that
+   * stops them, instead of saying it is about a booking.
+   */
+  readonly unsubscribeUrl?: string;
 }
 
 const FONT = "-apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif";
@@ -87,7 +93,13 @@ export const emailStyles = {
   } as CSSProperties,
 } as const;
 
-export function EmailLayout({ preview, companyName, supportEmail, children }: EmailLayoutProps) {
+export function EmailLayout({
+  preview,
+  companyName,
+  supportEmail,
+  children,
+  unsubscribeUrl,
+}: EmailLayoutProps) {
   return (
     <html lang="en">
       {/* eslint-disable-next-line @next/next/no-head-element -- an email is its own document, not a page in this app */}
@@ -114,9 +126,19 @@ export function EmailLayout({ preview, companyName, supportEmail, children }: Em
                     </tr>
                     <tr>
                       <td style={emailStyles.footer}>
-                        Questions? Reply to this email, or write to {supportEmail}. This message is
-                        about a session you booked with {companyName}. {legalEntityName()},{" "}
-                        {LICENCE}.
+                        {unsubscribeUrl ? (
+                          <>
+                            You are getting this because you asked for occasional emails about new
+                            sessions. <a href={unsubscribeUrl}>Unsubscribe</a>. Questions? Write to{" "}
+                            {supportEmail}.
+                          </>
+                        ) : (
+                          <>
+                            Questions? Reply to this email, or write to {supportEmail}. This message
+                            is about a session you booked with {companyName}.
+                          </>
+                        )}{" "}
+                        {legalEntityName()}, {LICENCE}.
                       </td>
                     </tr>
                   </tbody>

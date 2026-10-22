@@ -380,6 +380,8 @@ describe("a paid delivery", () => {
     expect(queued.rows.map((r) => r.template_key)).toEqual([
       "booking_confirmation",
       "follow_up",
+      "next_session_nudge_1",
+      "next_session_nudge_2",
       "payment_receipt",
       "reminder_24h",
       "reminder_3h",
