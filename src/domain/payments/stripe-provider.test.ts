@@ -15,7 +15,7 @@ import { DEFAULT_HOLD_TTL_MINUTES } from "@/domain/booking/slot-hold";
  */
 
 const SIGNING_SECRET = "whsec_test_secret_for_verification_only";
-const stripe = new Stripe("sk_test_not_a_real_key", { apiVersion: "2026-08-26.dahlia" });
+const stripe = new Stripe("sk_test_not_a_real_key", { apiVersion: "2026-10-28.endive" });
 
 const provider = new StripePaymentProvider(stripe, SIGNING_SECRET);
 

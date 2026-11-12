@@ -49,8 +49,15 @@ import { FRAUD_WARNING_EVENTS, toFraudWarningEvent } from "./stripe-fraud-warnin
   2026-07-29.dahlia while the shipped types accept only 2026-08-26.dahlia - and
   the package we actually call is the one that decides. Typecheck enforces
   this: a wrong value here does not compile.
+
+  Endive (stripe 23, 2026-11-12) was checked against every call this file and
+  its siblings make. Its breaking changes that touch payments: Checkout no
+  longer takes payment_method_types (we never send it, and a test pins that),
+  a failed-tax-calculation error (automatic tax is off), and incomplete
+  responses now raise a connection error rather than an API error (refunds and
+  disputes already treat both as "unclear, ask again with the same key").
 */
-const API_VERSION = "2026-08-26.dahlia";
+const API_VERSION = "2026-10-28.endive";
 
 /**
  * The events this integration acts on.
